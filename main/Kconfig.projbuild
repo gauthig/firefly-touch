@@ -1,0 +1,13 @@
+menu "Firefly Touch Panel"
+
+    config FIREFLY_SNIFFER_MODE
+        bool "RV-C sniffer mode (log every received frame)"
+        default n
+        help
+            Log every frame received on the RV-C bus to the serial monitor:
+            raw 29-bit ID, decoded DGN, source address, and all 8 data bytes
+            in hex. Use this on the bench to verify the instance map and to
+            capture the factory PANEL LIGHTS (PL1) frames. Very chatty on a
+            live coach bus — disable for production builds.
+
+endmenu

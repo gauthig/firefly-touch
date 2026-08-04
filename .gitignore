@@ -1,0 +1,8 @@
+build/
+build_*/
+managed_components/
+sdkconfig
+sdkconfig.old
+.vscode/
+*.pyc
+CLAUDE.local.md
