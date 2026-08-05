@@ -1,8 +1,107 @@
+# =====================================================================
+# firefly-touch — only source + config needed to build and flash the
+# ESP32-S3 panels (plus docs) belongs in git. Everything generated,
+# downloaded, or machine-specific stays out.
+# =====================================================================
+
+# ---- ESP-IDF build output -------------------------------------------
 build/
 build_*/
-managed_components/
 sdkconfig
 sdkconfig.old
-.vscode/
+sdkconfig.ci
+# managed_components/ is fetched by the IDF component manager; the exact
+# versions are pinned by dependencies.lock, which IS committed.
+managed_components/
+
+# ---- PC simulator: build output and vendored SDL2 -------------------
+# sim/ SOURCE is committed (it is code); its output and deps are not.
+sim/build*/
+sim/third_party/
+sim/*.bmp
+sim/*.png
+sim/*.exe
+
+# ---- Compiled / linked artifacts of any kind ------------------------
+*.exe
+*.dll
+*.so
+*.dylib
+*.o
+*.obj
+*.a
+*.lib
+*.elf
+*.bin
+*.hex
+*.map
+*.lst
+*.d
+*.gcda
+*.gcno
+
+# ---- Toolchains / compilers / SDKs (never vendor these) -------------
+esp-idf/
+.espressif/
+toolchain/
+toolchains/
+mingw64/
+sdl2/
+SDL2-*/
+*.tar.gz
+*.tar.xz
+*.zip
+*.7z
+
+# ---- CMake / Ninja scratch ------------------------------------------
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+CTestTestfile.cmake
+Makefile
+build.ninja
+.ninja_deps
+.ninja_log
+compile_commands.json
+
+# ---- IDEs and editors -----------------------------------------------
+# .vscode/ is ignored except the shared extension recommendation, which just
+# points newcomers at the ESP-IDF extension. No personal settings.
+.vscode/*
+!.vscode/extensions.json
+.idea/
+.vs/
+.cache/
+.clangd/
+.ccls-cache/
+*.code-workspace
+*.sublime-project
+*.sublime-workspace
+*.swp
+*~
+.eclipse/
+.settings/
+.cproject
+.project
+
+# ---- Python ----------------------------------------------------------
+__pycache__/
 *.pyc
+.venv/
+venv/
+
+# ---- OS noise --------------------------------------------------------
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+desktop.ini
+$RECYCLE.BIN/
+.DS_Store
+
+# ---- Personal / machine-specific (per global CLAUDE.md) -------------
 CLAUDE.local.md
+*.local.md
+.env
+
+# ---- Exceptions: docs images MUST ship ------------------------------
+!docs/images/*.png

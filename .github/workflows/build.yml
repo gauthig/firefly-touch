@@ -1,0 +1,69 @@
+name: build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  panels:
+    name: Panel registry
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.list.outputs.panels }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+      # Fails on duplicate PANEL_INDEX (= duplicate RV-C source address) or a
+      # panel header missing from panels/REGISTRY.md.
+      - name: Validate panel indices and registry
+        run: python tools/check_panels.py
+      # Emits the panel list so the firmware job below builds every panel
+      # automatically — adding a panel needs no change to this workflow.
+      - id: list
+        run: echo "panels=$(python tools/check_panels.py --matrix)" >> "$GITHUB_OUTPUT"
+
+  host-tests:
+    name: rvc_protocol host tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compile and run protocol tests
+        working-directory: components/rvc_protocol/host_test
+        run: |
+          gcc -Wall -Wextra -Werror -I../include ../rvc_protocol.c test_rvc.c -o test_rvc
+          ./test_rvc
+
+  firmware:
+    name: Build ${{ matrix.panel }}
+    needs: panels
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        panel: ${{ fromJson(needs.panels.outputs.matrix) }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: idf.py build
+        uses: espressif/esp-idf-ci-action@v1
+        with:
+          esp_idf_version: v5.5.5
+          target: esp32s3
+          command: idf.py -B build_${{ matrix.panel }} -DPANEL=${{ matrix.panel }} build
+      # Lets you flash a panel from a machine without ESP-IDF installed:
+      # download the artifact and use the esptool command in docs/FLASHING.md.
+      - name: Upload firmware
+        uses: actions/upload-artifact@v4
+        with:
+          name: firmware-${{ matrix.panel }}
+          retention-days: 14
+          if-no-files-found: error
+          path: |
+            build_${{ matrix.panel }}/firefly_touch.bin
+            build_${{ matrix.panel }}/bootloader/bootloader.bin
+            build_${{ matrix.panel }}/partition_table/partition-table.bin
+            build_${{ matrix.panel }}/ota_data_initial.bin
+            build_${{ matrix.panel }}/flash_args

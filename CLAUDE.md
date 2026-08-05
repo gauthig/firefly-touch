@@ -9,20 +9,33 @@ Hardware: Waveshare **ESP32-S3-Touch-LCD-4.3B** (ESP32-S3-WROOM-1-N16R8,
 16 MB flash / 8 MB octal PSRAM, 4.3" 800x480 RGB LCD, GT911 touch on I2C,
 CH422G IO expander, TJA1051 CAN transceiver, 7–36 V input).
 
+Docs for humans: [README.md](README.md) (overview, toolchain install) and
+[docs/FLASHING.md](docs/FLASHING.md) (per-device upload, panel identity
+matrix, adding a panel). Keep all three in sync when things change.
+
 ## Build / flash / monitor
 
-Requires ESP-IDF **v5.3+** (component manager pulls `lvgl/lvgl ^9`,
-`espressif/esp_lvgl_port ^2`, `espressif/esp_lcd_touch_gt911 ^1`).
+Requires ESP-IDF **v5.3+**; developed and verified against **v5.5.5** with
+LVGL 9.5.0, esp_lvgl_port 2.8.0, esp_lcd_touch_gt911 1.2.0 (pinned in the
+committed `dependencies.lock`).
+
+**Activate the environment first in every new shell** — `idf.py` is not on the
+global PATH:
+
+```
+. C:\esp\esp-idf\export.ps1
+```
 
 ```
 idf.py -B build_living_room -DPANEL=living_room build
 idf.py -B build_ent_center  -DPANEL=ent_center  build
-idf.py -B build_living_room -DPANEL=living_room flash monitor
+idf.py -B build_living_room -DPANEL=living_room -p COM5 flash monitor
 ```
 
 Use one build dir per panel (PANEL is cached; switching values in a shared
 build dir requires `fullclean`). Valid PANEL values = basenames of headers in
-`panels/`.
+`panels/`. Panel identity: `PANEL_INDEX` → RV-C source address `0x80 + index`;
+`living_room` = 0/0x80, `ent_center` = 1/0x81. Never reuse an index.
 
 Sniffer mode (log every RV-C frame — how the instance map gets verified):
 `idf.py menuconfig` → *Firefly Touch Panel* → *RV-C sniffer mode*, or add
@@ -34,6 +47,29 @@ Host unit tests (pure-C protocol code, any host compiler):
 cd components/rvc_protocol/host_test
 gcc -Wall -Wextra -I../include ../rvc_protocol.c test_rvc.c -o test_rvc && ./test_rvc
 ```
+
+## PC simulator (see what the LCD looks like without hardware)
+
+`sim/` builds the **real UI sources** (`main/ui/ui.c`, `ui_common`,
+`rvc_protocol`, the panel headers) into a native Windows exe using the same
+LVGL version as the firmware (from `managed_components/` — run an `idf.py`
+build once first to populate it). ESP-specific headers are shadowed by
+`sim/stubs/`; `sim_stubs.c` fakes the RV-C bus by echoing STATUS_3 back, so
+the status-driven UI path is exercised exactly like on hardware.
+
+```
+cd sim
+.\build.ps1 -Run                    # living_room, interactive window
+.\build.ps1 -Panel ent_center -Run
+.\build.ps1 -Shot preview.bmp       # headless screenshot, then exits
+```
+
+Mouse = touch: click to toggle, click-and-hold to ramp. Requires the WinLibs
+gcc (winget) and cmake/ninja (auto-sourced from ESP-IDF's export.ps1). SDL2
+lives in `sim/third_party/` (gitignored; build.ps1 error tells you the
+download if missing). Note: in `--shot` mode the CAN dot is red because the
+500 ms health timer never fires in the single rendered frame; interactively
+it goes green.
 
 ## Architecture
 
@@ -144,12 +180,102 @@ bar (36 px): panel name + CAN-health dot (green if any bus frame in the last
 60 s idle; the waking touch is absorbed by the top-layer overlay and never
 reaches a button.
 
+## Panels & source-address allocation
+
+`panels/REGISTRY.md` is the **canonical allocation record** for `PANEL_INDEX`.
+Source address = `0x80 + PANEL_INDEX` (`main/panel_config.h`); duplicates put
+two nodes at the same CAN address and produce intermittent frame loss rather
+than an obvious failure.
+
+**Always resolve this before touching `panels/`:**
+
+- **A — updating an existing panel** (buttons, labels, instances): edit that
+  panel's header, **keep its `PANEL_INDEX`**, no registry change.
+- **B — adding a new panel**: take *Next free index* from `REGISTRY.md`, copy
+  `panels/TEMPLATE.h`, add a registry row, bump *Next free index*.
+
+Validate either way with `python tools/check_panels.py` — it fails on
+duplicate indices, headers missing from the registry, stale registry rows, and
+a wrong *Next free index*. CI runs it on every push and derives its build
+matrix from it, so a new panel gets build coverage automatically.
+
+`panels/TEMPLATE.h` carries an `#error` guard so it can never be flashed as-is.
+
+## OTA / Wi-Fi update path
+
+Panels are installed **inside walls**, so `partitions.csv` reserves a dual-OTA
+layout on the 16 MB flash: `ota_0` / `ota_1` at 4 MB each (current app ~0.65 MB),
+8 KB `otadata`, and ~8 MB `storage` for future icon fonts, captured bus logs,
+and config.
+
+Rollback is on (`CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE`). An OTA image boots
+as `ESP_OTA_IMG_PENDING_VERIFY`; `app_main()` calls
+`esp_ota_mark_app_valid_cancel_rollback()` **only after** display, touch, UI,
+and the RV-C tasks are up. A bad update reverts itself on the next reset
+instead of requiring a panel to come out of the wall. Do not move that call
+earlier — it is the health gate.
+
+**Not yet implemented:** Wi-Fi bring-up and the update transport. Remaining
+work is (1) station/provisioning config, (2) `esp_https_ota()` pull or a local
+push endpoint, (3) a way to target one panel or all. None of it requires
+repartitioning — that is the entire point of fixing the layout now, before
+panels are sealed in. Changing `partitions.csv` after installation invalidates
+flash and forces USB reflashing of every panel.
+
 ## Conventions / decisions
 
 - ESP-IDF style C; 4-space indent; `s_` prefix for file-static state.
 - Protocol logic stays ESP-free in `rvc_protocol` so it remains host-testable.
 - New status DGNs get decoded in `twai_rx_task` and flow through the state
   manager — widgets never parse frames.
+- Adding a panel = one header in `panels/` + a build flag. No C changes.
+  Resolve the A/B question above first; procedure in
+  [docs/FLASHING.md](docs/FLASHING.md#adding-a-new-panel).
+- Licensed under The Unlicense (public domain). Don't add code that can't be
+  released that way — no vendored GPL sources, no proprietary vendor blobs.
 - Decision log: this file, section above. Bench findings (verified pins,
   captured DGNs, instance corrections) should update the tables here and the
   matching TODO comments in code.
+
+## Repo hygiene — what belongs in git
+
+Committed: C/H sources, `CMakeLists.txt`, `idf_component.yml`,
+`dependencies.lock` (pins component versions — do **not** delete it),
+`sdkconfig.defaults`, `partitions.csv`, `Kconfig.projbuild`, `panels/*.h`,
+`panels/REGISTRY.md`, `tools/`, `.github/workflows/`, `.gitattributes`,
+`LICENSE`, `sim/` **source**, docs and `docs/images/*.png`. The only permitted
+IDE file is `.vscode/extensions.json` (recommends the ESP-IDF extension).
+
+Never committed: `build*/`, `managed_components/`, `sdkconfig` (generated from
+defaults), `sim/third_party/` (SDL2), `sim/build*/`, any compiled artifact
+(`*.exe/.o/.a/.bin/.elf`), IDE folders, toolchains. The `.gitignore` covers
+these; verify a change with `git add -A --dry-run` before committing.
+
+Machine-specific notes go in `CLAUDE.local.md` (gitignored), never in this
+file.
+
+## Development notes & gotchas
+
+Hard-won during setup — check here before re-debugging:
+
+- **PowerShell does not expand `$var` in arguments starting with `-`.**
+  `cmake -DPANEL=$Panel` passes the literal string `$Panel`. Quote the whole
+  argument: `cmake "-DPANEL=$Panel"`. This silently produced a "panel not
+  found" error deep in a rebuild, not at configure time.
+- **`. C:\esp\esp-idf\export.ps1` is per-shell.** Any script that calls
+  `idf.py`, `cmake`, or `ninja` must source it first (or check
+  `Get-Command cmake` and source on demand, as `sim/build.ps1` does).
+- **Suppressing script output hides real failures.** Piping cmake through
+  `Select-Object -Last N` swallowed a configure error and surfaced it later as
+  a confusing ninja failure. Check `$LASTEXITCODE` after each step.
+- **The GT911 config macro is `ESP_LCD_TOUCH_IO_I2C_GT911_CONFIG()`** — with
+  `I2C` in the name. `ESP_LCD_TOUCH_IO_GT911_CONFIG()` does not exist and
+  fails as "invalid initializer". Backup address constant is
+  `ESP_LCD_TOUCH_IO_I2C_GT911_ADDRESS_BACKUP` (0x14).
+- **LVGL's default 64 KB internal heap is too small for `lv_snapshot_take()`**
+  on an 800×480 screen. The simulator's `lv_conf.h` sets
+  `LV_USE_STDLIB_MALLOC = LV_STDLIB_CLIB`; the firmware keeps LVGL's allocator.
+- **The simulator needs `managed_components/` populated**, so run one
+  `idf.py build` on a fresh clone before building `sim/`.
+- Long ESP-IDF operations (clone, `install.ps1`, first build) take many
+  minutes — run them in the background rather than blocking on a timeout.

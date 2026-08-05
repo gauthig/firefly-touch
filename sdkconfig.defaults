@@ -1,7 +1,17 @@
 # ESP32-S3-WROOM-1-N16R8 (16 MB quad flash, 8 MB octal PSRAM)
 CONFIG_IDF_TARGET="esp32s3"
 CONFIG_ESPTOOLPY_FLASHSIZE_16MB=y
-CONFIG_PARTITION_TABLE_SINGLE_APP_LARGE=y
+
+# Dual-OTA partition layout (see partitions.csv). Reserved now so a future
+# Wi-Fi OTA update path needs no repartitioning of installed panels.
+CONFIG_PARTITION_TABLE_CUSTOM=y
+CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions.csv"
+
+# Roll back automatically if an OTA image fails to reach a healthy state.
+# Requires the app to call esp_ota_mark_app_valid_cancel_rollback() once it is
+# up — main.c does this at the end of app_main. Panels live inside walls; a
+# bad OTA must not require pulling one out.
+CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE=y
 
 CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ_240=y
 
