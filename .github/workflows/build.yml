@@ -13,8 +13,8 @@ jobs:
     outputs:
       matrix: ${{ steps.list.outputs.panels }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: '3.x'
       # Fails on duplicate PANEL_INDEX (= duplicate RV-C source address) or a
@@ -30,7 +30,7 @@ jobs:
     name: rvc_protocol host tests
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Compile and run protocol tests
         working-directory: components/rvc_protocol/host_test
         run: |
@@ -46,7 +46,7 @@ jobs:
       matrix:
         panel: ${{ fromJson(needs.panels.outputs.matrix) }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: idf.py build
         uses: espressif/esp-idf-ci-action@v1
         with:

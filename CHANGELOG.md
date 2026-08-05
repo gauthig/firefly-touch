@@ -81,7 +81,6 @@ connecting a panel to the coach.
 - Source addresses `0x80`+ are assumed free — sniff for collisions first.
 - RGB panel timings are from Waveshare's 4.3 demo; diff against the current
   4.3B release at bring-up.
-- The CI workflow has not executed yet; it validates on first push.
 
 ### Known hardware limitation
 
