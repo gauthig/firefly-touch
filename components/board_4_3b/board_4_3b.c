@@ -109,15 +109,15 @@ static esp_err_t touch_init(void)
     /* GT911 reset is wired through the CH422G. Address selection: INT level
      * during reset picks 0x5D vs 0x14; with INT left as input this lands on
      * the default 0x5D.
-     * TODO(bench): if the GT911 doesn't ACK at 0x5D, retry with
-     * ESP_LCD_TOUCH_IO_GT911_CONFIG_WITH_ADDR2 (0x14). */
+     * TODO(bench): if the GT911 doesn't ACK at 0x5D, set io_cfg.dev_addr =
+     * ESP_LCD_TOUCH_IO_I2C_GT911_ADDRESS_BACKUP (0x14). */
     ESP_RETURN_ON_ERROR(ch422g_set_pin(BOARD_EXIO_TP_RST, false), TAG, "tp rst low");
     vTaskDelay(pdMS_TO_TICKS(20));
     ESP_RETURN_ON_ERROR(ch422g_set_pin(BOARD_EXIO_TP_RST, true), TAG, "tp rst high");
     vTaskDelay(pdMS_TO_TICKS(100));
 
     esp_lcd_panel_io_handle_t io = NULL;
-    esp_lcd_panel_io_i2c_config_t io_cfg = ESP_LCD_TOUCH_IO_GT911_CONFIG();
+    esp_lcd_panel_io_i2c_config_t io_cfg = ESP_LCD_TOUCH_IO_I2C_GT911_CONFIG();
     io_cfg.scl_speed_hz = BOARD_I2C_FREQ_HZ;
     ESP_RETURN_ON_ERROR(esp_lcd_new_panel_io_i2c(s_i2c_bus, &io_cfg, &io),
                         TAG, "gt911 panel io");
