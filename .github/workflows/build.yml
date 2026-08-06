@@ -56,7 +56,7 @@ jobs:
       # Lets you flash a panel from a machine without ESP-IDF installed:
       # download the artifact and use the esptool command in docs/FLASHING.md.
       - name: Upload firmware
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: firmware-${{ matrix.panel }}
           retention-days: 14
