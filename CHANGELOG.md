@@ -5,9 +5,24 @@ Notable changes to firefly-touch. Format follows
 
 ## [Unreleased]
 
-Scaffold complete and building clean for both panels. **Nothing in this
-release has run on real hardware yet** — see *Unverified* below before
-connecting a panel to the coach.
+Scaffold complete and building clean for both panels. **Display, touch, and
+the full UI are now verified on real hardware** (2026-08-05 bench bring-up on
+a plain ESP32-S3-Touch-LCD-4.3; in-wall deployment targets the 4.3B for its
+7–36 V DC input). RV-C remains untested on hardware — see *Unverified* below
+before connecting a panel to the coach.
+
+### Fixed — hardware bring-up
+
+- **White-blink display bug:** `avoid_tearing` (two PSRAM framebuffers) was
+  enabled without `direct_mode`, so LVGL rendered partial-mode dirty regions
+  into alternating framebuffers — visible as the UI alternating with a full
+  white frame at the 500 ms CAN-health timer cadence and garbling on touch.
+  One flag in `board_4_3b.c`; verified stable on hardware.
+- Bring-up gotchas recorded in CLAUDE.md: the RESET-button/download-mode
+  trap, 5 V supply sizing (undersized USB power mimics firmware bugs), the
+  plain-4.3 vs 4.3B power/battery connector difference, and SpotPear pin
+  evidence (plain 4.3: CAN = GPIO 19/20, RS-485 = 15/16) against the
+  unverified TWAI 15/16 assignment.
 
 ### Added — project foundation
 

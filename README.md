@@ -199,11 +199,15 @@ Instance table, DGN reference, task map, and the full TODO list live in
 
 ## Status
 
-Scaffold complete and building clean for both panels; **not yet run on
-hardware.** Protocol unit tests pass. Outstanding items are the bench
-verifications listed in [CLAUDE.md](CLAUDE.md#open-pinprotocol-todos) —
-CAN pin assignment, instance map, the SECURITY (patio/hitch) button, and the
-PANEL LIGHTS (PL1) DGN.
+**Display, touch, and the full UI are verified on hardware** (bench board:
+the plain ESP32-S3-Touch-LCD-4.3 — note the in-wall target is the **4.3B**,
+which adds the 7–36 V DC input the coach's 12 V feed requires; the plain 4.3
+is 5 V USB-C only and its `- +` connector is a 3.7 V battery header, not a
+power input). Protocol unit tests pass. **RV-C on real hardware is untested.**
+Outstanding items are the bench verifications listed in
+[CLAUDE.md](CLAUDE.md#open-pinprotocol-todos) — CAN pin assignment (now with
+evidence the current guess is wrong — see the gotchas section), instance map,
+the SECURITY (patio/hitch) button, and the PANEL LIGHTS (PL1) DGN.
 
 [CHANGELOG.md](CHANGELOG.md) records what's built, what's verified, and what
 is still assumption.
