@@ -279,3 +279,35 @@ Hard-won during setup — check here before re-debugging:
   `idf.py build` on a fresh clone before building `sim/`.
 - Long ESP-IDF operations (clone, `install.ps1`, first build) take many
   minutes — run them in the background rather than blocking on a timeout.
+
+Hard-won during first hardware bring-up (2026-08-05, bench board = plain
+ESP32-S3-Touch-LCD-4.3, **not** the B):
+
+- **`direct_mode = true` is mandatory with `avoid_tearing`** in the
+  esp_lvgl_port display config (`board_4_3b.c`). Without it LVGL runs in
+  partial mode and each swap can present a framebuffer holding only the last
+  dirty region — on hardware: UI alternating with a full white frame at the
+  cadence of the 500 ms CAN-health timer, garbling on touch. The steady blink
+  *rate matching an LVGL timer* is the signature.
+- **Never use the RESET button while a serial port is open** — the chip lands
+  in ROM download mode (`boot:0x0 DOWNLOAD`) every time, both DTR polarities,
+  app running or idle. Recovery/boot = power cycle (which has worked every
+  time) or esptool's own reset during a flash. Manual download-mode entry:
+  hold BOOT, tap RESET, release BOOT.
+- **Undersized 5 V supply mimics firmware bugs.** The plain 4.3 is spec'd
+  5 V / 450 mA via USB-C only. On a weak port/dock: dim backlight, white
+  flashes under load, USB "device descriptor request failed", chip that won't
+  enumerate. Bench with a 2 A wall charger in the USB port + UART cable
+  (direct to PC, not a dock) for logs/flash.
+- **The plain 4.3 variant has no wide DC input.** Its `- +` HY2.0 connector is
+  the 3.7 V lithium **battery** header (CS8501 charger) — 12 V there destroys
+  the board. Only the 4.3B takes 7–36 V. Check the variant before wiring
+  bench power.
+- **Console capture:** app logs go to UART0 (the `UART` USB-C port, CH343).
+  The `USB` port (native USB-Serial-JTAG) drops and re-enumerates on every
+  reboot and misses early boot — prefer the UART port for bring-up logging.
+- **SpotPear docs for the plain 4.3 map CAN to GPIO 19/20 and RS-485 to
+  GPIO 15/16** — i.e. our unverified `BOARD_TWAI_TX/RX = 15/16` would drive
+  the RS-485 transceiver on that variant, and CAN on 19/20 conflicts with
+  native USB. Still unverified against a schematic for either variant; the
+  `TODO(critical)` in `board_4_3b.h` stands.
