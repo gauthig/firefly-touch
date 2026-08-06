@@ -167,6 +167,14 @@ static esp_err_t lvgl_init(void)
             .buff_dma = false,
             .buff_spiram = true,
             .swap_bytes = false,
+            /* REQUIRED with avoid_tearing: LVGL renders directly into the
+             * panel's two PSRAM framebuffers and keeps dirty regions synced
+             * across both. Without this, LVGL runs in partial mode and each
+             * buffer swap can present a framebuffer holding only the latest
+             * dirty region — observed on hardware as the screen alternating
+             * between the real UI and a blank white frame at the cadence of
+             * the 500 ms CAN-health timer, garbling on touch. */
+            .direct_mode = true,
         },
     };
     const lvgl_port_display_rgb_cfg_t rgb_cfg = {
