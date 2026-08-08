@@ -102,6 +102,7 @@ $RECYCLE.BIN/
 CLAUDE.local.md
 *.local.md
 .env
+.abacusai/
 
 # ---- Exceptions: docs images MUST ship ------------------------------
 !docs/images/*.png

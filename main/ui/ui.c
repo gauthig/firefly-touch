@@ -22,7 +22,7 @@
 static const char *TAG = "ui";
 
 #define STATUSBAR_H        36
-#define IDLE_DIM_TIMEOUT_MS 60000
+#define IDLE_DIM_TIMEOUT_MS 300000
 #define IDLE_DIM_PERCENT    20
 
 static lv_obj_t *s_buttons[PANEL_BUTTON_COUNT];
@@ -68,8 +68,14 @@ static void dim_overlay_event_cb(lv_event_t *e)
 static void idle_timer_cb(lv_timer_t *t)
 {
     (void)t;
-    if (!s_auto_dimmed &&
-        lv_display_get_inactive_time(NULL) > IDLE_DIM_TIMEOUT_MS) {
+    uint32_t inactive_ms = lv_display_get_inactive_time(NULL);
+    /* TEMP DIAGNOSTIC: remove once the idle-dim bug is root-caused. If this
+     * value keeps resetting to ~0 instead of climbing, something (most
+     * likely a stuck/phantom touch read) is continuously registering as
+     * activity and the idle timer will never fire. */
+    ESP_LOGI(TAG, "idle: inactive_ms=%lu auto_dimmed=%d",
+             (unsigned long)inactive_ms, (int)s_auto_dimmed);
+    if (!s_auto_dimmed && inactive_ms > IDLE_DIM_TIMEOUT_MS) {
         s_auto_dimmed = true;
         apply_backlight(IDLE_DIM_PERCENT);
         lv_obj_add_flag(s_dim_overlay, LV_OBJ_FLAG_CLICKABLE);
