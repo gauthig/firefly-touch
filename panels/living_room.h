@@ -5,7 +5,7 @@
  * 2-column x 4-row grid, reading order (row-major):
  *   CENTER CEILING | ENTRY CEILING
  *   SIDE CEILING   | DINETTE
- *   ODS SOFA SCONCE| MIDSHIP
+ *   SOFA SCONCE    | MIDSHIP
  *   SECURITY P+H   | PANEL LIGHTS
  */
 #pragma once
@@ -21,7 +21,7 @@ static const panel_btn_def_t PANEL_BUTTONS[] = {
     { "ENTRY CEILING",   LV_SYMBOL_CHARGE,   PANEL_BTN_DIMMER, {24},     1 },
     { "SIDE CEILING",    LV_SYMBOL_CHARGE,   PANEL_BTN_DIMMER, {30, 31}, 2 },
     { "DINETTE",         LV_SYMBOL_CHARGE,   PANEL_BTN_DIMMER, {33},     1 },
-    { "ODS SOFA SCONCE", LV_SYMBOL_CHARGE,   PANEL_BTN_DIMMER, {32},     1 },
+    { "SOFA SCONCE",     LV_SYMBOL_CHARGE,   PANEL_BTN_DIMMER, {32},     1 },
     { "MIDSHIP",         LV_SYMBOL_CHARGE,   PANEL_BTN_DIMMER, {35},     1 },
     /* Factory legend "P45, H44, 45" = patio + hitch lights, driven together
      * as plain on/off here.

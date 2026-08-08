@@ -167,24 +167,46 @@ static esp_err_t lvgl_init(void)
             .buff_dma = false,
             .buff_spiram = true,
             .swap_bytes = false,
-            /* REQUIRED with avoid_tearing: LVGL renders directly into the
-             * panel's two PSRAM framebuffers and keeps dirty regions synced
-             * across both. Without this, LVGL runs in partial mode and each
-             * buffer swap can present a framebuffer holding only the latest
-             * dirty region — observed on hardware as the screen alternating
-             * between the real UI and a blank white frame at the cadence of
-             * the 500 ms CAN-health timer, garbling on touch. */
-            .direct_mode = true,
+            /* sw_rotate uses CPU rotation (esp_lvgl_port allocates a
+             * dedicated rotation scratch buffer whenever this is set,
+             * independent of avoid_tearing/full_refresh) to transpose the
+             * 480x800 portrait LVGL frame to the 800x480 physical
+             * scan-line layout, per dirty region, at normal partial-render
+             * flush time.
+             *
+             * Do NOT set full_refresh here: in esp_lvgl_port's lvgl9 RGB
+             * flush path, full_refresh (and direct_mode) waits on
+             * disp_ctx->trans_sem, which is only created when avoid_tearing
+             * is true. avoid_tearing can't be combined with sw_rotate on
+             * RGB panels (it hands LVGL the physical PSRAM framebuffers,
+             * leaving no room for rotation), so full_refresh + sw_rotate
+             * together waits on a NULL semaphore and asserts on the very
+             * first flush (assert failed: xQueueSemaphoreTake, immediately
+             * after "display up" in the boot log — verified on hardware).
+             * Partial-render mode (the default when both flags are unset)
+             * doesn't touch trans_sem at all, and bb_mode below already
+             * covers tear-free output without avoid_tearing's PSRAM
+             * double-framebuffer scheme. */
+            .sw_rotate = true,
         },
     };
     const lvgl_port_display_rgb_cfg_t rgb_cfg = {
         .flags = {
-            .bb_mode = true,          /* bounce buffers are enabled above */
-            .avoid_tearing = true,    /* uses the two PSRAM framebuffers */
+            .bb_mode = true,
+            .avoid_tearing = false,
         },
     };
     s_lv_display = lvgl_port_add_disp_rgb(&disp_cfg, &rgb_cfg);
     ESP_RETURN_ON_FALSE(s_lv_display != NULL, ESP_FAIL, TAG, "add display");
+
+    /* Portrait orientation: 90° CW rotation.
+     * LVGL9 automatically applies the inverse transform to touch-indev
+     * coordinates when a display is rotated, so no GT911 flag changes
+     * are needed.  To flip to 270° CCW instead, change to
+     * LV_DISPLAY_ROTATION_270 and reflash. */
+    lvgl_port_lock(0);
+    lv_display_set_rotation(s_lv_display, LV_DISPLAY_ROTATION_90);
+    lvgl_port_unlock();
 
     const lvgl_port_touch_cfg_t touch_cfg = {
         .disp = s_lv_display,

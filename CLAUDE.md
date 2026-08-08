@@ -176,10 +176,43 @@ VSYNC 3, HSYNC 46, PCLK 7, data B3–B7/G2–G7/R3–R7 =
 
 Dark night theme (near-black bg, warm amber accents) in `ui_theme.h`. Status
 bar (36 px): panel name + CAN-health dot (green if any bus frame in the last
-5 s, else red). Grid cells ≈ 397×108 px. Backlight auto-dims to 20 % after
-5 min idle (300 s); the waking touch is absorbed by the top-layer overlay and
-never reaches a button. `idle_timer_cb` logs `inactive_ms` every second while
-the idle-dim path is under verification — remove once confirmed on 4.3B.
+5 s, else red). Backlight auto-dims to 20 % after 5 min idle (300 s); the
+waking touch is absorbed by the top-layer overlay and never reaches a button.
+`idle_timer_cb` logs `inactive_ms` every second while the idle-dim path is
+under verification — remove once confirmed on 4.3B.
+
+**Display orientation: portrait (90° CW).** `lvgl_init()` in `board_4_3b.c`
+sets `.sw_rotate = true` and calls `lv_display_set_rotation(disp,
+LV_DISPLAY_ROTATION_90)`; LVGL applies the inverse transform to GT911 touch
+coordinates automatically, no touch-driver flags needed. The button grid
+sizes itself off `lv_display_get_vertical_resolution()` (logical, i.e.
+post-rotation) rather than `BOARD_LCD_V_RES` so it fills correctly regardless
+of rotation — see `main/ui/ui.c` `build_screen()`. **Do not set
+`.flags.full_refresh` together with `sw_rotate`**: in this esp_lvgl_port
+version, `full_refresh` (like `direct_mode`) waits on `disp_ctx->trans_sem`,
+which is only allocated when `avoid_tearing = true` — and `avoid_tearing`
+can't be combined with `sw_rotate` on RGB panels (it hands LVGL the physical
+PSRAM framebuffers, leaving no room for rotation). That combination asserts
+on the very first flush (`assert failed: xQueueSemaphoreTake`, right after
+"display up" in the boot log) — hit and fixed during the portrait-mode
+bring-up; verified stable on hardware without it. Partial-render mode (the
+default when both flags are unset) doesn't touch `trans_sem`, and `bb_mode`
+already covers tear-free RGB output without `avoid_tearing`'s scheme.
+
+**Tap-to-toggle command confirmation.** RV-C has no command-ack DGN, so a
+tap sends the dimmer command once, then arms an ~800 ms LVGL timer
+(`ui_dimmer_button.c`) waiting for the `DC_DIMMER_STATUS_3` that reflects the
+new state; if it doesn't arrive in time the command is resent once (bounded
+retry). **The button's visual state is still driven only by real status
+frames** — the confirm timer never touches `ctx->on[]`/`ctx->levels[]`
+itself, it only decides whether to resend. Don't reintroduce an optimistic
+local flip on tap; that was tried and reverted because it breaks the
+status-driven-UI invariant above (a panel could show a state that disagrees
+with the real load if the resend also gets lost). Hold-to-dim uses continuous
+`RAMP_UP`/`RAMP_DOWN` while held (not a stepped percentage cycle) — this
+matches the standard RV-C dimmer pattern and how Firefly's own switches
+behave; `LV_OBJ_FLAG_PRESS_LOCK` must stay enabled (LVGL's default — don't
+remove it) or small finger drift cancels the long-press before it fires.
 
 ## Panels & source-address allocation
 
