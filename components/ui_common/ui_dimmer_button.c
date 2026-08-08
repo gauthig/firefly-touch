@@ -2,19 +2,38 @@
 
 #include <string.h>
 
+#include "esp_log.h"
+
 #include "ui_theme.h"
+
+static const char *TAG = "ui_dimmer_button";
+
+/* RV-C has no command-ack DGN: the only way to know a DC_DIMMER_COMMAND_2
+ * landed is to watch for the DC_DIMMER_STATUS_3 that reflects it. Give the
+ * bus this long to produce that echo before assuming the command was lost
+ * to arbitration and resending once. */
+#define CONFIRM_TIMEOUT_MS  800
+#define CONFIRM_MAX_RETRIES 1
 
 typedef struct {
     const panel_btn_def_t *def;
     ui_dimmer_send_cb_t    send_cb;
     void                  *user_ctx;
 
-    /* Per-watched-instance state, parallel to def->instances[]. */
+    /* Per-watched-instance state, parallel to def->instances[]. Written
+     * only from ui_dimmer_button_update(), i.e. only in response to a real
+     * DC_DIMMER_STATUS_3 frame — never optimistically from a local tap. */
     uint8_t levels[PANEL_BTN_MAX_INSTANCES];
     bool    on[PANEL_BTN_MAX_INSTANCES];
 
     bool ramping;
     bool ramp_up_next;   /* direction for the next hold, alternates */
+
+    /* Command confirmation (tap-to-toggle only). */
+    lv_timer_t       *confirm_timer;
+    rvc_dimmer_cmd_t   pending_cmd;
+    bool               pending_target_on;
+    uint8_t            retries_left;
 
     lv_obj_t *icon;
     lv_obj_t *name;
@@ -65,23 +84,65 @@ static void send(btn_ctx_t *ctx, rvc_dimmer_cmd_t cmd)
     }
 }
 
+static void confirm_timer_cb(lv_timer_t *t)
+{
+    btn_ctx_t *ctx = lv_timer_get_user_data(t);
+    ctx->confirm_timer = NULL;
+
+    if (any_on(ctx) == ctx->pending_target_on) {
+        /* STATUS_3 already confirmed it via ui_dimmer_button_update();
+         * the timer just lost the race to being deleted. Nothing to do. */
+        return;
+    }
+
+    if (ctx->retries_left == 0) {
+        ESP_LOGW(TAG, "%s: no STATUS_3 confirming target state, giving up",
+                 ctx->def->label);
+        return;
+    }
+
+    ESP_LOGW(TAG, "%s: no STATUS_3 within %d ms, resending cmd %d",
+             ctx->def->label, CONFIRM_TIMEOUT_MS, (int)ctx->pending_cmd);
+    ctx->retries_left--;
+    send(ctx, ctx->pending_cmd);
+    ctx->confirm_timer = lv_timer_create(confirm_timer_cb, CONFIRM_TIMEOUT_MS, ctx);
+    lv_timer_set_repeat_count(ctx->confirm_timer, 1);
+}
+
 static void handle_tap(btn_ctx_t *ctx)
 {
     const panel_btn_def_t *def = ctx->def;
 
     if (def->type == PANEL_BTN_PANEL_LIGHTS) {
-        /* Placeholder load — the callback owns what "press" means. */
         send(ctx, RVC_DIMMER_CMD_TOGGLE);
         return;
     }
 
-    if (def->instance_count == 1 && def->type == PANEL_BTN_DIMMER) {
-        send(ctx, RVC_DIMMER_CMD_TOGGLE);
-    } else {
-        /* Grouped loads / switches: same explicit command to every
-         * instance so members can't end up out of phase. */
-        send(ctx, any_on(ctx) ? RVC_DIMMER_CMD_OFF : RVC_DIMMER_CMD_ON_DELAY);
+    /* Use explicit ON/OFF rather than TOGGLE for all button types. TOGGLE
+     * is unreliable when a DC_DIMMER_STATUS_3 frame has been missed: the
+     * panel's tracked on/off then disagrees with the real load, and TOGGLE
+     * fires in the wrong direction. ON/OFF is idempotent.
+     *
+     * RV-C has no command-ack DGN, so "did it work" can only be answered
+     * by watching for the STATUS_3 the G6 broadcasts once the load
+     * actually changes. Send once, arm a confirm timer, and resend (once)
+     * only if that echo doesn't show up in time. The visual state itself
+     * is never touched here — it only ever moves in
+     * ui_dimmer_button_update(), driven by a real status frame, per the
+     * project's status-driven-UI invariant. */
+    const bool currently_on = any_on(ctx);
+    const rvc_dimmer_cmd_t cmd = currently_on ? RVC_DIMMER_CMD_OFF
+                                              : RVC_DIMMER_CMD_ON_DELAY;
+    send(ctx, cmd);
+
+    if (ctx->confirm_timer != NULL) {
+        lv_timer_delete(ctx->confirm_timer);
     }
+    ctx->pending_cmd = cmd;
+    ctx->pending_target_on = !currently_on;
+    ctx->retries_left = CONFIRM_MAX_RETRIES;
+    ctx->confirm_timer = lv_timer_create(confirm_timer_cb, CONFIRM_TIMEOUT_MS, ctx);
+    lv_timer_set_repeat_count(ctx->confirm_timer, 1);
 }
 
 static void event_cb(lv_event_t *e)
@@ -124,6 +185,9 @@ static void event_cb(lv_event_t *e)
         break;
 
     case LV_EVENT_DELETE:
+        if (ctx->confirm_timer != NULL) {
+            lv_timer_delete(ctx->confirm_timer);
+        }
         lv_free(ctx);
         break;
 
@@ -149,7 +213,11 @@ lv_obj_t *ui_dimmer_button_create(lv_obj_t *parent,
     lv_obj_add_style(btn, &ui_style_card, LV_STATE_DEFAULT);
     lv_obj_add_style(btn, &ui_style_card_pressed, LV_STATE_PRESSED);
     lv_obj_set_user_data(btn, ctx);
-    lv_obj_remove_flag(btn, LV_OBJ_FLAG_PRESS_LOCK);
+    /* Keep LV_OBJ_FLAG_PRESS_LOCK (the LVGL default) so that a small
+     * finger drift cannot fire PRESS_LOST before LONG_PRESSED.
+     * Without it, the 400 ms long-press timer resets whenever the touch
+     * position moves even one pixel, which makes hold-to-ramp unreliable
+     * on a capacitive panel. */
 
     lv_obj_set_flex_flow(btn, LV_FLEX_FLOW_COLUMN);
     lv_obj_set_flex_align(btn, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER,
@@ -198,5 +266,9 @@ void ui_dimmer_button_update(lv_obj_t *btn, uint8_t instance,
     }
     if (hit) {
         refresh_visuals(ctx);
+        if (ctx->confirm_timer != NULL && any_on(ctx) == ctx->pending_target_on) {
+            lv_timer_delete(ctx->confirm_timer);
+            ctx->confirm_timer = NULL;
+        }
     }
 }

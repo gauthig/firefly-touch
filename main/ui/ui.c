@@ -162,7 +162,10 @@ static void build_screen(void)
 
     lv_obj_t *grid = lv_obj_create(scr);
     lv_obj_add_style(grid, &ui_style_screen, 0);
-    lv_obj_set_size(grid, LV_PCT(100), BOARD_LCD_V_RES - STATUSBAR_H);
+    /* Use logical height (post-rotation) so the grid fills correctly in
+     * both landscape (480 px) and portrait (800 px) orientations. */
+    int32_t logical_h = (int32_t)lv_display_get_vertical_resolution(NULL);
+    lv_obj_set_size(grid, LV_PCT(100), logical_h - STATUSBAR_H);
     lv_obj_align(grid, LV_ALIGN_BOTTOM_MID, 0, 0);
     lv_obj_remove_flag(grid, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_set_grid_dsc_array(grid, col_dsc, row_dsc);

@@ -27,6 +27,24 @@ a panel to the coach.
   deployment target (7–36 V DC input, TJA1051 CAN transceiver). Build
   `living_room` panel confirmed to flash and boot via `idf.py flash`.
 
+### Changed — living room panel, second bring-up round (2026-08-08)
+
+- **Portrait orientation**: display now runs rotated 90° CW via LVGL
+  `sw_rotate` (touch coordinates transform automatically); verified on
+  hardware. `full_refresh` must NOT be combined with `sw_rotate` on this
+  esp_lvgl_port version — see the gotcha below.
+- **Tap-to-toggle reliability**: dimmer buttons now send an explicit ON/OFF
+  (not TOGGLE) and arm an ~800 ms confirm timer waiting for the
+  `DC_DIMMER_STATUS_3` echo, resending once if it doesn't arrive. Visual
+  state remains driven only by real status frames — an optimistic
+  immediate-flip approach was tried and reverted for violating that
+  invariant. RV-C has no command-ack DGN, so this status-echo-with-retry is
+  the closest equivalent.
+- **"ODS Sofa Sconce" button renamed to "Sofa Sconce"** in `panels/living_room.h`.
+- Hold-to-dim (continuous ramp while held, matching standard RV-C behavior)
+  was left as designed; `LV_OBJ_FLAG_PRESS_LOCK` restored to its LVGL
+  default so small finger drift doesn't cancel the long-press.
+
 ### Fixed — hardware bring-up
 
 - **White-blink display bug:** `avoid_tearing` (two PSRAM framebuffers) was
