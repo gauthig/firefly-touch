@@ -177,8 +177,9 @@ VSYNC 3, HSYNC 46, PCLK 7, data B3–B7/G2–G7/R3–R7 =
 Dark night theme (near-black bg, warm amber accents) in `ui_theme.h`. Status
 bar (36 px): panel name + CAN-health dot (green if any bus frame in the last
 5 s, else red). Grid cells ≈ 397×108 px. Backlight auto-dims to 20 % after
-60 s idle; the waking touch is absorbed by the top-layer overlay and never
-reaches a button.
+5 min idle (300 s); the waking touch is absorbed by the top-layer overlay and
+never reaches a button. `idle_timer_cb` logs `inactive_ms` every second while
+the idle-dim path is under verification — remove once confirmed on 4.3B.
 
 ## Panels & source-address allocation
 

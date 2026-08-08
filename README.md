@@ -32,7 +32,7 @@ amber icon = load on, bar = brightness level from the bus.*
 - **Multi-instance buttons.** One button can drive several RV-C instances
   (e.g. SIDE CEILING = 30 + 31); it shows ON if any member is on and sends
   explicit on/off to all members so they can't drift out of sync.
-- **Runs on the bus at night.** Dark theme, 60-second idle auto-dim, and the
+- **Runs on the bus at night.** Dark theme, 5-minute idle auto-dim, and the
   touch that wakes the screen doesn't trigger the button underneath.
 
 ## Hardware
@@ -199,11 +199,10 @@ Instance table, DGN reference, task map, and the full TODO list live in
 
 ## Status
 
-**Display, touch, and the full UI are verified on hardware** (bench board:
-the plain ESP32-S3-Touch-LCD-4.3 — note the in-wall target is the **4.3B**,
-which adds the 7–36 V DC input the coach's 12 V feed requires; the plain 4.3
-is 5 V USB-C only and its `- +` connector is a 3.7 V battery header, not a
-power input). Protocol unit tests pass. **RV-C on real hardware is untested.**
+**Display, touch, and the full UI are verified on both the plain
+ESP32-S3-Touch-LCD-4.3 (bench, 2026-08-05) and the target
+ESP32-S3-Touch-LCD-4.3B (2026-08-08, COM11).** Protocol unit tests pass.
+**RV-C on real hardware is untested.**
 Outstanding items are the bench verifications listed in
 [CLAUDE.md](CLAUDE.md#open-pinprotocol-todos) — CAN pin assignment (now with
 evidence the current guess is wrong — see the gotchas section), instance map,

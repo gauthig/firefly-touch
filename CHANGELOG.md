@@ -6,10 +6,26 @@ Notable changes to firefly-touch. Format follows
 ## [Unreleased]
 
 Scaffold complete and building clean for both panels. **Display, touch, and
-the full UI are now verified on real hardware** (2026-08-05 bench bring-up on
-a plain ESP32-S3-Touch-LCD-4.3; in-wall deployment targets the 4.3B for its
-7–36 V DC input). RV-C remains untested on hardware — see *Unverified* below
-before connecting a panel to the coach.
+the full UI are verified on both the plain ESP32-S3-Touch-LCD-4.3 (bench,
+2026-08-05) and the target ESP32-S3-Touch-LCD-4.3B (COM11, 2026-08-08).**
+RV-C remains untested on hardware — see *Unverified* below before connecting
+a panel to the coach.
+
+### Changed
+
+- **Idle auto-dim timeout extended from 60 s to 5 min (300 000 ms)** —
+  the 1-minute timeout proved too aggressive for normal use.
+- **Diagnostic logging added to `idle_timer_cb`** — logs `inactive_ms` every
+  second to confirm the inactivity counter is climbing correctly and to catch
+  any phantom touch activity that would keep resetting it. Will be removed
+  once the idle-dim path is verified on the 4.3B.
+
+### Added — 4.3B bring-up (2026-08-08)
+
+- **First successful flash to the Waveshare ESP32-S3-Touch-LCD-4.3B
+  (Version B, COM11, MAC 44:1b:f6:8d:00:7c).** This is the actual in-wall
+  deployment target (7–36 V DC input, TJA1051 CAN transceiver). Build
+  `living_room` panel confirmed to flash and boot via `idf.py flash`.
 
 ### Fixed — hardware bring-up
 
@@ -53,8 +69,9 @@ before connecting a panel to the coach.
 - Shared dimmer-button widget: tap to toggle, press-and-hold to ramp,
   brightness bar driven by the reported operating level. Multi-instance
   buttons send explicit on/off to every member so grouped loads can't drift.
-- Dark night theme, CAN-health indicator, and 60-second idle auto-dim whose
-  waking touch is absorbed rather than passed to the button underneath.
+- Dark night theme, CAN-health indicator, and idle auto-dim (initially 60 s,
+  extended to 5 min — see Changed above) whose waking touch is absorbed
+  rather than passed to the button underneath.
 - `panels/REGISTRY.md` as the canonical `PANEL_INDEX` → source-address
   allocation record, `panels/TEMPLATE.h` for new panels, and
   `tools/check_panels.py` enforcing unique indices and registry sync.
