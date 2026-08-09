@@ -117,7 +117,15 @@ Data flow: touch → `ui_dimmer_button` event → `panel_send_cb` →
 
 29-bit ID: priority (default 6) bits 26–28, DGN bits 8–24, source address
 bits 0–7. Commands used: 0 set-level, 2 on, 3 off, 4 stop, 5 toggle,
-17/18 ramp up/down (full enum in `rvc_protocol.h`).
+**19/20** ramp up/down (full enum in `rvc_protocol.h`). ⚠️ The enum was
+misnumbered before 2026-08-08 (17/18 as ramp up/down — actually "ramp
+brightness"/"ramp toggle"); spamming 17 during hold-to-dim wedged the G6A's
+dimmer engine for that load until the G6 was power-cycled. Command codes are
+now cross-checked against rvc-proxy and rvc2hass (both proven on real
+coaches) — don't renumber without a captured factory frame. Byte 5
+(interlock) must be **0x00**, never 0xFF. ON/OFF taps carry an explicit
+level of 200 (100 %), matching the proven frame
+`[inst FF C8 cmd FF 00 FF FF]`.
 
 Dimmer button behavior: tap = toggle (multi-instance buttons send explicit
 ON/OFF to all members so they can't desync; shown ON if **any** member is
@@ -145,7 +153,10 @@ held, STOP on release).
 - **Note B:** PL1 is the factory switch-panel backlight — probably not a
   DC_DIMMER instance. Currently logs the press and cycles the local LCD
   brightness (100→60→20 %). Capture factory frames in sniffer mode to
-  implement the real DGN.
+  implement the real DGN. Lead: on Spyder-based coaches panel backlights use
+  `GENERIC_INDICATOR_COMMAND` (status `0x1FED7`) with group = panel ID and
+  function 0 = set brightness (per CoachProxy's Tiffin notes) — Firefly may
+  do the same.
 
 ## Board pinout (Waveshare 4.3B)
 
@@ -161,8 +172,10 @@ VSYNC 3, HSYNC 46, PCLK 7, data B3–B7/G2–G7/R3–R7 =
    live coach bus.
 2. Source address `0x80 + PANEL_INDEX` — sniff the bus for collisions before
    deploying (`main/panel_config.h`).
-3. `DC_DIMMER_COMMAND_2` byte 1 (group) and byte 5 (interlock) sent as 0xFF —
-   compare against captured factory switch frames (`rvc_protocol.c`).
+3. `DC_DIMMER_COMMAND_2` byte 1 (group) sent as 0xFF — compare against
+   captured factory switch frames (`rvc_protocol.c`). Byte 5 (interlock) is
+   resolved: must be 0x00 (0xFF suspected in the 2026-08-08 G6 load-latchup;
+   all proven implementations send 0x00).
 4. `DC_DIMMER_STATUS_3` bytes 3–6 semantics unverified across RV-C revisions
    (`rvc_protocol.c`); `load_on` is derived from level > 0.
 5. GT911 may sit at 0x14 instead of 0x5D depending on INT strap at reset

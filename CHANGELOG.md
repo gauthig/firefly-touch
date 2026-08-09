@@ -27,6 +27,27 @@ a panel to the coach.
   deployment target (7–36 V DC input, TJA1051 CAN transceiver). Build
   `living_room` panel confirmed to flash and boot via `idf.py flash`.
 
+### Fixed — G6 load-latchup / wrong RV-C command codes (2026-08-08, coach test)
+
+First live-coach test showed loads responding ~1 s late, working exactly
+once, then ignoring **all** panels (factory ones included) until the G6 was
+power-cycled. Root causes, all in our TX frames — cross-checked against
+rvc-proxy `dc_dimmer.pl`, CoachProxy `command_dc_dimmer.js`, and the
+rvc2hass `rvc-spec.yml` (all proven against real coaches):
+
+- **Command enum was misnumbered.** 17/18 were used as ramp up/down; the
+  spec says 17 = ramp *brightness*, 18 = ramp *toggle*, 19/20 = ramp
+  up/down (also lock/unlock are 33/34 and flash 49/50, not 21/22/33/34).
+  Hold-to-dim therefore spammed "ramp brightness to 0xFF" ~10×/s — the
+  suspected open ramp session that wedged the G6's dimmer engine for that
+  load. Enum renumbered to the spec values.
+- **Interlock byte (byte 5) sent as 0xFF.** Spec: bits 0-1 = interlock,
+  `00` = none. All proven implementations send 0x00; we now do too.
+- **ON/OFF sent level 0xFF ("no change").** Proven frames carry an explicit
+  desired level (0xC8 = 100 %); taps now do the same.
+
+Needs re-verification on the coach after a G6 power cycle.
+
 ### Changed — living room panel, second bring-up round (2026-08-08)
 
 - **Portrait orientation**: display now runs rotated 90° CW via LVGL
