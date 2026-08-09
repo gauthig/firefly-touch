@@ -8,8 +8,10 @@ Notable changes to firefly-touch. Format follows
 Scaffold complete and building clean for both panels. **Display, touch, and
 the full UI are verified on both the plain ESP32-S3-Touch-LCD-4.3 (bench,
 2026-08-05) and the target ESP32-S3-Touch-LCD-4.3B (COM11, 2026-08-08).**
-RV-C remains untested on hardware — see *Unverified* below before connecting
-a panel to the coach.
+**RV-C dimmer tap on/off is now verified working on the live coach**
+(2026-08-09, `living_room` panel against a real G6) after fixing the
+command-code/interlock bugs below. Hold-to-dim, the rest of the instance
+map, and the other items in *Unverified* below are still unconfirmed.
 
 ### Changed
 
@@ -46,7 +48,8 @@ rvc2hass `rvc-spec.yml` (all proven against real coaches):
 - **ON/OFF sent level 0xFF ("no change").** Proven frames carry an explicit
   desired level (0xC8 = 100 %); taps now do the same.
 
-Needs re-verification on the coach after a G6 power cycle.
+**Confirmed fixed on the coach (2026-08-09)**, after a G6 power cycle:
+tap on/off is responsive and repeatable, no further latchup observed.
 
 ### Changed — living room panel, second bring-up round (2026-08-08)
 

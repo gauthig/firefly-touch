@@ -202,11 +202,16 @@ Instance table, DGN reference, task map, and the full TODO list live in
 **Display, touch, and the full UI are verified on both the plain
 ESP32-S3-Touch-LCD-4.3 (bench, 2026-08-05) and the target
 ESP32-S3-Touch-LCD-4.3B (2026-08-08, COM11).** Protocol unit tests pass.
-**RV-C on real hardware is untested.**
+**RV-C dimmer on/off is verified working on the live coach** (2026-08-09,
+`living_room` panel against a real G6), which also confirms the TWAI TX/RX
+GPIO 15/16 assignment is correct on the 4.3B — commands were reaching the
+G6 all along. A separate bug (misnumbered ramp command codes, fixed
+2026-08-08) had been wedging the target load until the G6 was power-cycled;
+see [CHANGELOG.md](CHANGELOG.md) for the root cause.
 Outstanding items are the bench verifications listed in
-[CLAUDE.md](CLAUDE.md#open-pinprotocol-todos) — CAN pin assignment (now with
-evidence the current guess is wrong — see the gotchas section), instance map,
-the SECURITY (patio/hitch) button, and the PANEL LIGHTS (PL1) DGN.
+[CLAUDE.md](CLAUDE.md#open-pinprotocol-todos) — hold-to-dim/ramp behavior,
+the rest of the instance map, the SECURITY (patio/hitch) button, and the
+PANEL LIGHTS (PL1) DGN.
 
 [CHANGELOG.md](CHANGELOG.md) records what's built, what's verified, and what
 is still assumption.

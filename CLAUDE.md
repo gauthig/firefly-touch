@@ -167,9 +167,11 @@ VSYNC 3, HSYNC 46, PCLK 7, data B3–B7/G2–G7/R3–R7 =
 
 ### Open pin/protocol TODOs (all marked in code)
 
-1. **TWAI TX/RX = GPIO15/16 is UNVERIFIED against the 4.3B schematic —
-   verify before first flash** (`board_4_3b.h`). Wrong pins can disturb the
-   live coach bus.
+1. **TWAI TX/RX = GPIO15/16, empirically confirmed correct** — the
+   2026-08-08/09 coach test had commands reaching the G6 and toggling a real
+   load, which only works if these pins drive the actual TJA1051 transceiver
+   (`board_4_3b.h`). Still worth a formal schematic diff at some point, but
+   this is no longer a "might be wrong" open item in practice.
 2. Source address `0x80 + PANEL_INDEX` — sniff the bus for collisions before
    deploying (`main/panel_config.h`).
 3. `DC_DIMMER_COMMAND_2` byte 1 (group) sent as 0xFF — compare against
