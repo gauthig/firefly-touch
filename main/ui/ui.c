@@ -120,9 +120,20 @@ static void panel_send_cb(const panel_btn_def_t *def, rvc_dimmer_cmd_t cmd,
         return;
     }
 
+    /* ON/OFF/TOGGLE carry an explicit desired level of 100 % rather than
+     * 0xFF "no change" — this matches the proven-working frame from
+     * rvc-proxy/CoachProxy ([inst FF C8 cmd FF 00 FF FF]) observed to
+     * actuate loads instantly on real coaches. Ramp/stop commands keep
+     * level = NA; the ramp itself defines the level trajectory. */
+    uint8_t level = RVC_FIELD_NA;
+    if (cmd == RVC_DIMMER_CMD_ON_DELAY || cmd == RVC_DIMMER_CMD_OFF ||
+        cmd == RVC_DIMMER_CMD_TOGGLE) {
+        level = RVC_LEVEL_MAX;
+    }
+
     for (uint8_t i = 0; i < def->instance_count; i++) {
         twai_enqueue_dimmer_cmd(def->instances[i], cmd,
-                                RVC_FIELD_NA, RVC_FIELD_NA);
+                                level, RVC_FIELD_NA);
     }
 }
 

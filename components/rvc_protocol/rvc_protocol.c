@@ -26,12 +26,20 @@ rvc_id_t rvc_id_unpack(uint32_t can_id)
  *   byte 2  desired level, 0..200 in 0.5 % steps (0xFF = no change)
  *   byte 3  command (rvc_dimmer_cmd_t)
  *   byte 4  delay/duration in seconds (0xFF = none)
- *   byte 5  interlock bits (we send 0xFF = no interlock / not used)
+ *   byte 5  bits 0-1 = interlock command: 00 = no interlock, 01/10 =
+ *           interlock A/B. Send 0x00 — an earlier revision sent 0xFF
+ *           (bits 11 + all reserved bits set), which is NOT the spec
+ *           "no interlock" value and is suspected to have contributed to
+ *           G6A loads latching up. Every proven-working implementation
+ *           (rvc-proxy, CoachProxy) sends 0x00 here.
  *   bytes 6..7  reserved, 0xFF
  *
+ * Reference known-good frame (rvc-proxy dc_dimmer.pl, works on real
+ * coaches):  ON  = [inst, FF, C8, 02, FF, 00, FF, FF]
+ *            OFF = [inst, FF, C8, 03, FF, 00, FF, FF]
+ *
  * TODO(bench): capture a factory Firefly switch press in sniffer mode and
- * compare byte 1 (group) and byte 5 (interlock) against what the G6A
- * controllers actually expect. 0xFF for both is the spec "not used" value.
+ * compare byte 1 (group) against what the G6A controllers actually expect.
  */
 void rvc_encode_dc_dimmer_command_2(const rvc_dimmer_command_t *cmd, uint8_t data[8])
 {
@@ -42,6 +50,7 @@ void rvc_encode_dc_dimmer_command_2(const rvc_dimmer_command_t *cmd, uint8_t dat
                   ? RVC_LEVEL_MAX : cmd->level;
     data[3] = (uint8_t)cmd->command;
     data[4] = cmd->duration;
+    data[5] = 0x00;   /* no interlock — never 0xFF, see above */
 }
 
 /*

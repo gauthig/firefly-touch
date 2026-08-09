@@ -33,9 +33,16 @@ extern "C" {
 
 /*
  * DC_DIMMER_COMMAND_2 command codes (standard RV-C command enum).
- * Values confirmed against the RV-C spec table for DC_DIMMER_COMMAND_2;
- * the ones exercised by this project are SET_LEVEL, ON_DELAY, OFF, STOP,
- * TOGGLE, RAMP_UP, RAMP_DOWN.
+ *
+ * Values cross-checked 2026-08-08 against two independent transcriptions of
+ * the RV-C spec used by proven-working implementations (linuxkidd/rvc-proxy
+ * dc_dimmer.pl and carpenike/rvc2hass rvc-spec.yml, both run on real
+ * Spyder/Firefly-era coaches). An earlier revision of this enum had
+ * 17=RAMP_UP / 18=RAMP_DOWN — WRONG: 17 is "ramp brightness" and 18 is
+ * "ramp toggle". Sending 17 repeatedly during hold-to-dim opened a ramp
+ * session the G6A never exited, after which that load ignored ALL panels
+ * (including factory ones) until the G6 was power-cycled. Do not renumber
+ * these without re-checking against a captured factory frame or the spec.
  */
 typedef enum {
     RVC_DIMMER_CMD_SET_LEVEL          = 0,   /* set brightness (with optional delay) */
@@ -45,13 +52,15 @@ typedef enum {
     RVC_DIMMER_CMD_STOP               = 4,   /* stop an in-progress ramp */
     RVC_DIMMER_CMD_TOGGLE             = 5,
     RVC_DIMMER_CMD_MEMORY_OFF         = 6,
-    RVC_DIMMER_CMD_RAMP_UP            = 17,
-    RVC_DIMMER_CMD_RAMP_DOWN          = 18,
-    RVC_DIMMER_CMD_RAMP_TOGGLE        = 19,  /* ramp, alternating direction */
-    RVC_DIMMER_CMD_LOCK               = 21,
-    RVC_DIMMER_CMD_UNLOCK             = 22,
-    RVC_DIMMER_CMD_FLASH              = 33,
-    RVC_DIMMER_CMD_FLASH_MOMENTARILY  = 34,
+    RVC_DIMMER_CMD_RAMP_BRIGHTNESS    = 17,  /* ramp to <level> */
+    RVC_DIMMER_CMD_RAMP_TOGGLE        = 18,  /* ramp, alternating direction */
+    RVC_DIMMER_CMD_RAMP_UP            = 19,
+    RVC_DIMMER_CMD_RAMP_DOWN          = 20,
+    RVC_DIMMER_CMD_RAMP_UP_DOWN       = 21,
+    RVC_DIMMER_CMD_LOCK               = 33,
+    RVC_DIMMER_CMD_UNLOCK             = 34,
+    RVC_DIMMER_CMD_FLASH              = 49,
+    RVC_DIMMER_CMD_FLASH_MOMENTARILY  = 50,
 } rvc_dimmer_cmd_t;
 
 /* ---- 29-bit ID pack/unpack -------------------------------------------- */

@@ -59,7 +59,15 @@ static void test_encode_dimmer_command(void)
     assert(data[2] == 200);
     assert(data[3] == 0);
     assert(data[4] == 0xFF);
-    assert(data[5] == 0xFF && data[6] == 0xFF && data[7] == 0xFF);
+    /* Byte 5 must be 0x00 (no interlock) — 0xFF here is suspected of
+     * latching G6A loads until controller reboot. Bytes 6-7 reserved. */
+    assert(data[5] == 0x00 && data[6] == 0xFF && data[7] == 0xFF);
+
+    /* Known-good ON frame per rvc-proxy: [inst FF C8 02 FF 00 FF FF] */
+    cmd.command = RVC_DIMMER_CMD_ON_DELAY;
+    cmd.level   = 200;
+    rvc_encode_dc_dimmer_command_2(&cmd, data);
+    assert(data[2] == 0xC8 && data[3] == 0x02 && data[4] == 0xFF && data[5] == 0x00);
 
     /* Toggle with "no change" level */
     cmd.command = RVC_DIMMER_CMD_TOGGLE;
@@ -68,16 +76,22 @@ static void test_encode_dimmer_command(void)
     assert(data[2] == 0xFF);
     assert(data[3] == 5);
 
-    /* Ramp up / ramp down / stop codes */
+    /* Ramp up / ramp down / stop codes — per the RV-C spec table
+     * (cross-checked against rvc-proxy and rvc2hass): 19 = ramp up,
+     * 20 = ramp down. NOT 17/18 (ramp brightness / ramp toggle), which
+     * an earlier enum revision used by mistake. */
     cmd.command = RVC_DIMMER_CMD_RAMP_UP;
     rvc_encode_dc_dimmer_command_2(&cmd, data);
-    assert(data[3] == 17);
+    assert(data[3] == 19);
     cmd.command = RVC_DIMMER_CMD_RAMP_DOWN;
     rvc_encode_dc_dimmer_command_2(&cmd, data);
-    assert(data[3] == 18);
+    assert(data[3] == 20);
     cmd.command = RVC_DIMMER_CMD_STOP;
     rvc_encode_dc_dimmer_command_2(&cmd, data);
     assert(data[3] == 4);
+    /* Lock/unlock/flash live at 33/34/49/50 in the real spec */
+    assert(RVC_DIMMER_CMD_LOCK == 33 && RVC_DIMMER_CMD_UNLOCK == 34);
+    assert(RVC_DIMMER_CMD_FLASH == 49 && RVC_DIMMER_CMD_FLASH_MOMENTARILY == 50);
 
     /* Out-of-range level is clamped to 200 (but 0xFF passes through as N/A) */
     cmd.level = 201;
