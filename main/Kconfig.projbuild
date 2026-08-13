@@ -10,4 +10,43 @@ menu "Firefly Touch Panel"
             capture the factory PANEL LIGHTS (PL1) frames. Very chatty on a
             live coach bus — disable for production builds.
 
+    menu "ESP-NOW remote-panel link"
+
+        config FIREFLY_ESPNOW_PEER_MAC
+            string "ESP-NOW peer MAC address (AA:BB:CC:DD:EE:FF)"
+            default "AA:BB:CC:DD:EE:FF"
+            help
+                MAC address of this panel's ESP-NOW counterpart. For the
+                living_room bridge build, this is the remote panel's MAC;
+                for a remote (PANEL_HAS_CAN=0) panel build, this is
+                living_room's MAC. Read a board's factory MAC with
+                `idf.py -p COMx read-mac` before flashing either side. v1
+                supports exactly one peer per panel.
+
+        config FIREFLY_ESPNOW_CHANNEL
+            int "ESP-NOW WiFi channel"
+            default 1
+            range 1 13
+            help
+                Both peers must be fixed to the same channel — there is no
+                AP to negotiate one. Pick a channel clear of other 2.4 GHz
+                traffic in the coach.
+
+        config FIREFLY_ESPNOW_PMK
+            string "ESP-NOW primary master key (16 ASCII chars)"
+            default "firefly-pmk-0001"
+            help
+                esp_now_set_pmk() key, shared by both peers. CHANGE THIS
+                before deploying — these frames actuate real loads.
+                Truncated/zero-padded to 16 bytes if not exactly 16 chars.
+
+        config FIREFLY_ESPNOW_LMK
+            string "ESP-NOW peer local master key (16 ASCII chars)"
+            default "firefly-lmk-0001"
+            help
+                Per-peer encryption key for esp_now_add_peer(). Must match
+                on both sides of the pair. CHANGE THIS before deploying.
+
+    endmenu
+
 endmenu

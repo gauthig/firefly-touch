@@ -75,7 +75,11 @@ it goes green.
 
 One codebase, many panels: `panels/<name>.h` (selected at build time via
 `-DPANEL=`) defines `PANEL_NAME`, `PANEL_INDEX`, and the `PANEL_BUTTONS[]`
-grid layout. RV-C source address = `0x80 + PANEL_INDEX`.
+grid layout. RV-C source address = `0x80 + PANEL_INDEX`. A panel additionally
+sets `PANEL_HAS_CAN 0` if it has no CAN wiring at all (relays to a bridge
+panel over ESP-NOW instead — see *ESP-NOW remote-panel bridge* below) or
+`PANEL_IS_BRIDGE 1` if it is that bridge; both default to the normal
+CAN-connected case in `main/panel_config.h`.
 
 ### Task map
 
@@ -83,16 +87,21 @@ grid layout. RV-C source address = `0x80 + PANEL_INDEX`.
 |----------------|------|------|------|
 | `twai_rx`      | 0    | 12   | blocks on `twai_receive`, stamps bus liveness, sniffer logging, decodes `DC_DIMMER_STATUS_3`, posts to status queue |
 | `twai_tx`      | 0    | 11   | drains TX queue → `twai_transmit`; bus-off recovery. Nothing else ever blocks on the bus |
-| `state_mgr`    | 0    | 9    | owns instance→{level,on} table; on change calls `ui_on_status()` under the LVGL lock |
-| LVGL (port)    | 1    | 4    | rendering + touch; button callbacks only enqueue to the TX queue |
+| `espnow_rx`    | 0    | 10   | (only if `PANEL_IS_BRIDGE` or `!PANEL_HAS_CAN`) drains ESP-NOW recv queue, invokes the registered cmd/status callback |
+| `state_mgr`    | 0    | 9    | owns instance→{level,on} table; on change calls `ui_on_status()` under the LVGL lock, and the registered ESP-NOW status sink if any |
+| LVGL (port)    | 1    | 4    | rendering + touch; button callbacks only enqueue via `bridge_enqueue_dimmer_cmd()` |
 
 **Invariant:** icon/button visual state is driven ONLY by status frames from
-the bus — never by locally sent commands. That keeps panels in sync with the
-factory switches and the Firefly app.
+the bus (or, on a remote panel, status relayed from the bridge's bus) —
+never by locally sent commands. That keeps panels in sync with the factory
+switches and the Firefly app.
 
-Data flow: touch → `ui_dimmer_button` event → `panel_send_cb` →
-`twai_enqueue_dimmer_cmd()` → TX queue → `twai_tx` → bus …then… bus →
-`twai_rx` → status queue → `state_mgr` → `ui_on_status()` → widget.
+Data flow (CAN-connected panel): touch → `ui_dimmer_button` event →
+`panel_send_cb` → `bridge_enqueue_dimmer_cmd()` → `twai_enqueue_dimmer_cmd()`
+→ TX queue → `twai_tx` → bus …then… bus → `twai_rx` → status queue →
+`state_mgr` → `ui_on_status()` → widget. On a `PANEL_HAS_CAN 0` remote panel,
+`bridge_enqueue_dimmer_cmd()` sends an ESP-NOW frame to the bridge instead of
+enqueuing locally, and status arrives the same way in reverse (see below).
 
 ### Components
 
@@ -107,6 +116,77 @@ Data flow: touch → `ui_dimmer_button` event → `panel_send_cb` →
   (`ui_dimmer_button`), panel-config types (`panel_def.h`). Icons are LVGL
   built-in symbols for now; `.symbol` is an opaque string so a custom icon
   font can be swapped in later.
+- `components/espnow_link` — ESP-NOW transport for a remote panel with no
+  CAN wiring (see *ESP-NOW remote-panel bridge* below). No dependency on
+  `main/`; mirrors `dimmer_cmd_msg_t`/`dimmer_status_msg_t` as its own
+  ESP-free-of-`main` structs.
+
+## ESP-NOW remote-panel bridge
+
+`living_room_remote` (`panels/living_room_remote.h`) has no CAN wiring — it
+relays button taps to `living_room` (`PANEL_IS_BRIDGE 1`) over ESP-NOW, and
+`living_room` relays real `DC_DIMMER_STATUS_3` changes back to it, using the
+same non-blocking, drop-if-full contract `twai_enqueue_dimmer_cmd()` already
+had. v1 scope: exactly one remote per bridge, one fixed ESP-NOW peer (MAC +
+PMK/LMK) configured entirely through Kconfig at build time — no runtime
+pairing, no mesh. See `docs/FLASHING.md` → *ESP-NOW remote panel* for the
+pairing/flashing procedure.
+
+- `main/panel_config.h` — `PANEL_HAS_CAN` / `PANEL_IS_BRIDGE` defaults and
+  the `PANEL_IS_BRIDGE` ⇒ `PANEL_HAS_CAN` guard.
+- `main/bridge_tx.c` — the one place `ui.c`'s `panel_send_cb` calls into;
+  resolves to `twai_enqueue_dimmer_cmd()` or `espnow_link_send_cmd()` at
+  build time depending on `PANEL_HAS_CAN`, so `ui.c` never branches on role.
+- `main/state_manager.c` — `state_manager_register_status_sink()` lets the
+  bridge forward every real status change over ESP-NOW alongside the normal
+  `ui_on_status()` call; `state_manager_for_each_known()` backs a 30 s
+  periodic full resync (`main/main.c`, `bridge_resync_timer_cb`) so a
+  remote panel that just booted or missed a broadcast self-heals instead of
+  showing stale state.
+- `main/main.c` wiring: `PANEL_IS_BRIDGE` registers the status sink and the
+  ESP-NOW command-rx callback (which just calls `twai_enqueue_dimmer_cmd()`,
+  exactly like a local button press); `!PANEL_HAS_CAN` registers a
+  status-rx callback that calls `ui_on_status()` directly — no local
+  state_mgr, the remote panel is purely a display of what the bridge
+  reports.
+- Link-health dot (remote panel's status bar, same spot/colors as the
+  CAN-health dot): `espnow_link_healthy()` vs `state_manager_bus_healthy()`,
+  selected by `PANEL_HAS_CAN` in `ui.c`'s `link_health_timer_cb`.
+- Security: `esp_now_set_pmk()` + per-peer LMK from
+  `CONFIG_FIREFLY_ESPNOW_PMK`/`CONFIG_FIREFLY_ESPNOW_LMK` — **change both
+  from their placeholder defaults before deploying**, these frames actuate
+  real loads.
+
+**Bench-verified 2026-08-13** on real hardware (`living_room` on COM16,
+`living_room_remote` on COM11): both boards boot, initialize ESP-NOW, log
+the correct peer MAC for each other after pairing, and the full round trip
+works — tap on the remote actuates the real load and confirms via the
+status echo, and the remote's display updates when the load is toggled from
+`living_room`'s own button. Known v1 limits, not bugs:
+status broadcasts are best-effort with no delivery ack (mitigated by the 30 s
+resync, same as RV-C's own status frames having no ack); exactly one
+remote/bridge pair; no runtime pairing UI.
+
+⚠️ **`sdkconfig` is shared at the repo root across every `-B build_<panel>`
+directory** — discovered while pairing the two boards above. Only `PANEL`
+(the C source selection) is a per-build-dir CMake cache var; Kconfig
+settings like the ESP-NOW peer MAC/PMK/LMK are not, and both panels need
+different values. Give each of `living_room`/`living_room_remote` its own
+sdkconfig with `-D SDKCONFIG=build_<panel>/sdkconfig` on every `idf.py`
+invocation (configure, menuconfig, build, flash) — see
+`docs/FLASHING.md` → *ESP-NOW remote panel*. Skipping it on one command
+silently edits the shared root `sdkconfig` and the other panel's next build
+picks up whatever was last written there.
+
+**Remote panel button layout is independent of `living_room`'s own buttons.**
+Since `bridge_tx.c`/`state_manager`'s status sink forward whatever instance
+they're given regardless of what's in `living_room.h`'s `PANEL_BUTTONS[]`,
+the remote doesn't need to mirror the bridge's local button set — as of
+2026-08-13 `panels/living_room_remote.h` was reprogrammed to a bedroom/
+bathroom-focused layout (instances 17, 25, 35, 46 left column; 18, 13, 21,
+Panel Lights right column) unrelated to `living_room`'s living-room-focused
+buttons. See [docs/instance_map.yaml](docs/instance_map.yaml) for the full
+RV-C instance map used to pick these.
 
 ## RV-C protocol
 

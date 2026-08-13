@@ -1,0 +1,336 @@
+# RV-C DC_DIMMER instance map for the 2019 Entegra Aspire 44W.
+#
+# Source: factory Entegra switch-panel wiring/label diagram (5 wall panels +
+# 2 Entegra-provided bath fixtures), transcribed 2026-08-13. This is the
+# factory legend, NOT a sniffer capture -- treat every entry as "verified: false"
+# until confirmed by watching real DC_DIMMER_STATUS_3 frames in sniffer mode
+# (see CLAUDE.md -> Build/flash/monitor -> Sniffer mode). Entries already
+# exercised in firmware (panels/living_room.h, panels/ent_center.h) are
+# marked verified: true -- they've moved a real load on the coach.
+#
+# Use `loads` as the lookup table when assigning buttons on a new panel
+# (CAN-connected or ESP-NOW remote): pick instance number(s) + type.
+# `switch_panels` records the original factory layout for reference only.
+#
+# type values:
+#   dimmer - DC_DIMMER_COMMAND_2/STATUS_3, supports tap-toggle + hold-to-ramp
+#   switch - same DGN, driven on/off only (no ramp) in current firmware
+#   local  - not RV-C at all; stays on the panel's own MCU (e.g. LCD backlight)
+#   master - factory "LIGHT MASTER" all-panel on/off; DGN not yet identified
+#
+# instances: a list. Buttons with more than one instance must send the
+# command once per instance (fire-and-forget to each, same as the existing
+# multi-instance buttons in panels/living_room.h e.g. SIDE CEILING {30,31}).
+
+loads:
+  - name: Bathroom Ceiling Light
+    instances: [13]
+    type: dimmer
+    source: [Entegra Bath Room fixture (Entegra-provided, not a wall switch
+      panel), living_room_remote]
+    verified: false
+    notes: User-confirmed naming 2026-08-13. Wired to the "BATHROOM" button
+      on panels/living_room_remote.h as of 2026-08-13 -- still unverified,
+      first real-world test of this instance.
+
+  - name: Lavatory Accent Light
+    instances: [14]
+    type: dimmer
+    source: Entegra Bath Room fixture
+    verified: false
+    notes: User-confirmed naming 2026-08-13. Grouped under "CEILING" in the
+      factory diagram alongside 13, but is a distinct fixture.
+
+  - name: Bathroom Accent Light
+    instances: [16]
+    type: dimmer
+    source: Entegra Bath Room fixture ("ACCENT" rocker)
+    verified: false
+    notes: User-confirmed naming 2026-08-13.
+
+  - name: Stool Room Ceiling Light
+    instances: [22, 23]
+    type: dimmer
+    source: Entegra Stool Room fixture ("CEILING" rocker, two-zone)
+    verified: false
+    notes: Diagram shows two instances under one CEILING rocker; exact
+      per-instance meaning (e.g. main vs. secondary zone) not given -- verify
+      via sniffer.
+
+  - name: Stool Room Accent Light
+    instances: []
+    type: dimmer
+    source: Entegra Stool Room fixture ("ACCENT" rocker)
+    verified: false
+    notes: >
+      Diagram shows an ACCENT rocker for this fixture (parallel to the Bath
+      Room's ACCENT = instance 16) but no instance number was printed next to
+      it. Do not guess a number -- confirm on a sniffer capture before wiring
+      a button to it.
+
+  - name: Bedroom Ceiling Light
+    instances: [17]
+    type: dimmer
+    source: [SW6-E1 Bedroom Wall (0291147/75803), living_room_remote]
+    verified: false
+    notes: Wired to the "BEDROOM CEILING" button on panels/living_room_remote.h
+      as of 2026-08-13 -- still unverified, first real-world test of this
+      instance.
+
+  - name: Bed Overhead Light
+    instances: [18]
+    type: dimmer
+    source: [SW6-E1 Bedroom Wall, living_room_remote]
+    verified: false
+    notes: Factory legend "BED O/H". Wired to the "BED O/H" button on
+      panels/living_room_remote.h as of 2026-08-13 -- still unverified.
+
+  - name: Bedroom Accent Light
+    instances: [19]
+    type: dimmer
+    source: SW6-E1 Bedroom Wall
+    verified: false
+
+  - name: Bedroom Vanity Light
+    instances: [20]
+    type: dimmer
+    source: SW6-E1 Bedroom Wall
+    verified: false
+
+  - name: Courtesy Light (bedroom)
+    instances: [21]
+    type: dimmer
+    source: [SW6-E1 Bedroom Wall, living_room_remote]
+    verified: false
+    notes: Wired to the "COURTESY" button on panels/living_room_remote.h as
+      of 2026-08-13 -- still unverified.
+
+  - name: Entry Ceiling Light
+    instances: [24]
+    type: dimmer
+    source: [SW1-E1 Entry Door, SW2-E7 Living Room]
+    verified: true
+    notes: Live in panels/living_room.h today.
+
+  - name: Center Ceiling Light
+    instances: [25]
+    type: dimmer
+    source: [SW2-E7 Living Room, SW4-E7 Ent. Center, living_room_remote]
+    verified: true
+    notes: Live in panels/living_room.h and panels/ent_center.h today; the
+      one bench-confirmed-on-real-hardware instance. Also wired to
+      living_room_remote's "CENTER CEILING" button as of 2026-08-13.
+
+  - name: Accent Light
+    instances: [26, 27]
+    type: dimmer
+    source: SW4-E7 Ent. Center
+    verified: true
+    notes: Live in panels/ent_center.h today (driven as a pair).
+
+  - name: Side Ceiling Light
+    instances: [30, 31]
+    type: dimmer
+    source: [SW2-E7 Living Room, SW4-E7 Ent. Center]
+    verified: true
+    notes: Live in both panels today (driven as a pair).
+
+  - name: Sofa Sconce / Slide Light
+    instances: [32]
+    type: dimmer
+    source: [SW2-E7 Living Room, SW4-E7 Ent. Center]
+    verified: true
+    notes: Factory legend "ODS SOFA SCONCE" (SW2) / "ODS SLIDE" (SW4). Live
+      in both panels today.
+
+  - name: Dinette / Sconce-Dinette Light
+    instances: [33]
+    type: dimmer
+    source: [SW2-E7 Living Room, SW4-E7 Ent. Center]
+    verified: true
+    notes: Live in both panels today.
+
+  - name: Sink / Counter Light
+    instances: [34]
+    type: dimmer
+    source: SW4-E7 Ent. Center
+    verified: true
+    notes: Live in panels/ent_center.h today.
+
+  - name: Midship / Hall-Midship Light
+    instances: [35]
+    type: dimmer
+    source: [SW2-E7 Living Room, SW4-E7 Ent. Center, living_room_remote]
+    verified: true
+    notes: Live in both panels today. Also wired to living_room_remote's
+      "MIDSHIP" button as of 2026-08-13.
+
+  - name: Under Slideout Light
+    instances: [37]
+    type: dimmer
+    source: SW1-E1 Entry Door
+    verified: false
+    notes: Not yet wired into any firmware panel.
+
+  - name: Awning Light - Driver Side
+    instances: [38]
+    type: switch
+    source: SW1-E1 Entry Door
+    verified: false
+    notes: >
+      User-confirmed naming 2026-08-13 ("38 is Driver Side Awning light").
+      The factory diagram's "DS"/"ODS" badges next to 38/39 are ambiguous on
+      their own -- this naming from the user overrides that reading. Not yet
+      wired into any firmware panel.
+
+  - name: Awning Light - Passenger Side
+    instances: [39]
+    type: switch
+    source: SW1-E1 Entry Door
+    verified: false
+    notes: User-confirmed naming 2026-08-13 ("39 is Passenger Side Awning
+      Light"). Not yet wired into any firmware panel.
+
+  - name: Porch Light
+    instances: [42]
+    type: dimmer
+    source: SW1-E1 Entry Door
+    verified: false
+
+  - name: Cargo Light
+    instances: [43]
+    type: switch
+    source: SW1-E1 Entry Door
+    verified: false
+
+  - name: Hitch Light
+    instances: [44, 45]
+    type: switch
+    source: [SW1-E1 Entry Door, SW2-E7 Living Room, SW4-E7 Ent. Center,
+      SW6-E1 Bedroom Wall]
+    verified: false
+    notes: >
+      Live today in panels/living_room.h as SECURITY P+H {44,45}, matching
+      the factory legend "P45, H44,45" seen on SW1 (P45 restates that
+      instance 45 doubles as the patio light; H44,45 = hitch instances 44 and
+      45). CLAUDE.md's existing Note A flags this pairing as unverified --
+      still true.
+
+  - name: Motion Light (exterior)
+    instances: [46]
+    type: switch
+    source: [SW1-E1 Entry Door, living_room_remote]
+    verified: false
+    notes: >
+      Standalone "MOTION" button on SW1, separate from the combined
+      "MOTION P+H" button (46,44,45) seen on SW2/SW4/SW6 below. Same
+      physical instance 46 either way -- SW1 just exposes it on its own
+      button instead of grouped with patio/hitch. Wired standalone (instance
+      46 only, not the grouped 46/44/45) to living_room_remote's "MOTION"
+      button as of 2026-08-13 -- still unverified.
+
+  - name: Motion + Patio + Hitch Light (grouped)
+    instances: [46, 44, 45]
+    type: switch
+    source: [SW2-E7 Living Room, SW4-E7 Ent. Center, SW6-E1 Bedroom Wall]
+    verified: false
+    notes: >
+      Factory legend "MOTION P+H" / "P46, H44,45" -- differs from SW1's
+      "SECURITY P+H" (P45, H44,45) by using instance 46 instead of 45 for
+      the patio component. Current firmware's SECURITY P+H button only sends
+      {44,45}, NOT 46 -- decide whether to add 46 before wiring a new panel
+      to match this factory grouping.
+
+  - name: Panel Lights (local LCD backlight)
+    instances: []
+    type: local
+    source: all panels (factory legend "PL1")
+    verified: true
+    notes: >
+      Not RV-C at all. Current firmware (PANEL_BTN_PANEL_LIGHTS in both
+      living_room.h and ent_center.h) cycles the local LCD backlight
+      100/60/20% on tap. Use the same PANEL_BTN_PANEL_LIGHTS type on any new
+      panel -- do not send a CAN/ESP-NOW command for this button.
+
+  - name: Light Master (all-panel on/off)
+    instances: []
+    type: master
+    source: [SW1-E1 Entry Door, SW6-E1 Bedroom Wall]
+    verified: false
+    notes: >
+      Factory "ON / LIGHT MASTER / OFF" 3-position rocker, no instance
+      number printed. Almost certainly not a DC_DIMMER_COMMAND_2 target --
+      likely a different DGN or a hardwired master relay. Not implemented in
+      firmware. Capture its frames in sniffer mode before building a button
+      for it.
+
+# Physical factory panel layouts, for reference when laying out a new
+# panel's button grid to match a familiar physical location. Row order is
+# top-to-bottom as printed on the factory legend; "left"/"right" match the
+# two-column rocker layout.
+switch_panels:
+  - panel: SW1-E1 Entry Door
+    part_number: "0291126/75510"
+    rows:
+      - left: { name: Porch Light, instances: [42] }
+        right: { name: Entry Ceiling Light, instances: [24] }
+      - left: { name: Security P+H (Hitch Light group), instances: [45, 44, 45] }
+        right: { name: Motion Light (exterior), instances: [46] }
+      - left: { name: Awning Light - Passenger Side, instances: [39] }
+        right: { name: Under Slideout Light, instances: [37] }
+      - left: { name: Awning Light - Driver Side, instances: [38] }
+        right: { name: Cargo Light, instances: [43] }
+      - left: null
+        right: { name: Light Master, instances: [], type: master }
+
+  - panel: SW2-E7 Living Room
+    part_number: "0291134/75569"
+    firmware: panels/living_room.h
+    rows:
+      - left: { name: Center Ceiling Light, instances: [25] }
+        right: { name: Entry Ceiling Light, instances: [24] }
+      - left: { name: Side Ceiling Light, instances: [30, 31] }
+        right: { name: Dinette Light, instances: [33] }
+      - left: { name: Sofa Sconce Light, instances: [32] }
+        right: { name: Motion + Patio + Hitch Light, instances: [46, 44, 45] }
+      - left: { name: Midship Light, instances: [35] }
+        right: { name: Panel Lights, instances: [], type: local }
+
+  - panel: SW4-E7 Ent. Center
+    part_number: "0291142/75577"
+    firmware: panels/ent_center.h
+    rows:
+      - left: { name: Center Ceiling Light, instances: [25] }
+        right: { name: Midship Light, instances: [35] }
+      - left: { name: Side Ceiling Light, instances: [30, 31] }
+        right: { name: Sink/Counter Light, instances: [34] }
+      - left: { name: Sofa Sconce / Slide Light, instances: [32] }
+        right: { name: Dinette Light, instances: [33] }
+      - left: { name: Accent Light, instances: [26, 27] }
+        right: { name: Panel Lights, instances: [], type: local }
+
+  - panel: SW6-E1 Bedroom Wall
+    part_number: "0291147/75803"
+    rows:
+      - left: { name: Bedroom Ceiling Light, instances: [17] }
+        right: { name: Courtesy Light, instances: [21] }
+      - left: { name: Bed Overhead Light, instances: [18] }
+        right: { name: Bedroom Accent Light, instances: [19] }
+      - left: { name: Bedroom Vanity Light, instances: [20] }
+        right: { name: Motion + Patio + Hitch Light, instances: [46, 44, 45] }
+      - left: { name: Panel Lights, instances: [], type: local }
+        right: { name: Light Master, instances: [], type: master }
+
+  - panel: Entegra Stool Room fixture
+    part_number: null
+    notes: Entegra-provided, not a wall switch panel.
+    rows:
+      - left: { name: Stool Room Ceiling Light, instances: [22, 23] }
+        right: { name: Stool Room Accent Light, instances: [] }
+
+  - panel: Entegra Bath Room fixture
+    part_number: null
+    notes: Entegra-provided, not a wall switch panel.
+    rows:
+      - left: { name: Bathroom Ceiling / Lavatory Accent, instances: [13, 14] }
+        right: { name: Bathroom Accent Light, instances: [16] }

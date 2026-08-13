@@ -16,6 +16,11 @@
 #define PANEL_NAME  "LIVING ROOM"
 #define PANEL_INDEX 0
 
+/* Also the ESP-NOW bridge for panels/living_room_remote.h: relays that
+ * panel's commands onto this bus and mirrors real status back to it. See
+ * main/panel_config.h and components/espnow_link. */
+#define PANEL_IS_BRIDGE 1
+
 static const panel_btn_def_t PANEL_BUTTONS[] = {
     { "CENTER CEILING",  LV_SYMBOL_CHARGE,   PANEL_BTN_DIMMER, {25},     1 },
     { "ENTRY CEILING",   LV_SYMBOL_CHARGE,   PANEL_BTN_DIMMER, {24},     1 },

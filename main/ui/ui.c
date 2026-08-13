@@ -1,10 +1,13 @@
 /*
- * ui — panel screen: status bar, 2x4 button grid, CAN-health dot,
+ * ui — panel screen: status bar, 2x4 button grid, link-health dot,
  * idle auto-dim. Runs in the LVGL task on core 1.
  *
- * Touch never talks to TWAI directly: button callbacks post to the TX queue
- * via twai_enqueue_dimmer_cmd(). Visual state is driven only by
- * ui_on_status(), i.e. by DC_DIMMER_STATUS_3 frames from the bus.
+ * Touch never talks to TWAI (or ESP-NOW) directly: button callbacks post
+ * through bridge_enqueue_dimmer_cmd(), which resolves at build time to
+ * either the real CAN TX queue or an ESP-NOW frame to the bridge panel
+ * (see PANEL_HAS_CAN, main/bridge_tx.c). Visual state is driven only by
+ * ui_on_status(), i.e. by DC_DIMMER_STATUS_3 frames — relayed over
+ * ESP-NOW on a remote panel, but never spoofed locally either way.
  */
 #include "ui.h"
 
@@ -13,11 +16,15 @@
 #include "lvgl.h"
 
 #include "board_4_3b.h"
+#include "bridge_tx.h"
 #include "panel_config.h"
 #include "state_manager.h"
-#include "twai_tasks.h"
 #include "ui_dimmer_button.h"
 #include "ui_theme.h"
+
+#if !PANEL_HAS_CAN
+#include "espnow_link.h"
+#endif
 
 static const char *TAG = "ui";
 
@@ -26,7 +33,7 @@ static const char *TAG = "ui";
 #define IDLE_DIM_PERCENT    20
 
 static lv_obj_t *s_buttons[PANEL_BUTTON_COUNT];
-static lv_obj_t *s_can_dot;
+static lv_obj_t *s_link_dot;
 static lv_obj_t *s_dim_overlay;
 static uint8_t s_user_backlight_pct = 100;
 static bool s_auto_dimmed;
@@ -82,14 +89,17 @@ static void idle_timer_cb(lv_timer_t *t)
     }
 }
 
-/* ------------------------------------------------------- CAN health ----- */
+/* ------------------------------------------------------- link health ---- */
 
-static void can_health_timer_cb(lv_timer_t *t)
+static void link_health_timer_cb(lv_timer_t *t)
 {
     (void)t;
-    lv_obj_set_style_bg_color(
-        s_can_dot,
-        state_manager_bus_healthy() ? UI_COLOR_OK : UI_COLOR_ERR, 0);
+#if PANEL_HAS_CAN
+    const bool healthy = state_manager_bus_healthy();
+#else
+    const bool healthy = espnow_link_healthy();
+#endif
+    lv_obj_set_style_bg_color(s_link_dot, healthy ? UI_COLOR_OK : UI_COLOR_ERR, 0);
 }
 
 /* ------------------------------------------------------- commands ------- */
@@ -132,8 +142,8 @@ static void panel_send_cb(const panel_btn_def_t *def, rvc_dimmer_cmd_t cmd,
     }
 
     for (uint8_t i = 0; i < def->instance_count; i++) {
-        twai_enqueue_dimmer_cmd(def->instances[i], cmd,
-                                level, RVC_FIELD_NA);
+        bridge_enqueue_dimmer_cmd(def->instances[i], cmd,
+                                  level, RVC_FIELD_NA);
     }
 }
 
@@ -158,13 +168,13 @@ static void build_screen(void)
     lv_label_set_text(title, PANEL_NAME);
     lv_obj_align(title, LV_ALIGN_LEFT_MID, 0, 0);
 
-    s_can_dot = lv_obj_create(bar);
-    lv_obj_set_size(s_can_dot, 12, 12);
-    lv_obj_set_style_radius(s_can_dot, LV_RADIUS_CIRCLE, 0);
-    lv_obj_set_style_border_width(s_can_dot, 0, 0);
-    lv_obj_set_style_bg_color(s_can_dot, UI_COLOR_ERR, 0);
-    lv_obj_align(s_can_dot, LV_ALIGN_RIGHT_MID, 0, 0);
-    lv_obj_remove_flag(s_can_dot, LV_OBJ_FLAG_SCROLLABLE);
+    s_link_dot = lv_obj_create(bar);
+    lv_obj_set_size(s_link_dot, 12, 12);
+    lv_obj_set_style_radius(s_link_dot, LV_RADIUS_CIRCLE, 0);
+    lv_obj_set_style_border_width(s_link_dot, 0, 0);
+    lv_obj_set_style_bg_color(s_link_dot, UI_COLOR_ERR, 0);
+    lv_obj_align(s_link_dot, LV_ALIGN_RIGHT_MID, 0, 0);
+    lv_obj_remove_flag(s_link_dot, LV_OBJ_FLAG_SCROLLABLE);
 
     /* --- 2 x 4 button grid --- */
     static int32_t col_dsc[] = { LV_GRID_FR(1), LV_GRID_FR(1), LV_GRID_TEMPLATE_LAST };
@@ -206,7 +216,7 @@ static void build_screen(void)
     lv_obj_add_event_cb(s_dim_overlay, dim_overlay_event_cb, LV_EVENT_PRESSED, NULL);
 
     lv_timer_create(idle_timer_cb, 1000, NULL);
-    lv_timer_create(can_health_timer_cb, 500, NULL);
+    lv_timer_create(link_health_timer_cb, 500, NULL);
 }
 
 /* ------------------------------------------------------------- API ------ */

@@ -16,8 +16,15 @@ run. If you add a panel header without adding a row here, CI fails.
 |---|---|---|---|---|
 | `living_room` | 0 | `0x80` | LIVING ROOM | Living room wall — Entegra SW2-E8 (p/n 0291135 / 75570) |
 | `ent_center` | 1 | `0x81` | ENT CENTER | Entertainment center — Entegra SW4-E1 (p/n 0291136 / 75571) |
+| `living_room_remote` | 2 | `0x82`† | LR REMOTE | No CAN wiring — relays to `living_room` over ESP-NOW, see below |
 
-**Next free index: 2** (source address `0x82`).
+**Next free index: 3** (source address `0x83`).
+
+† `living_room_remote` has `PANEL_HAS_CAN 0` (`panels/living_room_remote.h`)
+— it never transmits on the CAN bus, so `0x82` is never actually claimed as
+a source address. The index is still allocated from this table because it
+doubles as the panel's ESP-NOW peer identity; one allocation table stays
+authoritative for every panel regardless of role.
 
 ## Rules
 
