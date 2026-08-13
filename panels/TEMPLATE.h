@@ -43,6 +43,15 @@
 #define PANEL_INDEX 99
 
 /*
+ * Set to 0 for a panel with no CAN wiring at all — it relays
+ * commands/status to/from a PANEL_IS_BRIDGE=1 panel over ESP-NOW instead.
+ * See main/panel_config.h and components/espnow_link. Leave at 1 (the
+ * default in panel_config.h, so this line can be omitted) for a normal
+ * CAN-connected panel.
+ */
+#define PANEL_HAS_CAN 1
+
+/*
  * Buttons in reading order for the 2-column x 4-row grid:
  *
  *   [0] [1]

@@ -37,6 +37,27 @@ static instance_state_t s_states[256];
 static volatile TickType_t s_last_rx_tick;
 static volatile bool s_rx_seen;
 
+static state_status_sink_t s_sink;
+static void *s_sink_ctx;
+
+void state_manager_register_status_sink(state_status_sink_t cb, void *ctx)
+{
+    s_sink = cb;
+    s_sink_ctx = ctx;
+}
+
+void state_manager_for_each_known(state_status_sink_t cb, void *ctx)
+{
+    if (cb == NULL) {
+        return;
+    }
+    for (uint32_t i = 0; i < 256; i++) {
+        if (s_states[i].known) {
+            cb((uint8_t)i, s_states[i].level, s_states[i].on, ctx);
+        }
+    }
+}
+
 void state_manager_note_rx(void)
 {
     s_last_rx_tick = xTaskGetTickCount();
@@ -85,6 +106,9 @@ static void state_manager_task(void *arg)
         if (changed) {
             ESP_LOGD(TAG, "instance %u -> level=%u on=%d", msg.instance, msg.level, msg.on);
             ui_on_status(msg.instance, msg.level, msg.on);
+            if (s_sink != NULL) {
+                s_sink(msg.instance, msg.level, msg.on, s_sink_ctx);
+            }
         }
     }
 }

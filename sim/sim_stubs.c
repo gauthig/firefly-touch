@@ -9,6 +9,7 @@
 #include <stdio.h>
 
 #include "board_4_3b.h"
+#include "bridge_tx.h"
 #include "rvc_protocol.h"
 #include "state_manager.h"
 #include "twai_tasks.h"
@@ -22,6 +23,11 @@ static bool    s_on[256];
 static uint8_t s_memory[256];   /* last non-zero level, for ON restore */
 
 bool state_manager_bus_healthy(void)
+{
+    return true;
+}
+
+bool espnow_link_healthy(void)
 {
     return true;
 }
@@ -82,6 +88,16 @@ bool twai_enqueue_dimmer_cmd(uint8_t instance, rvc_dimmer_cmd_t cmd,
            instance, cmd, *lvl, *on);
     ui_on_status(instance, *lvl, *on);
     return true;
+}
+
+/* Real firmware picks a backend (CAN vs ESP-NOW) at build time via
+ * PANEL_HAS_CAN (main/bridge_tx.c). The simulator has only one fake bus,
+ * so both roles drive it directly here — good enough to exercise the UI
+ * for a PANEL_HAS_CAN=0 panel, but it never actually goes over ESP-NOW. */
+bool bridge_enqueue_dimmer_cmd(uint8_t instance, rvc_dimmer_cmd_t cmd,
+                               uint8_t level, uint8_t duration)
+{
+    return twai_enqueue_dimmer_cmd(instance, cmd, level, duration);
 }
 
 /* Called from main_sim to make the screen look alive at startup. */
