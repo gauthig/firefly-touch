@@ -264,10 +264,14 @@ loads:
     source: all panels (factory legend "PL1")
     verified: true
     notes: >
-      Not RV-C at all. Current firmware (PANEL_BTN_PANEL_LIGHTS in both
-      living_room.h and ent_center.h) cycles the local LCD backlight
-      100/60/20% on tap. Use the same PANEL_BTN_PANEL_LIGHTS type on any new
-      panel -- do not send a CAN/ESP-NOW command for this button.
+      Not RV-C at all. As of GitHub issue #3 (2026-08-15) there is no
+      manual PANEL LIGHTS button anymore -- the LCD backlight is automatic
+      (dim on 120s idle, off on 300s idle, wake on touch; see main/ui/ui.c
+      and CLAUDE.md's UI section). The factory "PL1" DGN is still
+      unidentified and was never actually implemented by the old manual
+      button either -- it only ever drove the panel's own LCD, never a CAN
+      frame. This row stays for the factory-legend reference; there is no
+      corresponding button type in panel_def.h anymore.
 
   - name: Light Master (all-panel on/off)
     instances: []
