@@ -28,15 +28,21 @@
 
 static const char *TAG = "ui";
 
-#define STATUSBAR_H        36
-#define IDLE_DIM_TIMEOUT_MS 300000
-#define IDLE_DIM_PERCENT    20
+#define STATUSBAR_H         36
+#define IDLE_DIM_TIMEOUT_MS 120000
+#define IDLE_OFF_TIMEOUT_MS 300000
+#define IDLE_DIM_PERCENT    50
+
+typedef enum {
+    BACKLIGHT_NORMAL,
+    BACKLIGHT_DIMMED,
+    BACKLIGHT_OFF,
+} backlight_state_t;
 
 static lv_obj_t *s_buttons[PANEL_BUTTON_COUNT];
 static lv_obj_t *s_link_dot;
 static lv_obj_t *s_dim_overlay;
-static uint8_t s_user_backlight_pct = 100;
-static bool s_auto_dimmed;
+static backlight_state_t s_backlight_state;
 static bool s_ui_ready;
 
 /* ------------------------------------------------------- backlight ------ */
@@ -44,8 +50,10 @@ static bool s_ui_ready;
 /*
  * The 4.3B backlight enable (CH422G EXIO2) is on/off only, so intermediate
  * brightness is emulated with a translucent black overlay on the LVGL top
- * layer. When the hardware PWM TODO in board_4_3b.h is resolved, route
- * percent to board_backlight_set_percent() and drop the overlay opacity.
+ * layer; percent == 0 drives EXIO2 low for a real hardware off, not just a
+ * fully-opaque overlay. When the hardware PWM TODO in board_4_3b.h is
+ * resolved, route percent to board_backlight_set_percent() and drop the
+ * overlay opacity.
  */
 static void apply_backlight(uint8_t percent)
 {
@@ -63,12 +71,12 @@ static void apply_backlight(uint8_t percent)
 static void dim_overlay_event_cb(lv_event_t *e)
 {
     /* Wake touch: restore brightness and swallow the press so the button
-     * underneath never fires. The overlay is only CLICKABLE while
-     * auto-dimmed; at manual partial brightness touches pass through. */
-    if (lv_event_get_code(e) == LV_EVENT_PRESSED && s_auto_dimmed) {
-        s_auto_dimmed = false;
+     * underneath never fires. The overlay is only CLICKABLE while dimmed
+     * or off; at full brightness touches pass straight through it. */
+    if (lv_event_get_code(e) == LV_EVENT_PRESSED && s_backlight_state != BACKLIGHT_NORMAL) {
+        s_backlight_state = BACKLIGHT_NORMAL;
         lv_obj_remove_flag(s_dim_overlay, LV_OBJ_FLAG_CLICKABLE);
-        apply_backlight(s_user_backlight_pct);
+        apply_backlight(100);
     }
 }
 
@@ -76,16 +84,16 @@ static void idle_timer_cb(lv_timer_t *t)
 {
     (void)t;
     uint32_t inactive_ms = lv_display_get_inactive_time(NULL);
-    /* TEMP DIAGNOSTIC: remove once the idle-dim bug is root-caused. If this
-     * value keeps resetting to ~0 instead of climbing, something (most
-     * likely a stuck/phantom touch read) is continuously registering as
-     * activity and the idle timer will never fire. */
-    ESP_LOGI(TAG, "idle: inactive_ms=%lu auto_dimmed=%d",
-             (unsigned long)inactive_ms, (int)s_auto_dimmed);
-    if (!s_auto_dimmed && inactive_ms > IDLE_DIM_TIMEOUT_MS) {
-        s_auto_dimmed = true;
+
+    if (s_backlight_state == BACKLIGHT_NORMAL && inactive_ms > IDLE_DIM_TIMEOUT_MS) {
+        s_backlight_state = BACKLIGHT_DIMMED;
         apply_backlight(IDLE_DIM_PERCENT);
         lv_obj_add_flag(s_dim_overlay, LV_OBJ_FLAG_CLICKABLE);
+        ESP_LOGI(TAG, "idle %lu ms -> dimmed", (unsigned long)inactive_ms);
+    } else if (s_backlight_state == BACKLIGHT_DIMMED && inactive_ms > IDLE_OFF_TIMEOUT_MS) {
+        s_backlight_state = BACKLIGHT_OFF;
+        apply_backlight(0);
+        ESP_LOGI(TAG, "idle %lu ms -> backlight off", (unsigned long)inactive_ms);
     }
 }
 
@@ -104,31 +112,10 @@ static void link_health_timer_cb(lv_timer_t *t)
 
 /* ------------------------------------------------------- commands ------- */
 
-static void cycle_local_backlight(void)
-{
-    /* PANEL LIGHTS also drives our own LCD: cycle 100 -> 60 -> 20 -> 100. */
-    s_user_backlight_pct = (s_user_backlight_pct > 60) ? 60
-                         : (s_user_backlight_pct > 20) ? 20
-                         : 100;
-    if (!s_auto_dimmed) {
-        apply_backlight(s_user_backlight_pct);
-    }
-    ESP_LOGI(TAG, "local backlight -> %u%%", s_user_backlight_pct);
-}
-
 static void panel_send_cb(const panel_btn_def_t *def, rvc_dimmer_cmd_t cmd,
                           void *user_ctx)
 {
     (void)user_ctx;
-
-    if (def->type == PANEL_BTN_PANEL_LIGHTS) {
-        /* TODO(bench): capture the factory panel's PL1 frames in sniffer
-         * mode and transmit whatever DGN the factory switch backlights
-         * actually use. For now this only logs and dims our own LCD. */
-        ESP_LOGI(TAG, "PANEL LIGHTS pressed (PL1 DGN unknown — sniff to implement)");
-        cycle_local_backlight();
-        return;
-    }
 
     /* ON/OFF/TOGGLE carry an explicit desired level of 100 % rather than
      * 0xFF "no change" — this matches the proven-working frame from

@@ -248,7 +248,6 @@ spec-discipline rule for anything touching multiple files.
 | DINETTE / SCONCE-DINETTE    | 33 | both |
 | SINK/COUNTER    | 34 | both |
 | MIDSHIP / HALL-MIDSHIP      | 35 | both |
-| PANEL LIGHTS (PL1)          | n/a | both — **placeholder, see Note B** |
 
 `living_room` (on-screen "MID COACH") and `ent_center` were realigned
 2026-08-15 to drive the same instance set. **ENTRY CEILING (24)** and
@@ -262,9 +261,12 @@ including everything not yet wired to firmware.
   (on/off) on instances 44+45; the P/H prefixes may indicate a different
   load type or a scene. Verify via sniffer before trusting if re-added.
 - **Note B:** PL1 is the factory switch-panel backlight — probably not a
-  DC_DIMMER instance. Currently logs the press and cycles the local LCD
-  brightness (100→60→20 %). Capture factory frames in sniffer mode to
-  implement the real DGN. Lead: on Spyder-based coaches panel backlights use
+  DC_DIMMER instance. Never implemented as a real DGN (the old manual
+  PANEL LIGHTS button only ever drove the panel's own LCD locally, never a
+  CAN frame — see the *Automatic backlight* note in the UI section, which
+  replaced that button with automatic idle dim/off). Capture factory
+  frames in sniffer mode to implement the real DGN if PL1 is ever wanted.
+  Lead: on Spyder-based coaches panel backlights use
   `GENERIC_INDICATOR_COMMAND` (status `0x1FED7`) with group = panel ID and
   function 0 = set brightness (per CoachProxy's Tiffin notes) — Firefly may
   do the same.
@@ -302,10 +304,21 @@ VSYNC 3, HSYNC 46, PCLK 7, data B3–B7/G2–G7/R3–R7 =
 
 Dark night theme (near-black screen bg) in `ui_theme.h`. Status bar (36 px):
 panel name + CAN-health dot (green if any bus frame in the last 5 s, else
-red). Backlight auto-dims to 20 % after 5 min idle (300 s); the waking touch
-is absorbed by the top-layer overlay and never reaches a button.
-`idle_timer_cb` logs `inactive_ms` every second while the idle-dim path is
-under verification — remove once confirmed on 4.3B.
+red).
+
+**Automatic backlight (GitHub issue #3, replaces the old manual PANEL
+LIGHTS button):** `idle_timer_cb` in `main/ui/ui.c` tracks
+`lv_display_get_inactive_time()` through a 3-state
+`backlight_state_t` (`BACKLIGHT_NORMAL` / `BACKLIGHT_DIMMED` /
+`BACKLIGHT_OFF`) — 120 s idle dims to 20 %, 300 s idle turns the backlight
+fully off via `board_backlight_set_percent(0)` (a real CH422G EXIO2
+disable, not just a fully-opaque overlay). Either stage wakes to 100 % on
+the first touch, which is absorbed by the top-layer dim overlay and never
+reaches a button underneath. There is no manual brightness button anymore
+— see `docs/SPEC-panel-v2.md` for the design and open risks (notably:
+does GT911 touch still register with the backlight physically off —
+confirm on the bench before trusting the OFF stage on a coach-installed
+panel).
 
 **Buttons (2026-08-15, coach-installed and confirmed working with the new
 color scheme on `living_room`/"MID COACH"):** label text only, no icon glyph — the

@@ -3,11 +3,13 @@
  * (p/n 0291135 / 75570).
  * Build: idf.py -DPANEL=living_room build
  *
- * 2-column x 4-row grid, reading order (row-major):
+ * 2-column x 4-row grid, reading order (row-major). Bottom-right cell is
+ * empty as of GitHub issue #3 (PANEL LIGHTS button removed, backlight is
+ * now automatic) until issue #4's screen-switch button fills it:
  *   CENTER CEILING     | SIDE CEILING
  *   SOFA SCONCE/SLIDE  | SINK/COUNTER
  *   DINETTE            | ACCENT
- *   MIDSHIP            | PANEL LIGHTS
+ *   MIDSHIP            |
  */
 #pragma once
 
@@ -30,7 +32,6 @@ static const panel_btn_def_t PANEL_BUTTONS[] = {
     { "SOFA SCONCE/SLIDE", PANEL_BTN_DIMMER, {32},   1 },
     { "DINETTE",         PANEL_BTN_DIMMER, {33},     1 },
     { "ACCENT",          PANEL_BTN_DIMMER, {26, 27}, 2 },
-    { "PANEL LIGHTS",    PANEL_BTN_PANEL_LIGHTS, {0}, 0 },
 };
 
 #define PANEL_BUTTON_COUNT (sizeof(PANEL_BUTTONS) / sizeof(PANEL_BUTTONS[0]))

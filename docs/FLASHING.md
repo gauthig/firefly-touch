@@ -297,9 +297,10 @@ Copy-Item panels\TEMPLATE.h panels\galley.h
 
 3. Edit `panels/galley.h`: set `PANEL_NAME`, set `PANEL_INDEX` to the index
    from step 1, delete the `#error` line, and fill in `PANEL_BUTTONS[]` —
-   label, type (`PANEL_BTN_DIMMER`, `PANEL_BTN_SWITCH`,
-   `PANEL_BTN_PANEL_LIGHTS`), and RV-C instances. The grid is 2 columns × 4
-   rows in reading order.
+   label, type (`PANEL_BTN_DIMMER`, `PANEL_BTN_SWITCH`), and RV-C
+   instances. The grid is 2 columns × 4 rows in reading order; backlight is
+   automatic (see CLAUDE.md's UI section) so there's no manual
+   lights/brightness button to wire up.
 4. Add a row to `panels/REGISTRY.md` and bump its **Next free index** line.
 5. Validate before building:
 
