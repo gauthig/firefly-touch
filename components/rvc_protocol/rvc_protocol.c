@@ -86,3 +86,52 @@ bool rvc_decode_dc_dimmer_status_3(const uint8_t *data, size_t len, rvc_dimmer_s
     out->load_on = (data[2] != 0 && data[2] != RVC_FIELD_NA);
     return true;
 }
+
+/*
+ * TANK_STATUS payload layout (RV-C), broadcast read-only by the Garnet
+ * SeeLevel II 709-RVC tank monitor:
+ *   byte 0    instance
+ *   byte 1    relative level (count of "wet" capacitive sensor segments)
+ *   byte 2    resolution (total sensor segment count for this tank's strip;
+ *             percent = relative_level * 100 / resolution)
+ *   byte 3-4  absolute level, Liters (uint16, unused here)
+ *   byte 5-6  tank size, Liters (uint16, unused here)
+ *
+ * Corrected 2026-08-15 against a real bus capture on the coach (sniffer
+ * mode) after this unit's tanks all showed 0%: resolution is NOT a
+ * percent-per-count divisor (relative_level is always < resolution, so
+ * integer-dividing them without the *100 always truncates to 0) -- it's the
+ * SeeLevel's total segment count for that specific tank's sensor strip,
+ * which is why it varies per instance (e.g. 32 vs 28 on this coach) rather
+ * than being a fixed protocol constant. Captured frames, used verbatim as
+ * regression test vectors in host_test/test_rvc.c:
+ *   instance 0 (fresh): level=4,  resolution=32 -> 12%
+ *   instance 1 (black): level=3,  resolution=28 -> 10%
+ *   instance 2 (gray):  level=19, resolution=28 -> 67%
+ *
+ * relative_level == RVC_FIELD_NA (0xFF), or resolution == 0, means "not yet
+ * reported" per docs/instance_map.yaml -> tank_dgn. Percent is clamped to
+ * 0..100 defensively — an out-of-spec relative_level > resolution could
+ * otherwise report over 100%.
+ */
+bool rvc_decode_tank_status(const uint8_t *data, size_t len, rvc_tank_status_t *out)
+{
+    if (data == NULL || out == NULL || len < 3) {
+        return false;
+    }
+
+    memset(out, 0, sizeof(*out));
+    out->instance = data[0];
+
+    const uint8_t relative_level = data[1];
+    const uint8_t resolution = data[2];
+    if (relative_level == RVC_FIELD_NA || resolution == 0) {
+        out->valid = false;
+        return true;
+    }
+
+    const uint32_t percent = ((uint32_t)relative_level * 100u) / resolution;
+    out->percent = (uint8_t)(percent > 100 ? 100 : percent);
+    out->valid = true;
+    return true;
+}

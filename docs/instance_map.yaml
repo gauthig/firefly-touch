@@ -290,25 +290,30 @@ loads:
 # DC_DIMMER DGN the `loads` table above uses. See the header comment above
 # `tank_sensors` (top of file) for why no panel can display these yet.
 #
-# Researched from public RV-C references 2026-08-15 (not yet confirmed
-# against this coach's actual bus traffic -- verified: false throughout
-# until sniffed):
-#   - Garnet 709-RVC product docs (garnetinstruments.com) -- confirms the
-#     unit broadcasts fresh/grey/black (+ 1 LPG channel on some models) on
-#     RV-C, default source address 72 (0x48).
-#   - Victron GX RV-C support notes (victronenergy.com) and Victron
-#     community archive -- corroborate source address 72 and that
-#     SPN-ISB/instance values are 0=fresh, 1=black, 2=grey.
+# Byte layout and instance mapping BUS-CONFIRMED 2026-08-15 via sniffer
+# mode on this coach (source addr 0x48 = 0xAF... wait, see note below) --
+# no longer "public references only". Originally researched from:
+#   - Garnet 709-RVC product docs (garnetinstruments.com)
+#   - Victron GX RV-C support notes (victronenergy.com) and community archive
 #   - linuxkidd/coachproxy-os `rvc-spec.yml` (github.com/linuxkidd/
 #     coachproxy-os) -- same open-source RV-C spec family already used to
 #     verify this project's DC_DIMMER command codes (see CLAUDE.md's RV-C
-#     protocol section). Gives the full TANK_STATUS byte layout and the
-#     same 0/1/2/3 instance mapping, independently confirming the above.
+#     protocol section)
+# ...then corrected against real captured frames after the firmware
+# initially decoded all three tanks as 0%. The bug: `percent = relative_level
+# / resolution` (as the public sources described it) integer-truncates to 0
+# whenever relative_level < resolution, which is ALWAYS true here --
+# resolution is this SeeLevel unit's total capacitive-sensor-segment count
+# for that tank's strip (it differs per instance: 32 vs 28 on this coach),
+# not a percent-per-count divisor. Correct formula, confirmed against three
+# real captured frames (also used as host_test/test_rvc.c regression
+# vectors): percent = relative_level * 100 / resolution.
 tank_dgn:
   name: TANK_STATUS
   dgn: "0x1FFB7"
   direction: RX (broadcast by the SeeLevel unit, panels never send it)
-  source_address_default: "0x48 (72)"
+  source_address_default: "0x48 (72) per public docs; this coach's unit
+    sniffed transmitting from 0xAF -- see tank_sensors notes below"
   fields:
     - byte: 0
       name: instance
@@ -316,50 +321,75 @@ tank_dgn:
         this coach's 3-sensor kit
     - byte: 1
       name: relative_level
-      notes: "raw fill level; percent = relative_level / resolution"
+      notes: count of "wet" capacitive sensor segments (bus-confirmed
+        2026-08-15)
     - byte: 2
       name: resolution
-      notes: scale factor for relative_level (commonly 2, i.e. 0.5% steps,
-        matching the same convention DC_DIMMER_STATUS_3 uses for
-        brightness -- unconfirmed for this specific unit)
+      notes: total sensor segment count for this tank's strip -- varies per
+        instance (32 for fresh, 28 for black/gray on this coach), NOT a
+        fixed protocol constant. percent = relative_level * 100 / resolution
+        (bus-confirmed 2026-08-15, see header note above)
     - byte: 3-4
       name: absolute_level
-      unit: Liter (uint16)
+      unit: Liter (uint16, seen as 0xFFFF/not-available on this coach)
     - byte: 5-6
       name: tank_size
-      unit: Liter (uint16)
+      unit: Liter (uint16, seen as 0xFFFF/not-available on this coach)
 
+# Displayed on panels/living_room.h ("MID COACH") screen 2 as of GitHub
+# issue #5. verified: true below means the instance number + decode
+# formula are bus-confirmed correct (sniffer capture 2026-08-15) -- NOT
+# that the displayed percent exactly matches the SeeLevel unit's own
+# front-panel digits. It doesn't, by design of the hardware:
+#
+#   Compared 2026-08-15 against the physical SeeLevel II display:
+#     Fresh: panel 12% vs SeeLevel  9%  (+3)
+#     Grey:  panel 67% vs SeeLevel 68%  (-1, within rounding)
+#     Black: panel 10% vs SeeLevel 14%  (-4)
+#
+#   Grey is an effective match; Fresh and Black are off by a few points.
+#   Likely cause: the SeeLevel's advertised feature is per-tank shape
+#   COMPENSATION -- correcting the raw "N of M capacitive segments wet"
+#   ratio for non-rectangular tank geometry before showing a number on its
+#   own display. TANK_STATUS on the bus appears to carry the raw,
+#   uncompensated segment ratio (relative_level/resolution) -- the
+#   compensation curve itself isn't exposed over RV-C and would need
+#   extensive additional sampling across each tank's full range to even
+#   attempt reverse-engineering, with no guarantee of matching Garnet's
+#   proprietary firmware. Accepted as good enough 2026-08-15 -- the panel
+#   reading is directionally correct and close, just not pixel-exact to
+#   the SeeLevel's own compensated display.
 tank_sensors:
   - name: Fresh Tank
     instance: 0
     dgn: "0x1FFB7 (TANK_STATUS)"
-    verified: false
-    notes: User-confirmed 2026-08-15 this coach has a Fresh Tank sensor on
-      the SeeLevel II 709-RVC. Instance 0 per RV-C convention (fresh water
-      is always instance 0) -- confirm via sniffer before wiring a button.
+    verified: true
+    notes: Bus-confirmed 2026-08-15 via sniffer capture on living_room
+      (source addr 0xAF). Instance 0 = fresh, matching RV-C convention.
+      Displayed percent runs a few points off the SeeLevel's own display
+      -- see the tank-shape-compensation note above this block.
 
   - name: Black Tank
     instance: 1
     dgn: "0x1FFB7 (TANK_STATUS)"
-    verified: false
+    verified: true
     notes: >
-      User-confirmed 2026-08-15 this coach has a Black Tank sensor. Public
-      references disagree on whether black is instance 1 or 2 -- Garnet/
-      Victron material and the coachproxy-os rvc-spec.yml both independently
-      say instance 1 = black waste, instance 2 = gray waste (one community
-      forum post claimed the reverse, but two independent technical sources
-      agree with each other, so that ordering is used here). CONFIRM VIA
-      SNIFFER before trusting -- this is the one value in this whole file
-      most worth double-checking first, since a swapped grey/black reading
-      would be actively misleading rather than just missing.
+      Bus-confirmed 2026-08-15 via sniffer capture: instance 1 = black,
+      matching Garnet/Victron docs and coachproxy-os's rvc-spec.yml (the
+      community-forum claim of the reverse ordering was wrong). Displayed
+      percent runs a few points off the SeeLevel's own display -- see the
+      tank-shape-compensation note above this block.
 
   - name: Grey Tank
     instance: 2
     dgn: "0x1FFB7 (TANK_STATUS)"
-    verified: false
-    notes: User-confirmed 2026-08-15 this coach has a Grey Tank sensor.
-      Instance 2 per the same sourcing as Black Tank above -- verify via
-      sniffer together with it.
+    verified: true
+    notes: >
+      Bus-confirmed 2026-08-15 via sniffer capture: instance 2 = gray.
+      Displayed percent (67%) essentially matches the SeeLevel's own
+      display (68%) -- the closest of the three tanks, consistent with
+      grey tanks often being closer to a simple rectangular shape (see the
+      tank-shape-compensation note above this block).
 
 # Physical factory panel layouts, for reference when laying out a new
 # panel's button grid to match a familiar physical location. Row order is

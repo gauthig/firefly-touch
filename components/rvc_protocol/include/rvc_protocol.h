@@ -23,6 +23,7 @@ extern "C" {
 /* ---- DGNs used by this project ---------------------------------------- */
 #define RVC_DGN_DC_DIMMER_COMMAND_2  0x1FEDBu
 #define RVC_DGN_DC_DIMMER_STATUS_3   0x1FEDAu
+#define RVC_DGN_TANK_STATUS          0x1FFB7u
 
 #define RVC_PRIORITY_DEFAULT  6u
 
@@ -102,6 +103,29 @@ typedef struct {
 
 /* Returns false if the frame is too short to be a valid STATUS_3. */
 bool rvc_decode_dc_dimmer_status_3(const uint8_t *data, size_t len, rvc_dimmer_status_t *out);
+
+/* ---- TANK_STATUS (DGN 0x1FFB7), receive -------------------------------- */
+
+/*
+ * Broadcast read-only by the coach's Garnet SeeLevel II 709-RVC tank
+ * monitor — a completely different DGN/namespace from the dimmer loads
+ * above. instance: 0=fresh, 1=black, 2=gray, 3=lpg (16-19 = a second set
+ * on some units). See docs/instance_map.yaml -> tank_dgn/tank_sensors for
+ * the full byte layout and sourcing.
+ */
+typedef struct {
+    uint8_t instance;
+    uint8_t percent;   /* 0..100; meaningful only if valid */
+    bool    valid;     /* false if the sender reports "not available" */
+} rvc_tank_status_t;
+
+/*
+ * Returns false only if the frame is too short to contain instance/
+ * relative-level/resolution (the only fields this project currently
+ * needs — absolute level and tank size in liters are on the wire but
+ * unused here).
+ */
+bool rvc_decode_tank_status(const uint8_t *data, size_t len, rvc_tank_status_t *out);
 
 /* ---- Level helpers ----------------------------------------------------- */
 

@@ -213,29 +213,47 @@ ON/OFF to all members so they can't desync; shown ON if **any** member is
 on), press-and-hold = ramp (direction alternates per hold, re-sent while
 held, STOP on release).
 
-### Tank sensors (SeeLevel II 709-RVC) — protocol documented, not yet wired
+### Tank sensors (SeeLevel II 709-RVC) — displayable, screen-2 widget on MID COACH
 
 This coach has a Garnet SeeLevel II 709-RVC tank monitor with 3 sensors
-(Fresh, Grey, Black) on the RV-C bus, default source address `0x48`. It
-broadcasts read-only `TANK_STATUS` (`0x1FFB7`) — a **different DGN from the
-dimmer loads above**, so it needs its own decode path, not a reuse of
-`DC_DIMMER_STATUS_3`. Full byte layout and instance numbers researched
-2026-08-15 (Garnet/Victron docs + `linuxkidd/coachproxy-os`'s
-`rvc-spec.yml`, the same open-source RV-C spec family already used to
-verify this project's dimmer command codes) are in
-[docs/instance_map.yaml](docs/instance_map.yaml) → `tank_dgn` /
-`tank_sensors`. Short version: instance 0 = fresh, 1 = black, 2 = grey;
-percent = relative-level byte ÷ resolution byte. **Unverified against this
-coach's actual bus traffic** — confirm via sniffer, especially the
-black/grey instance ordering, before trusting it.
+(Fresh, Grey, Black) on the RV-C bus. It broadcasts read-only
+`TANK_STATUS` (`0x1FFB7`) — a **different DGN from the dimmer loads
+above**, decoded on its own path (`twai_tasks.c` → a dedicated tank state
+table in `state_manager.c`, never the dimmer instance table) and displayed
+via the read-only `PANEL_BTN_TANK_LEVEL` button type.
 
-**Not yet displayable on any panel.** `panel_btn_def_t` /
-`ui_dimmer_button` only understand the DC_DIMMER on/off + ramp model today
-— there's no gauge/percentage widget and no `TANK_STATUS` decode in
-`twai_rx_task`/`state_manager`. Building that (new button/widget type, a
-second decode path, a place to hold 3 more values) is a real feature, not
-a config change — spec it out before implementing, per this project's
-spec-discipline rule for anything touching multiple files.
+**Byte layout and instance mapping bus-confirmed 2026-08-15** via sniffer
+mode on `living_room`: instance 0 = fresh, 1 = black, 2 = gray (matches
+the public research). **Percent formula corrected against real captured
+frames** — public sources (Garnet/Victron docs,
+`linuxkidd/coachproxy-os`'s `rvc-spec.yml`) describe it as
+`relative_level / resolution`, but that's wrong for this unit: resolution
+is the SeeLevel's total capacitive-sensor-segment count for that tank's
+strip (varies per instance — 32 vs 28 on this coach), not a
+percent-per-count divisor, so plain integer division always truncated to
+0. Correct formula: `percent = relative_level * 100 / resolution`. Full
+detail and the three captured frames (also used as
+`host_test/test_rvc.c` regression vectors) are in
+[docs/instance_map.yaml](docs/instance_map.yaml) → `tank_dgn`.
+
+Live on `panels/living_room.h` ("MID COACH") as of GitHub issues #4/#5:
+screen 2 shows FRESH/GREY/BLACK with a BACK button, reached via a
+**TANK LEVELS** button in screen 1's bottom-right slot (see *Dual screens*
+below). Not yet wired to `ent_center` or `living_room_remote` — the latter
+has no CAN wiring and can't see `TANK_STATUS` frames directly (ESP-NOW
+relay of tank data is explicitly out of scope for now, see
+`docs/SPEC-panel-v2.md`).
+
+**Known limitation, accepted 2026-08-15: displayed percent won't exactly
+match the SeeLevel unit's own front-panel digits.** Compared directly on
+the bench: Fresh panel 12% vs SeeLevel 9%, Grey 67% vs 68% (near-exact),
+Black 10% vs 14%. Likely cause: the SeeLevel's own display applies
+per-tank shape compensation (correcting the raw "N of M segments wet"
+ratio for non-rectangular tank geometry) that isn't exposed over RV-C —
+`TANK_STATUS` appears to carry the raw, uncompensated ratio. Reverse-
+engineering that curve isn't practical from the bus alone. See
+[docs/instance_map.yaml](docs/instance_map.yaml) → `tank_sensors` for the
+full comparison and reasoning.
 
 ## Instance map (from factory Entegra legends — verify via sniffer!)
 
@@ -331,6 +349,21 @@ light blue (`UI_COLOR_CARD_ON`, on), set on the button object itself in
 flips (`UI_COLOR_TEXT_DIM` off, `UI_COLOR_TEXT_ON_LIT` — dark navy — on) for
 contrast against the light-blue on-state. The dimmer level bar keeps its own
 amber (`UI_COLOR_AMBER`) fill, independent of this background swap.
+
+**Dual screens (GitHub issue #4).** A panel opts in with
+`#define PANEL_HAS_SCREEN_2 1` (default 0, `main/panel_config.h`) plus a
+second `PANEL_BUTTONS_2[]`/`PANEL_BUTTON_COUNT_2` array, same 2x4 grid
+layout as screen 1. `build_screen()` in `main/ui/ui.c` builds both grids
+up front as sibling containers (screen 2 starts `LV_OBJ_FLAG_HIDDEN`) so
+status updates keep both correct even while one is hidden — switching
+back must never show stale state. One `PANEL_BTN_SCREEN_SWITCH` button per
+screen (conventionally the same grid slot on both, e.g. bottom-right)
+calls `switch_screen()` to toggle which grid is visible; it's local UI
+nav only, never forwarded as an RV-C command. `PANEL_BTN_SPACER` fills a
+grid cell with nothing, which is how a screen positions its switch button
+at a specific cell (e.g. bottom-right) instead of wherever sequential
+fill would put it — see `panels/living_room.h`'s `PANEL_BUTTONS_2[]` for
+an example (3 tank buttons, 4 spacers, then BACK).
 
 **Display orientation: portrait (90° CW).** `lvgl_init()` in `board_4_3b.c`
 sets `.sw_rotate = true` and calls `lv_display_set_rotation(disp,
