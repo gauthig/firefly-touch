@@ -40,6 +40,7 @@ add_executable(sim
     ${REPO}/main/ui/ui.c
     ${REPO}/components/ui_common/ui_theme.c
     ${REPO}/components/ui_common/ui_dimmer_button.c
+    ${REPO}/components/ui_common/ui_tank_wave.c
     ${REPO}/components/rvc_protocol/rvc_protocol.c
 )
 # Order matters: stubs/ must shadow the real ESP headers in main/.
@@ -57,7 +58,7 @@ target_compile_definitions(sim PRIVATE
 )
 target_compile_options(sim PRIVATE -Wall -Wextra)
 target_link_directories(sim PRIVATE ${SDL2_ROOT}/lib)
-target_link_libraries(sim lvgl SDL2)
+target_link_libraries(sim lvgl SDL2 m)
 set_target_properties(sim PROPERTIES OUTPUT_NAME "sim_${PANEL}")
 
 add_custom_command(TARGET sim POST_BUILD

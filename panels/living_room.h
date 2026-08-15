@@ -10,14 +10,13 @@
  *   DINETTE            | ACCENT
  *   MIDSHIP            | TANK LEVELS
  *
- * Screen 2 — tank levels (SeeLevel II 709-RVC, GitHub issue #5). BACK sits
- * at the bottom-right (same convention: the screen-switch button always
- * lives in the same cell on every screen it appears on) via PANEL_BTN_SPACER
- * filler cells:
- *   FRESH  | GREY
- *   BLACK  |
- *          |
- *          | BACK
+ * Screen 2 — tank levels (SeeLevel II 709-RVC, GitHub issue #5), reworked
+ * to an animated wave-gauge row + small pinned BACK button (issues #9-#11):
+ * FRESH/GREY/BLACK lay out as a centered row of gauges (main/ui/ui.c's
+ * build_screen2_tanks()), BACK as a small button pinned bottom-center. No
+ * manual grid/spacer positioning needed for this layout, unlike screen 1.
+ * The status bar also reads the GREY/BLACK buttons here by label to drive
+ * the header's "Grey-Black OK/Warn/FULL" readout (issue #9).
  *
  * Instance numbers (0=fresh, 1=black, 2=gray) per docs/instance_map.yaml ->
  * tank_sensors -- still unverified against this coach's actual bus traffic,
@@ -52,13 +51,9 @@ static const panel_btn_def_t PANEL_BUTTONS[] = {
 #define PANEL_BUTTON_COUNT (sizeof(PANEL_BUTTONS) / sizeof(PANEL_BUTTONS[0]))
 
 static const panel_btn_def_t PANEL_BUTTONS_2[] = {
-    { "FRESH", PANEL_BTN_TANK_LEVEL,   {0}, 1 },
-    { "GREY",  PANEL_BTN_TANK_LEVEL,   {2}, 1 },
-    { "BLACK", PANEL_BTN_TANK_LEVEL,   {1}, 1 },
-    { "",      PANEL_BTN_SPACER,       {0}, 0 },
-    { "",      PANEL_BTN_SPACER,       {0}, 0 },
-    { "",      PANEL_BTN_SPACER,       {0}, 0 },
-    { "",      PANEL_BTN_SPACER,       {0}, 0 },
+    { "FRESH", PANEL_BTN_TANK_LEVEL,    {0}, 1 },
+    { "GREY",  PANEL_BTN_TANK_LEVEL,    {2}, 1 },
+    { "BLACK", PANEL_BTN_TANK_LEVEL,    {1}, 1 },
     { "BACK",  PANEL_BTN_SCREEN_SWITCH, {0}, 0 },
 };
 

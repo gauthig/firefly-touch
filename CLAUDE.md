@@ -67,9 +67,16 @@ cd sim
 Mouse = touch: click to toggle, click-and-hold to ramp. Requires the WinLibs
 gcc (winget) and cmake/ninja (auto-sourced from ESP-IDF's export.ps1). SDL2
 lives in `sim/third_party/` (gitignored; build.ps1 error tells you the
-download if missing). Note: in `--shot` mode the CAN dot is red because the
-500 ms health timer never fires in the single rendered frame; interactively
-it goes green.
+download if missing).
+
+`sim_stubs.c` also fakes `TANK_STATUS` on `living_room` (a periodic sweep
+through FRESH/GREY/BLACK percentages, `tank_sweep_timer_cb`) so the wave
+gauges and the header's Grey-Black OK/Warn/FULL readout are visible without
+real hardware. `--shot <file> screen2` (`main_sim.c`) taps the TANK LEVELS
+button and runs real time forward briefly before snapshotting so both
+timers get a chance to fire; `SIM_TANK_START_TICK=<n>` (env var) jumps the
+sweep straight to a specific point (e.g. a FULL/blink frame) for a
+one-off capture instead of waiting on it.
 
 ## Architecture
 
@@ -321,8 +328,26 @@ VSYNC 3, HSYNC 46, PCLK 7, data B3–B7/G2–G7/R3–R7 =
 ## UI
 
 Dark night theme (near-black screen bg) in `ui_theme.h`. Status bar (36 px):
-panel name + CAN-health dot (green if any bus frame in the last 5 s, else
-red).
+panel name, left. The CAN-health dot that used to sit on the right (green/
+red circle) was removed 2026-08-15 (GitHub issue #8) — no per-panel toggle
+existed for it, so it's gone from every panel's header, not just
+`living_room`'s. On a panel with `PANEL_HAS_SCREEN_2` and GREY/BLACK tank
+buttons (today: only `living_room`), that space now shows the Grey/Black
+tank status readout described below (issue #9); other panels' headers are
+just the name.
+
+**Grey/Black tank status readout + critical backlight override (GitHub
+issue #9, `living_room`/"MID COACH" only).** `build_screen()` in
+`main/ui/ui.c` finds the screen 2 buttons labeled `"GREY"`/`"BLACK"` by
+scanning `PANEL_BUTTONS_2` (no hardcoded instance numbers in `ui.c`) and, if
+both exist, creates a status-bar label updated every 500 ms by
+`tank_status_timer_cb`, which polls `state_manager_get_tank()` for both:
+"Grey-Black OK" (white, `UI_COLOR_TEXT`) below 80 %, "Grey-Black Warn"
+(orange, `UI_COLOR_WARN`) at 80–88 %, "Grey-Black FULL" (red,
+`UI_COLOR_ERR`, blinking every tick) at 89 %+. While FULL, a static
+`s_tank_critical` flag forces `idle_timer_cb` to hold the backlight at
+100 % and skip the normal 120 s/300 s dim/off stages entirely — this is a
+"go empty the tank" alert, not something that should ever dim out of view.
 
 **Automatic backlight (GitHub issue #3, replaces the old manual PANEL
 LIGHTS button):** `idle_timer_cb` in `main/ui/ui.c` tracks
@@ -352,18 +377,43 @@ amber (`UI_COLOR_AMBER`) fill, independent of this background swap.
 
 **Dual screens (GitHub issue #4).** A panel opts in with
 `#define PANEL_HAS_SCREEN_2 1` (default 0, `main/panel_config.h`) plus a
-second `PANEL_BUTTONS_2[]`/`PANEL_BUTTON_COUNT_2` array, same 2x4 grid
-layout as screen 1. `build_screen()` in `main/ui/ui.c` builds both grids
-up front as sibling containers (screen 2 starts `LV_OBJ_FLAG_HIDDEN`) so
-status updates keep both correct even while one is hidden — switching
-back must never show stale state. One `PANEL_BTN_SCREEN_SWITCH` button per
-screen (conventionally the same grid slot on both, e.g. bottom-right)
-calls `switch_screen()` to toggle which grid is visible; it's local UI
-nav only, never forwarded as an RV-C command. `PANEL_BTN_SPACER` fills a
-grid cell with nothing, which is how a screen positions its switch button
-at a specific cell (e.g. bottom-right) instead of wherever sequential
-fill would put it — see `panels/living_room.h`'s `PANEL_BUTTONS_2[]` for
-an example (3 tank buttons, 4 spacers, then BACK).
+second `PANEL_BUTTONS_2[]`/`PANEL_BUTTON_COUNT_2` array. `build_screen()`
+in `main/ui/ui.c` builds both screens up front as sibling containers
+(screen 2 starts `LV_OBJ_FLAG_HIDDEN`) so status updates keep both correct
+even while one is hidden — switching back must never show stale state. One
+`PANEL_BTN_SCREEN_SWITCH` button per screen calls `switch_screen()` to
+toggle which one is visible; it's local UI nav only, never forwarded as an
+RV-C command.
+
+Screen 1 stays the plain 2x4 button grid (`build_button_grid()`);
+`PANEL_BTN_SPACER` fills a grid cell with nothing, which is how it
+positions a button at a specific cell instead of wherever sequential fill
+would put it. Screen 2 is assumed to be a tank readout — the only panel
+that defines one is `living_room` — and since GitHub issue #10/#11
+(2026-08-15) uses its own layout builder, `build_screen2_tanks()`: its
+`PANEL_BTN_TANK_LEVEL` entries lay out as a centered horizontal row of
+`ui_tank_wave` gauges (`components/ui_common/ui_tank_wave.c`, see below),
+and its one `PANEL_BTN_SCREEN_SWITCH` entry ("BACK") is a small button
+pinned to the bottom center rather than an equal grid cell — see
+`panels/living_room.h`'s `PANEL_BUTTONS_2[]` (just the 3 tank buttons +
+BACK now; no manual spacer positioning needed for this layout). If a
+future panel wants a non-tank screen 2, `build_screen2_tanks()` will need
+to stop assuming that.
+
+**Wave-style tank gauge (GitHub issue #10).**
+`components/ui_common/ui_tank_wave.c` replaces the old plain progress-bar
+tank widget: a rounded "glass" container (`UI_COLOR_TANK_EMPTY` background,
+clipped to its rounded corners via `lv_obj_set_style_clip_corner`) holding
+a water-fill object and a percent label pinned to the top. The fill's
+`LV_EVENT_DRAW_MAIN` handler draws a flat rect up to the fill line plus a
+short sine-wave polyline riding that line (`lv_draw_line` with a
+multi-point array), phase-advanced ~every 100 ms by a per-widget
+`lv_timer` calling `lv_obj_invalidate()` — reads as moving water without
+needing true polygon fill. All three tanks share one water color
+(`UI_COLOR_CARD_ON`); no per-tank hue coding was requested.
+`ui_dimmer_button.c`'s `PANEL_BTN_TANK_LEVEL` branch creates this widget
+instead of a bar/label pair; `ui_dimmer_button_update_tank()` just calls
+`ui_tank_wave_set_percent()`.
 
 **Display orientation: portrait (90° CW).** `lvgl_init()` in `board_4_3b.c`
 sets `.sw_rotate = true` and calls `lv_display_set_rotation(disp,
