@@ -24,7 +24,9 @@ extern "C" {
 #define UI_COLOR_TEXT_ON_LIT lv_color_hex(0x08152B)  /* dark navy, on light bg */
 #define UI_COLOR_OFF         lv_color_hex(0x5E594F)
 #define UI_COLOR_OK          lv_color_hex(0x3FC46A)  /* CAN healthy */
-#define UI_COLOR_ERR         lv_color_hex(0xE5484D)  /* CAN dead */
+#define UI_COLOR_ERR         lv_color_hex(0xE5484D)  /* CAN dead / tank full */
+#define UI_COLOR_WARN        lv_color_hex(0xFFA500)  /* tank warn */
+#define UI_COLOR_TANK_EMPTY  lv_color_hex(0x1A1F2E)  /* empty tank "glass" */
 
 /* Shared styles, valid after ui_theme_init(). */
 extern lv_style_t ui_style_screen;
