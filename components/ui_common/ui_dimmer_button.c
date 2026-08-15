@@ -111,13 +111,6 @@ static void confirm_timer_cb(lv_timer_t *t)
 
 static void handle_tap(btn_ctx_t *ctx)
 {
-    const panel_btn_def_t *def = ctx->def;
-
-    if (def->type == PANEL_BTN_PANEL_LIGHTS) {
-        send(ctx, RVC_DIMMER_CMD_TOGGLE);
-        return;
-    }
-
     /* Use explicit ON/OFF rather than TOGGLE for all button types. TOGGLE
      * is unreliable when a DC_DIMMER_STATUS_3 frame has been missed: the
      * panel's tracked on/off then disagrees with the real load, and TOGGLE

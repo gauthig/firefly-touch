@@ -28,8 +28,8 @@ extern "C" {
 
 /*
  * Called when the widget wants to emit a command. The receiver fans the
- * command out to def->instances (or handles PANEL_BTN_PANEL_LIGHTS locally).
- * Runs in LVGL task context — must not block; post to a queue.
+ * command out to def->instances. Runs in LVGL task context — must not
+ * block; post to a queue.
  */
 typedef void (*ui_dimmer_send_cb_t)(const panel_btn_def_t *def,
                                     rvc_dimmer_cmd_t cmd,

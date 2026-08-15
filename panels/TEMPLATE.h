@@ -62,10 +62,13 @@
  * Fields: { label, type, { instances... }, instance_count }
  *
  * Types:
- *   PANEL_BTN_DIMMER       tap = toggle, press-and-hold = ramp, brightness bar
- *   PANEL_BTN_SWITCH       tap = on/off only, no ramp, no bar
- *   PANEL_BTN_PANEL_LIGHTS placeholder — logs the press, cycles local LCD
- *                          backlight (the factory "PL1" DGN is still unknown)
+ *   PANEL_BTN_DIMMER  tap = toggle, press-and-hold = ramp, brightness bar
+ *   PANEL_BTN_SWITCH  tap = on/off only, no ramp, no bar
+ *
+ * Backlight is automatic (dim/off on idle, wake on touch) — there is no
+ * manual panel-lights button anymore. A future screen-switch button type
+ * (GitHub issue #4) may take the 8th slot below; leave it empty until then
+ * unless your panel only needs 7 buttons.
  *
  * Multi-instance buttons drive every listed instance together and show ON if
  * any of them reports on. Instance numbers come from the factory switch
@@ -79,7 +82,6 @@ static const panel_btn_def_t PANEL_BUTTONS[] = {
     { "BUTTON FIVE",  PANEL_BTN_DIMMER, {0},     1 },
     { "BUTTON SIX",   PANEL_BTN_DIMMER, {0},     1 },
     { "BUTTON SEVEN", PANEL_BTN_SWITCH, {0, 0},  2 },
-    { "PANEL LIGHTS", PANEL_BTN_PANEL_LIGHTS, {0}, 0 },
 };
 
 #define PANEL_BUTTON_COUNT (sizeof(PANEL_BUTTONS) / sizeof(PANEL_BUTTONS[0]))
