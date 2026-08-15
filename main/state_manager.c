@@ -121,3 +121,71 @@ esp_err_t state_manager_start(QueueHandle_t status_queue)
         STATE_TASK_PRIO, NULL, STATE_TASK_CORE);
     return ok == pdPASS ? ESP_OK : ESP_ERR_NO_MEM;
 }
+
+/* ------------------------------------------------------- tank sensors --- */
+
+/* Covers instance 0-19 (the full range documented in
+ * docs/instance_map.yaml -> tank_dgn) with a little margin; deliberately
+ * NOT the 256-entry dimmer table above -- different DGN, different
+ * namespace, must never collide with a dimmer instance number. */
+#define TANK_INSTANCE_SLOTS 32
+
+typedef struct {
+    uint8_t percent;
+    bool    valid;
+    bool    known;
+} tank_state_t;
+
+static tank_state_t s_tank_states[TANK_INSTANCE_SLOTS];
+
+bool state_manager_get_tank(uint8_t instance, uint8_t *percent)
+{
+    if (instance >= TANK_INSTANCE_SLOTS) {
+        return false;
+    }
+    const tank_state_t st = s_tank_states[instance];
+    if (!st.known) {
+        return false;
+    }
+    if (percent != NULL) {
+        *percent = st.percent;
+    }
+    return st.valid;
+}
+
+static void tank_state_task(void *arg)
+{
+    QueueHandle_t queue = arg;
+    tank_status_msg_t msg;
+
+    for (;;) {
+        if (xQueueReceive(queue, &msg, portMAX_DELAY) != pdTRUE) {
+            continue;
+        }
+        if (msg.instance >= TANK_INSTANCE_SLOTS) {
+            ESP_LOGW(TAG, "tank instance %u out of range, dropped", msg.instance);
+            continue;
+        }
+
+        tank_state_t *st = &s_tank_states[msg.instance];
+        const bool changed = !st->known || st->percent != msg.percent || st->valid != msg.valid;
+        st->percent = msg.percent;
+        st->valid = msg.valid;
+        st->known = true;
+
+        if (changed) {
+            ESP_LOGD(TAG, "tank instance %u -> percent=%u valid=%d",
+                     msg.instance, msg.percent, msg.valid);
+            ui_on_tank_status(msg.instance, msg.percent, msg.valid);
+        }
+    }
+}
+
+esp_err_t state_manager_start_tanks(QueueHandle_t tank_status_queue)
+{
+    memset(s_tank_states, 0, sizeof(s_tank_states));
+    const BaseType_t ok = xTaskCreatePinnedToCore(
+        tank_state_task, "tank_mgr", STATE_TASK_STACK, tank_status_queue,
+        STATE_TASK_PRIO, NULL, STATE_TASK_CORE);
+    return ok == pdPASS ? ESP_OK : ESP_ERR_NO_MEM;
+}

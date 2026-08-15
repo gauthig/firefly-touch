@@ -1,6 +1,7 @@
 /*
- * ui — panel screen: status bar, 2x4 button grid, link-health dot,
- * idle auto-dim. Runs in the LVGL task on core 1.
+ * ui — panel screen: status bar, 2x4 button grid (optionally two, see
+ * PANEL_HAS_SCREEN_2), link-health dot, idle auto-dim. Runs in the LVGL
+ * task on core 1.
  *
  * Touch never talks to TWAI (or ESP-NOW) directly: button callbacks post
  * through bridge_enqueue_dimmer_cmd(), which resolves at build time to
@@ -8,6 +9,9 @@
  * (see PANEL_HAS_CAN, main/bridge_tx.c). Visual state is driven only by
  * ui_on_status(), i.e. by DC_DIMMER_STATUS_3 frames — relayed over
  * ESP-NOW on a remote panel, but never spoofed locally either way.
+ * Tank-level widgets are driven separately by ui_on_tank_status(), fed by
+ * TANK_STATUS frames — a different DGN/namespace, never routed through
+ * ui_on_status().
  */
 #include "ui.h"
 
@@ -44,6 +48,12 @@ static lv_obj_t *s_link_dot;
 static lv_obj_t *s_dim_overlay;
 static backlight_state_t s_backlight_state;
 static bool s_ui_ready;
+
+#if PANEL_HAS_SCREEN_2
+static lv_obj_t *s_buttons_2[PANEL_BUTTON_COUNT_2];
+static lv_obj_t *s_grid1;
+static lv_obj_t *s_grid2;
+#endif
 
 /* ------------------------------------------------------- backlight ------ */
 
@@ -110,12 +120,37 @@ static void link_health_timer_cb(lv_timer_t *t)
     lv_obj_set_style_bg_color(s_link_dot, healthy ? UI_COLOR_OK : UI_COLOR_ERR, 0);
 }
 
+/* --------------------------------------------------------- screen nav --- */
+
+#if PANEL_HAS_SCREEN_2
+static void switch_screen(void)
+{
+    if (lv_obj_has_flag(s_grid1, LV_OBJ_FLAG_HIDDEN)) {
+        lv_obj_remove_flag(s_grid1, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_add_flag(s_grid2, LV_OBJ_FLAG_HIDDEN);
+    } else {
+        lv_obj_add_flag(s_grid1, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_remove_flag(s_grid2, LV_OBJ_FLAG_HIDDEN);
+    }
+}
+#endif
+
 /* ------------------------------------------------------- commands ------- */
 
 static void panel_send_cb(const panel_btn_def_t *def, rvc_dimmer_cmd_t cmd,
                           void *user_ctx)
 {
     (void)user_ctx;
+
+    if (def->type == PANEL_BTN_SCREEN_SWITCH) {
+#if PANEL_HAS_SCREEN_2
+        switch_screen();
+#endif
+        return;
+    }
+    if (def->type == PANEL_BTN_TANK_LEVEL || def->type == PANEL_BTN_SPACER) {
+        return;   /* read-only / no widget — never reaches here in practice */
+    }
 
     /* ON/OFF/TOGGLE carry an explicit desired level of 100 % rather than
      * 0xFF "no change" — this matches the proven-working frame from
@@ -135,6 +170,41 @@ static void panel_send_cb(const panel_btn_def_t *def, rvc_dimmer_cmd_t cmd,
 }
 
 /* ------------------------------------------------------- screen build --- */
+
+/*
+ * Populates one 2x4 button grid into `parent` (already sized/positioned by
+ * the caller) from `buttons`/`count`, filling `out_buttons` in the same
+ * order. A PANEL_BTN_SPACER entry gets no widget (out_buttons[i] = NULL,
+ * cell stays visually empty) but still consumes its grid slot, so it's how
+ * a panel positions a button (e.g. a screen-switch "back" button) at a
+ * specific cell like the bottom-right one instead of wherever sequential
+ * fill would put it.
+ */
+static void build_button_grid(lv_obj_t *parent, const panel_btn_def_t *buttons,
+                              uint32_t count, lv_obj_t **out_buttons)
+{
+    static int32_t col_dsc[] = { LV_GRID_FR(1), LV_GRID_FR(1), LV_GRID_TEMPLATE_LAST };
+    static int32_t row_dsc[] = { LV_GRID_FR(1), LV_GRID_FR(1), LV_GRID_FR(1),
+                                 LV_GRID_FR(1), LV_GRID_TEMPLATE_LAST };
+
+    lv_obj_set_grid_dsc_array(parent, col_dsc, row_dsc);
+    lv_obj_set_style_pad_all(parent, 3, 0);
+    lv_obj_set_style_pad_column(parent, 3, 0);
+    lv_obj_set_style_pad_row(parent, 3, 0);
+
+    for (uint32_t i = 0; i < count; i++) {
+        if (buttons[i].type == PANEL_BTN_SPACER) {
+            out_buttons[i] = NULL;
+            continue;
+        }
+        lv_obj_t *btn = ui_dimmer_button_create(parent, &buttons[i],
+                                                panel_send_cb, NULL);
+        lv_obj_set_grid_cell(btn,
+                             LV_GRID_ALIGN_STRETCH, i % 2, 1,
+                             LV_GRID_ALIGN_STRETCH, i / 2, 1);
+        out_buttons[i] = btn;
+    }
+}
 
 static void build_screen(void)
 {
@@ -163,32 +233,33 @@ static void build_screen(void)
     lv_obj_align(s_link_dot, LV_ALIGN_RIGHT_MID, 0, 0);
     lv_obj_remove_flag(s_link_dot, LV_OBJ_FLAG_SCROLLABLE);
 
-    /* --- 2 x 4 button grid --- */
-    static int32_t col_dsc[] = { LV_GRID_FR(1), LV_GRID_FR(1), LV_GRID_TEMPLATE_LAST };
-    static int32_t row_dsc[] = { LV_GRID_FR(1), LV_GRID_FR(1), LV_GRID_FR(1),
-                                 LV_GRID_FR(1), LV_GRID_TEMPLATE_LAST };
-
-    lv_obj_t *grid = lv_obj_create(scr);
-    lv_obj_add_style(grid, &ui_style_screen, 0);
     /* Use logical height (post-rotation) so the grid fills correctly in
      * both landscape (480 px) and portrait (800 px) orientations. */
     int32_t logical_h = (int32_t)lv_display_get_vertical_resolution(NULL);
-    lv_obj_set_size(grid, LV_PCT(100), logical_h - STATUSBAR_H);
-    lv_obj_align(grid, LV_ALIGN_BOTTOM_MID, 0, 0);
-    lv_obj_remove_flag(grid, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_set_grid_dsc_array(grid, col_dsc, row_dsc);
-    lv_obj_set_style_pad_all(grid, 3, 0);
-    lv_obj_set_style_pad_column(grid, 3, 0);
-    lv_obj_set_style_pad_row(grid, 3, 0);
 
-    for (uint32_t i = 0; i < PANEL_BUTTON_COUNT; i++) {
-        lv_obj_t *btn = ui_dimmer_button_create(grid, &PANEL_BUTTONS[i],
-                                                panel_send_cb, NULL);
-        lv_obj_set_grid_cell(btn,
-                             LV_GRID_ALIGN_STRETCH, i % 2, 1,
-                             LV_GRID_ALIGN_STRETCH, i / 2, 1);
-        s_buttons[i] = btn;
-    }
+    /* --- screen 1 (always present) --- */
+    lv_obj_t *grid1 = lv_obj_create(scr);
+    lv_obj_add_style(grid1, &ui_style_screen, 0);
+    lv_obj_set_size(grid1, LV_PCT(100), logical_h - STATUSBAR_H);
+    lv_obj_align(grid1, LV_ALIGN_BOTTOM_MID, 0, 0);
+    lv_obj_remove_flag(grid1, LV_OBJ_FLAG_SCROLLABLE);
+    build_button_grid(grid1, PANEL_BUTTONS, PANEL_BUTTON_COUNT, s_buttons);
+
+#if PANEL_HAS_SCREEN_2
+    /* --- screen 2 (optional second grid, hidden until switch_screen()) ---
+     * Built now, not lazily on first switch, so status updates keep both
+     * screens' widgets correct even while one is hidden — a button must
+     * never show stale state just because you weren't looking at it. */
+    s_grid1 = grid1;
+    lv_obj_t *grid2 = lv_obj_create(scr);
+    lv_obj_add_style(grid2, &ui_style_screen, 0);
+    lv_obj_set_size(grid2, LV_PCT(100), logical_h - STATUSBAR_H);
+    lv_obj_align(grid2, LV_ALIGN_BOTTOM_MID, 0, 0);
+    lv_obj_remove_flag(grid2, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_add_flag(grid2, LV_OBJ_FLAG_HIDDEN);
+    build_button_grid(grid2, PANEL_BUTTONS_2, PANEL_BUTTON_COUNT_2, s_buttons_2);
+    s_grid2 = grid2;
+#endif
 
     /* --- idle-dim overlay (top layer, above everything) --- */
     s_dim_overlay = lv_obj_create(lv_layer_top());
@@ -214,8 +285,13 @@ void ui_init(void)
     build_screen();
     lvgl_port_unlock();
     s_ui_ready = true;
+#if PANEL_HAS_SCREEN_2
+    ESP_LOGI(TAG, "UI ready: %s (%u buttons, +%u on screen 2)", PANEL_NAME,
+             (unsigned)PANEL_BUTTON_COUNT, (unsigned)PANEL_BUTTON_COUNT_2);
+#else
     ESP_LOGI(TAG, "UI ready: %s (%u buttons)", PANEL_NAME,
              (unsigned)PANEL_BUTTON_COUNT);
+#endif
 }
 
 void ui_on_status(uint8_t instance, uint8_t level, bool on)
@@ -225,7 +301,37 @@ void ui_on_status(uint8_t instance, uint8_t level, bool on)
     }
     lvgl_port_lock(0);
     for (uint32_t i = 0; i < PANEL_BUTTON_COUNT; i++) {
-        ui_dimmer_button_update(s_buttons[i], instance, level, on);
+        if (s_buttons[i] != NULL) {
+            ui_dimmer_button_update(s_buttons[i], instance, level, on);
+        }
+    }
+#if PANEL_HAS_SCREEN_2
+    for (uint32_t i = 0; i < PANEL_BUTTON_COUNT_2; i++) {
+        if (s_buttons_2[i] != NULL) {
+            ui_dimmer_button_update(s_buttons_2[i], instance, level, on);
+        }
+    }
+#endif
+    lvgl_port_unlock();
+}
+
+void ui_on_tank_status(uint8_t instance, uint8_t percent, bool valid)
+{
+    if (!s_ui_ready) {
+        return;
+    }
+    lvgl_port_lock(0);
+#if PANEL_HAS_SCREEN_2
+    for (uint32_t i = 0; i < PANEL_BUTTON_COUNT_2; i++) {
+        if (s_buttons_2[i] != NULL) {
+            ui_dimmer_button_update_tank(s_buttons_2[i], instance, percent, valid);
+        }
+    }
+#endif
+    for (uint32_t i = 0; i < PANEL_BUTTON_COUNT; i++) {
+        if (s_buttons[i] != NULL) {
+            ui_dimmer_button_update_tank(s_buttons[i], instance, percent, valid);
+        }
     }
     lvgl_port_unlock();
 }
