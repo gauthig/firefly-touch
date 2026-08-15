@@ -22,14 +22,14 @@
 #define PANEL_HAS_CAN 0
 
 static const panel_btn_def_t PANEL_BUTTONS[] = {
-    { "BEDROOM CEILING", LV_SYMBOL_CHARGE,   PANEL_BTN_DIMMER, {17},     1 },
-    { "BED O/H",         LV_SYMBOL_CHARGE,   PANEL_BTN_DIMMER, {18},     1 },
-    { "CENTER CEILING",  LV_SYMBOL_CHARGE,   PANEL_BTN_DIMMER, {25},     1 },
-    { "BATHROOM",        LV_SYMBOL_CHARGE,   PANEL_BTN_DIMMER, {13},     1 },
-    { "MIDSHIP",         LV_SYMBOL_CHARGE,   PANEL_BTN_DIMMER, {35},     1 },
-    { "COURTESY",        LV_SYMBOL_CHARGE,   PANEL_BTN_DIMMER, {21},     1 },
-    { "MOTION",          LV_SYMBOL_EYE_OPEN, PANEL_BTN_SWITCH, {46},     1 },
-    { "PANEL LIGHTS",    LV_SYMBOL_SETTINGS, PANEL_BTN_PANEL_LIGHTS, {0}, 0 },
+    { "BEDROOM CEILING", PANEL_BTN_DIMMER, {17},     1 },
+    { "BED O/H",         PANEL_BTN_DIMMER, {18},     1 },
+    { "CENTER CEILING",  PANEL_BTN_DIMMER, {25},     1 },
+    { "BATHROOM",        PANEL_BTN_DIMMER, {13},     1 },
+    { "MIDSHIP",         PANEL_BTN_DIMMER, {35},     1 },
+    { "COURTESY",        PANEL_BTN_DIMMER, {21},     1 },
+    { "MOTION",          PANEL_BTN_SWITCH, {46},     1 },
+    { "PANEL LIGHTS",    PANEL_BTN_PANEL_LIGHTS, {0}, 0 },
 };
 
 #define PANEL_BUTTON_COUNT (sizeof(PANEL_BUTTONS) / sizeof(PANEL_BUTTONS[0]))

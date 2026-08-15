@@ -155,7 +155,7 @@ Verify which firmware a board is running — it prints its identity at boot and
 shows the name in the status bar:
 
 ```
-I (312) main: firefly-touch panel 'LIVING ROOM' (index 0, RV-C source addr 0x80)
+I (312) main: firefly-touch panel 'MID COACH' (index 0, RV-C source addr 0x80)
 ```
 
 ## PC simulator

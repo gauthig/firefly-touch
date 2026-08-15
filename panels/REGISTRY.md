@@ -14,7 +14,7 @@ run. If you add a panel header without adding a row here, CI fails.
 
 | `PANEL` value | Index | Source addr | On-screen name | Location / replaces |
 |---|---|---|---|---|
-| `living_room` | 0 | `0x80` | LIVING ROOM | Living room wall — Entegra SW2-E8 (p/n 0291135 / 75570) |
+| `living_room` | 0 | `0x80` | MID COACH | Living room wall — Entegra SW2-E8 (p/n 0291135 / 75570) |
 | `ent_center` | 1 | `0x81` | ENT CENTER | Entertainment center — Entegra SW4-E1 (p/n 0291136 / 75571) |
 | `living_room_remote` | 2 | `0x82`† | LR REMOTE | No CAN wiring — relays to `living_room` over ESP-NOW, see below |
 

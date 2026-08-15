@@ -59,7 +59,7 @@
  *   [4] [5]
  *   [6] [7]
  *
- * Fields: { label, LVGL symbol, type, { instances... }, instance_count }
+ * Fields: { label, type, { instances... }, instance_count }
  *
  * Types:
  *   PANEL_BTN_DIMMER       tap = toggle, press-and-hold = ramp, brightness bar
@@ -72,14 +72,14 @@
  * legend and MUST be confirmed with a sniffer build — see CLAUDE.md.
  */
 static const panel_btn_def_t PANEL_BUTTONS[] = {
-    { "BUTTON ONE",   LV_SYMBOL_CHARGE,   PANEL_BTN_DIMMER, {0},     1 },
-    { "BUTTON TWO",   LV_SYMBOL_CHARGE,   PANEL_BTN_DIMMER, {0},     1 },
-    { "BUTTON THREE", LV_SYMBOL_CHARGE,   PANEL_BTN_DIMMER, {0, 0},  2 },
-    { "BUTTON FOUR",  LV_SYMBOL_CHARGE,   PANEL_BTN_DIMMER, {0},     1 },
-    { "BUTTON FIVE",  LV_SYMBOL_CHARGE,   PANEL_BTN_DIMMER, {0},     1 },
-    { "BUTTON SIX",   LV_SYMBOL_CHARGE,   PANEL_BTN_DIMMER, {0},     1 },
-    { "BUTTON SEVEN", LV_SYMBOL_EYE_OPEN, PANEL_BTN_SWITCH, {0, 0},  2 },
-    { "PANEL LIGHTS", LV_SYMBOL_SETTINGS, PANEL_BTN_PANEL_LIGHTS, {0}, 0 },
+    { "BUTTON ONE",   PANEL_BTN_DIMMER, {0},     1 },
+    { "BUTTON TWO",   PANEL_BTN_DIMMER, {0},     1 },
+    { "BUTTON THREE", PANEL_BTN_DIMMER, {0, 0},  2 },
+    { "BUTTON FOUR",  PANEL_BTN_DIMMER, {0},     1 },
+    { "BUTTON FIVE",  PANEL_BTN_DIMMER, {0},     1 },
+    { "BUTTON SIX",   PANEL_BTN_DIMMER, {0},     1 },
+    { "BUTTON SEVEN", PANEL_BTN_SWITCH, {0, 0},  2 },
+    { "PANEL LIGHTS", PANEL_BTN_PANEL_LIGHTS, {0}, 0 },
 };
 
 #define PANEL_BUTTON_COUNT (sizeof(PANEL_BUTTONS) / sizeof(PANEL_BUTTONS[0]))

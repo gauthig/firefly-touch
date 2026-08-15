@@ -113,9 +113,9 @@ enqueuing locally, and status arrives the same way in reverse (see below).
   are marked in `board_4_3b.c`; diff against the current Waveshare demo when
   bringing up hardware, don't invent timings.**
 - `components/ui_common` — theme (`ui_theme`), shared dimmer-button widget
-  (`ui_dimmer_button`), panel-config types (`panel_def.h`). Icons are LVGL
-  built-in symbols for now; `.symbol` is an opaque string so a custom icon
-  font can be swapped in later.
+  (`ui_dimmer_button`), panel-config types (`panel_def.h`). Buttons show
+  label text only (no icon glyph); background swaps dark blue -> light blue
+  between off/on (see *UI* section below).
 - `components/espnow_link` — ESP-NOW transport for a remote panel with no
   CAN wiring (see *ESP-NOW remote-panel bridge* below). No dependency on
   `main/`; mirrors `dimmer_cmd_msg_t`/`dimmer_status_msg_t` as its own
@@ -216,20 +216,26 @@ held, STOP on release).
 
 | Load | Instances | Panels |
 |------|-----------|--------|
-| ENTRY CEILING   | 24 | living_room |
 | CENTER CEILING  | 25 | both |
-| ACCENT          | 26, 27 | ent_center |
+| ACCENT          | 26, 27 | both |
 | SIDE CEILING    | 30, 31 | both |
 | ODS SOFA SCONCE / ODS SLIDE | 32 | both |
 | DINETTE / SCONCE-DINETTE    | 33 | both |
-| SINK/COUNTER    | 34 | ent_center |
+| SINK/COUNTER    | 34 | both |
 | MIDSHIP / HALL-MIDSHIP      | 35 | both |
-| SECURITY P+H (patio+hitch)  | 44, 45 | living_room — **unverified, see Note A** |
 | PANEL LIGHTS (PL1)          | n/a | both — **placeholder, see Note B** |
 
-- **Note A:** factory legend "P45, H44, 45". Implemented as switch (on/off)
-  on instances 44+45; the P/H prefixes may indicate a different load type or
-  a scene. Verify via sniffer before trusting.
+`living_room` (on-screen "MID COACH") and `ent_center` were realigned
+2026-08-15 to drive the same instance set. **ENTRY CEILING (24)** and
+**SECURITY P+H (44, 45 — Note A)** are no longer wired to any CAN-connected
+panel (they were dropped from `living_room.h`'s button grid); both remain
+valid RV-C instances, just not currently exposed by a button. See
+[docs/instance_map.yaml](docs/instance_map.yaml) for the full instance map
+including everything not yet wired to firmware.
+
+- **Note A:** factory legend "P45, H44, 45". Was implemented as switch
+  (on/off) on instances 44+45; the P/H prefixes may indicate a different
+  load type or a scene. Verify via sniffer before trusting if re-added.
 - **Note B:** PL1 is the factory switch-panel backlight — probably not a
   DC_DIMMER instance. Currently logs the press and cycles the local LCD
   brightness (100→60→20 %). Capture factory frames in sniffer mode to
@@ -269,12 +275,23 @@ VSYNC 3, HSYNC 46, PCLK 7, data B3–B7/G2–G7/R3–R7 =
 
 ## UI
 
-Dark night theme (near-black bg, warm amber accents) in `ui_theme.h`. Status
-bar (36 px): panel name + CAN-health dot (green if any bus frame in the last
-5 s, else red). Backlight auto-dims to 20 % after 5 min idle (300 s); the
-waking touch is absorbed by the top-layer overlay and never reaches a button.
+Dark night theme (near-black screen bg) in `ui_theme.h`. Status bar (36 px):
+panel name + CAN-health dot (green if any bus frame in the last 5 s, else
+red). Backlight auto-dims to 20 % after 5 min idle (300 s); the waking touch
+is absorbed by the top-layer overlay and never reaches a button.
 `idle_timer_cb` logs `inactive_ms` every second while the idle-dim path is
 under verification — remove once confirmed on 4.3B.
+
+**Buttons (2026-08-15):** label text only, no icon glyph — the
+`panel_btn_def_t.symbol` field was removed along with it, so `panels/*.h`
+button rows no longer take an `LV_SYMBOL_*` argument (see any panel header
+for the current field order). Label font bumped from Montserrat 16 to 20.
+Background is the on/off indicator: dark blue (`UI_COLOR_CARD`, off) to
+light blue (`UI_COLOR_CARD_ON`, on), set on the button object itself in
+`ui_dimmer_button.c`'s `refresh_visuals()`. Name-label text color still
+flips (`UI_COLOR_TEXT_DIM` off, `UI_COLOR_TEXT_ON_LIT` — dark navy — on) for
+contrast against the light-blue on-state. The dimmer level bar keeps its own
+amber (`UI_COLOR_AMBER`) fill, independent of this background swap.
 
 **Display orientation: portrait (90° CW).** `lvgl_init()` in `board_4_3b.c`
 sets `.sw_rotate = true` and calls `lv_display_set_rotation(disp,
