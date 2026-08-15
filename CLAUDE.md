@@ -282,7 +282,8 @@ is absorbed by the top-layer overlay and never reaches a button.
 `idle_timer_cb` logs `inactive_ms` every second while the idle-dim path is
 under verification — remove once confirmed on 4.3B.
 
-**Buttons (2026-08-15):** label text only, no icon glyph — the
+**Buttons (2026-08-15, coach-installed and confirmed working with the new
+color scheme on `living_room`/"MID COACH"):** label text only, no icon glyph — the
 `panel_btn_def_t.symbol` field was removed along with it, so `panels/*.h`
 button rows no longer take an `LV_SYMBOL_*` argument (see any panel header
 for the current field order). Label font bumped from Montserrat 16 to 20.
