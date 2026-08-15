@@ -60,24 +60,31 @@ loads:
     notes: User-confirmed naming 2026-08-13.
 
   - name: Stool Room Ceiling Light
-    instances: [22, 23]
+    instances: [22]
     type: dimmer
-    source: Entegra Stool Room fixture ("CEILING" rocker, two-zone)
-    verified: false
-    notes: Diagram shows two instances under one CEILING rocker; exact
-      per-instance meaning (e.g. main vs. secondary zone) not given -- verify
-      via sniffer.
+    source: Entegra Stool Room fixture ("CEILING" rocker, up position)
+    verified: true
+    notes: >
+      Bus-confirmed 2026-08-15 via sniffer capture on living_room (COM16):
+      the up position of the two-position rocker sends DC_DIMMER_COMMAND_2
+      toggle for instance 22 only (0x16), echoed by DC_DIMMER_STATUS_3 with
+      operating_level 200 (on). No instance-23 traffic accompanied it --
+      the rocker's two positions are two independent single-zone loads, not
+      one two-zone light as the factory diagram implied.
 
   - name: Stool Room Accent Light
-    instances: []
+    instances: [23]
     type: dimmer
-    source: Entegra Stool Room fixture ("ACCENT" rocker)
-    verified: false
+    source: Entegra Stool Room fixture ("ACCENT" rocker, down position)
+    verified: true
     notes: >
-      Diagram shows an ACCENT rocker for this fixture (parallel to the Bath
-      Room's ACCENT = instance 16) but no instance number was printed next to
-      it. Do not guess a number -- confirm on a sniffer capture before wiring
-      a button to it.
+      Bus-confirmed 2026-08-15 via sniffer capture on living_room (COM16):
+      the down position of the same rocker sends DC_DIMMER_COMMAND_2 toggle
+      for instance 23 only (0x17), echoed by DC_DIMMER_STATUS_3 with
+      operating_level 0 (off). Previously listed with no instance number;
+      the factory diagram's single "CEILING" rocker label covering
+      instances [22, 23] was misleading -- one position is ceiling, the
+      other is accent, confirmed independently on the bus.
 
   - name: Bedroom Ceiling Light
     instances: [17]
@@ -475,10 +482,13 @@ switch_panels:
 
   - panel: Entegra Stool Room fixture
     part_number: null
-    notes: Entegra-provided, not a wall switch panel.
+    notes: >
+      Entegra-provided, not a wall switch panel. Two-position rocker,
+      bus-confirmed 2026-08-15 (source addr 0x9C): up = instance 22
+      (ceiling), down = instance 23 (accent) -- see loads entries above.
     rows:
-      - left: { name: Stool Room Ceiling Light, instances: [22, 23] }
-        right: { name: Stool Room Accent Light, instances: [] }
+      - left: { name: Stool Room Ceiling Light, instances: [22] }
+        right: { name: Stool Room Accent Light, instances: [23] }
 
   - panel: Entegra Bath Room fixture
     part_number: null
