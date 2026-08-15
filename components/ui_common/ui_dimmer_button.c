@@ -1,10 +1,10 @@
 #include "ui_dimmer_button.h"
 
-#include <stdio.h>
 #include <string.h>
 
 #include "esp_log.h"
 
+#include "ui_tank_wave.h"
 #include "ui_theme.h"
 
 static const char *TAG = "ui_dimmer_button";
@@ -38,8 +38,8 @@ typedef struct {
 
     lv_obj_t *btn;
     lv_obj_t *name;
-    lv_obj_t *bar;
-    lv_obj_t *value_label;   /* PANEL_BTN_TANK_LEVEL only: "62%" / "--" */
+    lv_obj_t *bar;         /* PANEL_BTN_DIMMER only: brightness bar */
+    lv_obj_t *tank_wave;   /* PANEL_BTN_TANK_LEVEL only: animated gauge */
 } btn_ctx_t;
 
 static bool any_on(const btn_ctx_t *ctx)
@@ -70,10 +70,7 @@ static void refresh_visuals(btn_ctx_t *ctx)
     lv_obj_set_style_text_color(ctx->name, on ? UI_COLOR_TEXT_ON_LIT : UI_COLOR_TEXT_DIM, 0);
 
     if (ctx->bar != NULL) {
-        if (ctx->def->type == PANEL_BTN_TANK_LEVEL) {
-            /* Always visible -- a tank reading isn't an on/off state. */
-            lv_obj_remove_flag(ctx->bar, LV_OBJ_FLAG_HIDDEN);
-        } else if (on) {
+        if (on) {
             lv_obj_remove_flag(ctx->bar, LV_OBJ_FLAG_HIDDEN);
             lv_bar_set_value(ctx->bar, max_level(ctx), LV_ANIM_OFF);
         } else {
@@ -239,10 +236,10 @@ lv_obj_t *ui_dimmer_button_create(lv_obj_t *parent,
     lv_label_set_text(ctx->name, def->label);
     lv_obj_set_style_text_font(ctx->name, &lv_font_montserrat_20, 0);
 
-    if (def->type == PANEL_BTN_DIMMER || def->type == PANEL_BTN_TANK_LEVEL) {
+    if (def->type == PANEL_BTN_DIMMER) {
         ctx->bar = lv_bar_create(btn);
         lv_obj_set_size(ctx->bar, 90, 5);
-        lv_bar_set_range(ctx->bar, 0, def->type == PANEL_BTN_TANK_LEVEL ? 100 : RVC_LEVEL_MAX);
+        lv_bar_set_range(ctx->bar, 0, RVC_LEVEL_MAX);
         lv_obj_set_style_bg_color(ctx->bar, UI_COLOR_OFF, LV_PART_MAIN);
         lv_obj_set_style_bg_opa(ctx->bar, LV_OPA_40, LV_PART_MAIN);
         lv_obj_set_style_bg_color(ctx->bar, UI_COLOR_AMBER, LV_PART_INDICATOR);
@@ -251,9 +248,7 @@ lv_obj_t *ui_dimmer_button_create(lv_obj_t *parent,
     }
 
     if (def->type == PANEL_BTN_TANK_LEVEL) {
-        ctx->value_label = lv_label_create(btn);
-        lv_label_set_text(ctx->value_label, "--");
-        lv_obj_set_style_text_font(ctx->value_label, &lv_font_montserrat_20, 0);
+        ctx->tank_wave = ui_tank_wave_create(btn);
     }
 
     lv_obj_add_event_cb(btn, event_cb, LV_EVENT_ALL, ctx);
@@ -308,14 +303,5 @@ void ui_dimmer_button_update_tank(lv_obj_t *btn, uint8_t instance,
         return;
     }
 
-    if (!valid) {
-        lv_label_set_text(ctx->value_label, "--");
-        lv_bar_set_value(ctx->bar, 0, LV_ANIM_OFF);
-        return;
-    }
-
-    char buf[8];
-    snprintf(buf, sizeof(buf), "%u%%", (unsigned)percent);
-    lv_label_set_text(ctx->value_label, buf);
-    lv_bar_set_value(ctx->bar, percent, LV_ANIM_OFF);
+    ui_tank_wave_set_percent(ctx->tank_wave, percent, valid);
 }

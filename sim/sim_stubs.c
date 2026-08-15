@@ -7,9 +7,11 @@
  * uses (commands never touch widgets directly — the echo does).
  */
 #include <stdio.h>
+#include <stdlib.h>
 
 #include "board_4_3b.h"
 #include "bridge_tx.h"
+#include "lvgl.h"
 #include "rvc_protocol.h"
 #include "state_manager.h"
 #include "twai_tasks.h"
@@ -22,6 +24,13 @@ static uint8_t s_level[256];
 static bool    s_on[256];
 static uint8_t s_memory[256];   /* last non-zero level, for ON restore */
 
+/* Fake tank table: main/state_manager.c isn't linked into the sim (see
+ * CMakeLists.txt), so this stub backs state_manager_get_tank() -- ui.c's
+ * tank-status header readout polls it directly, same as the real firmware
+ * polls the real state manager. */
+static uint8_t s_tank_pct[256];
+static bool    s_tank_valid[256];
+
 bool state_manager_bus_healthy(void)
 {
     return true;
@@ -29,6 +38,15 @@ bool state_manager_bus_healthy(void)
 
 bool espnow_link_healthy(void)
 {
+    return true;
+}
+
+bool state_manager_get_tank(uint8_t instance, uint8_t *percent)
+{
+    if (!s_tank_valid[instance]) {
+        return false;
+    }
+    *percent = s_tank_pct[instance];
     return true;
 }
 
@@ -100,6 +118,45 @@ bool bridge_enqueue_dimmer_cmd(uint8_t instance, rvc_dimmer_cmd_t cmd,
     return twai_enqueue_dimmer_cmd(instance, cmd, level, duration);
 }
 
+/* Sweeps fake TANK_STATUS readings so the wave gauges and the header's
+ * Grey-Black OK/Warn/FULL readout (+ backlight-critical override) are all
+ * visible and testable in the simulator without touching real hardware.
+ * Instance numbers match panels/living_room.h: 0=fresh, 1=black, 2=gray. */
+static void tank_sweep_timer_cb(lv_timer_t *t)
+{
+    (void)t;
+    /* SIM_TANK_START_TICK lets a one-off --shot capture jump straight to an
+     * interesting point in the sweep (e.g. a FULL/blink frame) without
+     * waiting for it in real time. Unset in normal interactive use. */
+    static uint32_t tick;
+    static bool inited;
+    if (!inited) {
+        inited = true;
+        const char *start = getenv("SIM_TANK_START_TICK");
+        if (start != NULL) {
+            tick = (uint32_t)atoi(start);
+        }
+    }
+    tick++;
+
+    /* Fresh: slow gentle sweep, always valid, never affects the header. */
+    uint8_t fresh_pct = (uint8_t)((tick / 2) % 100);
+    s_tank_pct[0] = fresh_pct;
+    s_tank_valid[0] = true;
+    ui_on_tank_status(0, fresh_pct, true);
+
+    /* Grey/black: slower ramp 0->95 and back, so the run cycles through
+     * OK (<80) -> Warn (>=80) -> FULL (>=89) -> back down. */
+    uint32_t phase = (tick / 4) % 190;
+    uint8_t gb_pct = (uint8_t)(phase <= 95 ? phase : 190 - phase);
+    s_tank_pct[2] = gb_pct;
+    s_tank_valid[2] = true;
+    ui_on_tank_status(2, gb_pct, true);
+    s_tank_pct[1] = gb_pct;
+    s_tank_valid[1] = true;
+    ui_on_tank_status(1, gb_pct, true);
+}
+
 /* Called from main_sim to make the screen look alive at startup. */
 void sim_seed_demo_state(void)
 {
@@ -112,4 +169,6 @@ void sim_seed_demo_state(void)
         s_memory[seed[i].inst] = seed[i].lvl;
         ui_on_status(seed[i].inst, seed[i].lvl, true);
     }
+
+    lv_timer_create(tank_sweep_timer_cb, 500, NULL);
 }
