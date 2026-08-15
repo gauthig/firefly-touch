@@ -47,3 +47,13 @@
 #if PANEL_IS_BRIDGE && !PANEL_HAS_CAN
 #error "PANEL_IS_BRIDGE requires PANEL_HAS_CAN (a bridge relays to a real CAN bus)"
 #endif
+
+/*
+ * PANEL_HAS_SCREEN_2 1 = this panel defines a second button grid
+ * (PANEL_BUTTONS_2[] / PANEL_BUTTON_COUNT_2) alongside its normal
+ * PANEL_BUTTONS[], and should have exactly one PANEL_BTN_SCREEN_SWITCH
+ * button somewhere in each grid to flip between them. See main/ui/ui.c.
+ */
+#ifndef PANEL_HAS_SCREEN_2
+#define PANEL_HAS_SCREEN_2 0
+#endif
