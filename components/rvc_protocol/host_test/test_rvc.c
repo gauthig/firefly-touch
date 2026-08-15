@@ -136,6 +136,66 @@ static void test_decode_dimmer_status(void)
     printf("PASS decode_dimmer_status\n");
 }
 
+static void test_decode_tank_status(void)
+{
+    /* Real frames captured 2026-08-15 from this coach's SeeLevel II
+     * 709-RVC via sniffer mode -- these caught the original bug (percent
+     * computed as relative_level / resolution, which always truncated to
+     * 0 since relative_level < resolution: resolution is the sensor's
+     * total segment count, not a percent-per-count divisor). Used
+     * verbatim as regression vectors so this can't silently regress. */
+    uint8_t frame[8] = { 0, 0x04, 0x20, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF }; /* fresh */
+    rvc_tank_status_t st;
+    assert(rvc_decode_tank_status(frame, 8, &st));
+    assert(st.instance == 0 && st.valid == true && st.percent == 12);
+
+    uint8_t frame_black[8] = { 1, 0x03, 0x1C, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF };
+    assert(rvc_decode_tank_status(frame_black, 8, &st));
+    assert(st.instance == 1 && st.valid == true && st.percent == 10);
+
+    uint8_t frame_gray[8] = { 2, 0x13, 0x1C, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF };
+    assert(rvc_decode_tank_status(frame_gray, 8, &st));
+    assert(st.instance == 2 && st.valid == true && st.percent == 67);
+
+    /* Full tank: relative_level == resolution -> 100% */
+    frame[0] = 0; frame[1] = 32; frame[2] = 32;
+    assert(rvc_decode_tank_status(frame, 8, &st));
+    assert(st.percent == 100 && st.valid);
+
+    /* Empty tank: relative_level == 0 -> 0%, still "valid" (a real reading,
+     * not "not available") */
+    frame[1] = 0;
+    assert(rvc_decode_tank_status(frame, 8, &st));
+    assert(st.percent == 0 && st.valid);
+
+    /* relative_level == 0xFF ("not available") -> valid=false, not 0% */
+    frame[1] = RVC_FIELD_NA; frame[2] = 32;
+    assert(rvc_decode_tank_status(frame, 8, &st));
+    assert(st.valid == false);
+
+    /* resolution == 0 is also "not available", not a divide-by-zero */
+    frame[1] = 10; frame[2] = 0;
+    assert(rvc_decode_tank_status(frame, 8, &st));
+    assert(st.valid == false);
+
+    /* Out-of-spec relative_level > resolution clamps to 100%, never reports
+     * over it */
+    frame[1] = 250; frame[2] = 1;
+    assert(rvc_decode_tank_status(frame, 8, &st));
+    assert(st.valid == true && st.percent == 100);
+
+    /* Short frame (just instance/level/resolution) still decodes */
+    uint8_t short_frame[3] = { 0, 0x04, 0x20 };
+    assert(rvc_decode_tank_status(short_frame, 3, &st));
+    assert(st.instance == 0 && st.percent == 12 && st.valid);
+
+    /* Too short / null rejected */
+    assert(!rvc_decode_tank_status(short_frame, 2, &st));
+    assert(!rvc_decode_tank_status(NULL, 8, &st));
+
+    printf("PASS decode_tank_status\n");
+}
+
 static void test_level_helpers(void)
 {
     assert(rvc_percent_to_level(0) == 0);
@@ -154,6 +214,7 @@ int main(void)
     test_id_pack_unpack();
     test_encode_dimmer_command();
     test_decode_dimmer_status();
+    test_decode_tank_status();
     test_level_helpers();
     printf("All rvc_protocol tests passed.\n");
     return 0;

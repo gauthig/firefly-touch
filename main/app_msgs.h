@@ -26,3 +26,11 @@ typedef struct {
     uint8_t level;               /* operating level 0..200 */
     bool    on;
 } dimmer_status_msg_t;
+
+/* Decoded TANK_STATUS (SeeLevel II 709-RVC), RX task -> tank state manager.
+ * Separate namespace from dimmer instances above -- never conflate the two. */
+typedef struct {
+    uint8_t instance;
+    uint8_t percent;              /* 0..100, meaningful only if valid */
+    bool    valid;                /* false if the sender reports "not available" */
+} tank_status_msg_t;

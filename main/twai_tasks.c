@@ -36,9 +36,11 @@ static const char *TAG = "twai_tasks";
 
 #define TX_QUEUE_LEN       16
 #define STATUS_QUEUE_LEN   32
+#define TANK_QUEUE_LEN     8
 
 static QueueHandle_t s_tx_queue;
 static QueueHandle_t s_status_queue;
+static QueueHandle_t s_tank_status_queue;
 
 /* ------------------------------------------------------------------ RX -- */
 
@@ -79,6 +81,18 @@ static void twai_rx_task(void *arg)
                 };
                 if (xQueueSend(s_status_queue, &out, 0) != pdTRUE) {
                     ESP_LOGW(TAG, "status queue full, dropped instance %u", st.instance);
+                }
+            }
+        } else if (id.dgn == RVC_DGN_TANK_STATUS) {
+            rvc_tank_status_t st;
+            if (rvc_decode_tank_status(msg.data, msg.data_length_code, &st)) {
+                const tank_status_msg_t out = {
+                    .instance = st.instance,
+                    .percent = st.percent,
+                    .valid = st.valid,
+                };
+                if (xQueueSend(s_tank_status_queue, &out, 0) != pdTRUE) {
+                    ESP_LOGW(TAG, "tank queue full, dropped instance %u", st.instance);
                 }
             }
         }
@@ -165,11 +179,13 @@ esp_err_t twai_tasks_start(void)
 {
     s_tx_queue = xQueueCreate(TX_QUEUE_LEN, sizeof(dimmer_cmd_msg_t));
     s_status_queue = xQueueCreate(STATUS_QUEUE_LEN, sizeof(dimmer_status_msg_t));
-    if (s_tx_queue == NULL || s_status_queue == NULL) {
+    s_tank_status_queue = xQueueCreate(TANK_QUEUE_LEN, sizeof(tank_status_msg_t));
+    if (s_tx_queue == NULL || s_status_queue == NULL || s_tank_status_queue == NULL) {
         return ESP_ERR_NO_MEM;
     }
 
     ESP_ERROR_CHECK(state_manager_start(s_status_queue));
+    ESP_ERROR_CHECK(state_manager_start_tanks(s_tank_status_queue));
 
     BaseType_t ok;
     ok = xTaskCreatePinnedToCore(twai_rx_task, "twai_rx", RX_TASK_STACK, NULL,

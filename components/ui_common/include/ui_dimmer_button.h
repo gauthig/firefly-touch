@@ -1,6 +1,6 @@
 /*
- * ui_dimmer_button — shared button widget for dimmer / switch / placeholder
- * loads.
+ * ui_dimmer_button — shared button widget for dimmer / switch / screen-nav /
+ * tank-level loads.
  *
  * Interaction model:
  *   tap             -> toggle (single-instance dimmers send TOGGLE; multi-
@@ -11,10 +11,16 @@
  *                      long-press and re-sent while held, STOP on release;
  *                      direction alternates hold-to-hold, up when off
  *
- * Visual state is driven ONLY through ui_dimmer_button_update() — i.e. only
- * by DC_DIMMER_STATUS_3 frames from the bus. Sending a command never changes
- * the widget locally, so this panel stays consistent with factory switches
- * and the Firefly app.
+ * PANEL_BTN_SCREEN_SWITCH taps only flip screens locally (see main/ui/ui.c);
+ * PANEL_BTN_TANK_LEVEL is entirely read-only, no tap action at all.
+ *
+ * Visual state for dimmer/switch buttons is driven ONLY through
+ * ui_dimmer_button_update() — i.e. only by DC_DIMMER_STATUS_3 frames from
+ * the bus. Tank-level buttons are driven ONLY through
+ * ui_dimmer_button_update_tank() — i.e. only by TANK_STATUS frames, a
+ * separate DGN/namespace that never crosses over with the dimmer one.
+ * Sending a command never changes a widget locally, so this panel stays
+ * consistent with factory switches and the Firefly app.
  */
 #pragma once
 
@@ -42,12 +48,22 @@ lv_obj_t *ui_dimmer_button_create(lv_obj_t *parent,
 
 /*
  * Feed a status update for one RV-C instance. If this widget doesn't watch
- * that instance the call is a no-op. Shows ON if any watched instance is on;
- * brightness bar shows the highest reported level. Caller must hold the LVGL
- * lock.
+ * that instance, or isn't a PANEL_BTN_DIMMER/PANEL_BTN_SWITCH, the call is a
+ * no-op (tank-level widgets use ui_dimmer_button_update_tank() instead —
+ * a different DGN/namespace, deliberately never routed through this one).
+ * Shows ON if any watched instance is on; brightness bar shows the highest
+ * reported level. Caller must hold the LVGL lock.
  */
 void ui_dimmer_button_update(lv_obj_t *btn, uint8_t instance,
                              uint8_t level, bool on);
+
+/*
+ * Feed a tank-level update for one TANK_STATUS instance. No-op unless this
+ * widget is a PANEL_BTN_TANK_LEVEL watching that instance. valid=false shows
+ * "--" instead of a stale or fabricated 0%. Caller must hold the LVGL lock.
+ */
+void ui_dimmer_button_update_tank(lv_obj_t *btn, uint8_t instance,
+                                  uint8_t percent, bool valid);
 
 #ifdef __cplusplus
 }
