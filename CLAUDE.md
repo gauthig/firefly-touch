@@ -408,6 +408,17 @@ flash and forces USB reflashing of every panel.
 - Decision log: this file, section above. Bench findings (verified pins,
   captured DGNs, instance corrections) should update the tables here and the
   matching TODO comments in code.
+- **Development workflow (as of 2026-08-15):** multi-file features get a
+  GitHub issue first (`enhancement` label for new capability, `bug` for a
+  defect), scoped to one reviewable piece of work — see the open issues on
+  [docs/SPEC-panel-v2.md](docs/SPEC-panel-v2.md) for the current example
+  (one issue per lettered section: A/B/C). Implementation happens on a
+  branch, gets tested (host tests + simulator, bench where applicable),
+  then goes up as a PR that references/closes its issue and runs CI before
+  merge — not a direct push to `main`. Small stuff (docs, instance-map
+  corrections, single-panel button tweaks) still goes straight to `main`
+  as before; this applies to the kind of change that needs its own spec
+  section per this file's spec-discipline rule.
 
 ## Repo hygiene — what belongs in git
 
