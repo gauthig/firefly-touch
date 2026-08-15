@@ -35,7 +35,7 @@ typedef struct {
     bool               pending_target_on;
     uint8_t            retries_left;
 
-    lv_obj_t *icon;
+    lv_obj_t *btn;
     lv_obj_t *name;
     lv_obj_t *bar;
 } btn_ctx_t;
@@ -64,8 +64,8 @@ static uint8_t max_level(const btn_ctx_t *ctx)
 static void refresh_visuals(btn_ctx_t *ctx)
 {
     const bool on = any_on(ctx);
-    lv_obj_set_style_text_color(ctx->icon, on ? UI_COLOR_AMBER : UI_COLOR_OFF, 0);
-    lv_obj_set_style_text_color(ctx->name, on ? UI_COLOR_TEXT : UI_COLOR_TEXT_DIM, 0);
+    lv_obj_set_style_bg_color(ctx->btn, on ? UI_COLOR_CARD_ON : UI_COLOR_CARD, LV_PART_MAIN);
+    lv_obj_set_style_text_color(ctx->name, on ? UI_COLOR_TEXT_ON_LIT : UI_COLOR_TEXT_DIM, 0);
 
     if (ctx->bar != NULL) {
         if (on) {
@@ -213,6 +213,7 @@ lv_obj_t *ui_dimmer_button_create(lv_obj_t *parent,
     lv_obj_add_style(btn, &ui_style_card, LV_STATE_DEFAULT);
     lv_obj_add_style(btn, &ui_style_card_pressed, LV_STATE_PRESSED);
     lv_obj_set_user_data(btn, ctx);
+    ctx->btn = btn;
     /* Keep LV_OBJ_FLAG_PRESS_LOCK (the LVGL default) so that a small
      * finger drift cannot fire PRESS_LOST before LONG_PRESSED.
      * Without it, the 400 ms long-press timer resets whenever the touch
@@ -224,13 +225,9 @@ lv_obj_t *ui_dimmer_button_create(lv_obj_t *parent,
                           LV_FLEX_ALIGN_CENTER);
     lv_obj_set_style_pad_row(btn, 2, 0);
 
-    ctx->icon = lv_label_create(btn);
-    lv_label_set_text(ctx->icon, def->symbol);
-    lv_obj_set_style_text_font(ctx->icon, &lv_font_montserrat_28, 0);
-
     ctx->name = lv_label_create(btn);
     lv_label_set_text(ctx->name, def->label);
-    lv_obj_set_style_text_font(ctx->name, &lv_font_montserrat_16, 0);
+    lv_obj_set_style_text_font(ctx->name, &lv_font_montserrat_20, 0);
 
     if (def->type == PANEL_BTN_DIMMER) {
         ctx->bar = lv_bar_create(btn);

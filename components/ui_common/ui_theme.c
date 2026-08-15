@@ -43,4 +43,5 @@ void ui_theme_init(void)
 
     lv_style_init(&ui_style_card_pressed);
     lv_style_set_bg_color(&ui_style_card_pressed, UI_COLOR_CARD_PR);
+    lv_style_set_bg_opa(&ui_style_card_pressed, LV_OPA_COVER);
 }

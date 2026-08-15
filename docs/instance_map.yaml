@@ -110,7 +110,11 @@ loads:
     type: dimmer
     source: [SW1-E1 Entry Door, SW2-E7 Living Room]
     verified: true
-    notes: Live in panels/living_room.h today.
+    notes: Was live in panels/living_room.h; dropped from its button layout
+      2026-08-15 when living_room was renamed "MID COACH" and relaid out to
+      match ent_center's instance set. Still verified true -- was
+      bench/coach-confirmed before removal, and instance 24 itself hasn't
+      changed. Not currently wired to any firmware panel.
 
   - name: Center Ceiling Light
     instances: [25]
@@ -124,9 +128,10 @@ loads:
   - name: Accent Light
     instances: [26, 27]
     type: dimmer
-    source: SW4-E7 Ent. Center
+    source: [SW4-E7 Ent. Center, living_room]
     verified: true
-    notes: Live in panels/ent_center.h today (driven as a pair).
+    notes: Live in panels/ent_center.h; also added to panels/living_room.h
+      ("MID COACH") 2026-08-15. Driven as a pair.
 
   - name: Side Ceiling Light
     instances: [30, 31]
@@ -153,9 +158,10 @@ loads:
   - name: Sink / Counter Light
     instances: [34]
     type: dimmer
-    source: SW4-E7 Ent. Center
+    source: [SW4-E7 Ent. Center, living_room]
     verified: true
-    notes: Live in panels/ent_center.h today.
+    notes: Live in panels/ent_center.h; also added to panels/living_room.h
+      ("MID COACH") 2026-08-15.
 
   - name: Midship / Hall-Midship Light
     instances: [35]
@@ -286,6 +292,13 @@ switch_panels:
   - panel: SW2-E7 Living Room
     part_number: "0291134/75569"
     firmware: panels/living_room.h
+    notes: >
+      Physical wall panel factory layout, for reference only -- as of
+      2026-08-15 panels/living_room.h no longer matches this row-for-row
+      (on-screen name changed to "MID COACH" and buttons were relaid out
+      to match ent_center's set plus a dedicated ACCENT button). See
+      "Current living_room.h firmware layout" below for what's actually
+      flashed.
     rows:
       - left: { name: Center Ceiling Light, instances: [25] }
         right: { name: Entry Ceiling Light, instances: [24] }
@@ -294,6 +307,24 @@ switch_panels:
       - left: { name: Sofa Sconce Light, instances: [32] }
         right: { name: Motion + Patio + Hitch Light, instances: [46, 44, 45] }
       - left: { name: Midship Light, instances: [35] }
+        right: { name: Panel Lights, instances: [], type: local }
+
+  - panel: Current living_room.h firmware layout
+    part_number: null
+    firmware: panels/living_room.h
+    notes: >
+      What's actually flashed as of 2026-08-15 (on-screen name "MID COACH"),
+      not the factory SW2-E7 row above. Reprogrammed to mirror ent_center's
+      instance set (minus Entry Ceiling, plus a dedicated Sofa Sconce/Slide
+      row) so the two CAN-connected panels cover the same loads.
+    rows:
+      - left: { name: Center Ceiling Light, instances: [25] }
+        right: { name: Midship Light, instances: [35] }
+      - left: { name: Side Ceiling Light, instances: [30, 31] }
+        right: { name: Sink/Counter Light, instances: [34] }
+      - left: { name: Sofa Sconce / Slide Light, instances: [32] }
+        right: { name: Dinette Light, instances: [33] }
+      - left: { name: Accent Light, instances: [26, 27] }
         right: { name: Panel Lights, instances: [], type: local }
 
   - panel: SW4-E7 Ent. Center

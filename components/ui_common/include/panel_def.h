@@ -23,7 +23,6 @@ typedef enum {
 
 typedef struct {
     const char      *label;                              /* button caption */
-    const char      *symbol;                             /* LVGL symbol string (LV_SYMBOL_*) */
     panel_btn_type_t type;
     uint8_t          instances[PANEL_BTN_MAX_INSTANCES]; /* RV-C dimmer instances */
     uint8_t          instance_count;                     /* 0 for PANEL_LIGHTS */

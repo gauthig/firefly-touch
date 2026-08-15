@@ -27,7 +27,7 @@ python tools/check_panels.py
 ```
 
 ```
-  living_room         index 0   source addr 0x80   "LIVING ROOM"
+  living_room         index 0   source addr 0x80   "MID COACH"
   ent_center          index 1   source addr 0x81   "ENT CENTER"
   living_room_remote  index 2   source addr 0x82†  "LR REMOTE"
   next free           index 3   source addr 0x83
@@ -102,7 +102,7 @@ Watch the boot log (`idf.py monitor`, exit with `Ctrl+]`). The panel announces
 its identity in the first lines:
 
 ```
-I (312) main: firefly-touch panel 'LIVING ROOM' (index 0)
+I (312) main: firefly-touch panel 'MID COACH' (index 0)
 I (534) board_4_3b: display up: 800x480 RGB565, GT911 touch, LVGL on core 1
 I (536) main: RV-C source addr 0x80
 I (541) board_4_3b: TWAI up at 250 kbps on TX=15 RX=16 (TODO: pins unverified...)
@@ -297,7 +297,7 @@ Copy-Item panels\TEMPLATE.h panels\galley.h
 
 3. Edit `panels/galley.h`: set `PANEL_NAME`, set `PANEL_INDEX` to the index
    from step 1, delete the `#error` line, and fill in `PANEL_BUTTONS[]` —
-   label, LVGL symbol, type (`PANEL_BTN_DIMMER`, `PANEL_BTN_SWITCH`,
+   label, type (`PANEL_BTN_DIMMER`, `PANEL_BTN_SWITCH`,
    `PANEL_BTN_PANEL_LIGHTS`), and RV-C instances. The grid is 2 columns × 4
    rows in reading order.
 4. Add a row to `panels/REGISTRY.md` and bump its **Next free index** line.
