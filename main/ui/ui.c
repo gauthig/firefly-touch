@@ -1,7 +1,6 @@
 /*
  * ui — panel screen: status bar, 2x4 button grid (optionally two, see
- * PANEL_HAS_SCREEN_2), link-health dot, idle auto-dim. Runs in the LVGL
- * task on core 1.
+ * PANEL_HAS_SCREEN_2), idle auto-dim. Runs in the LVGL task on core 1.
  *
  * Touch never talks to TWAI (or ESP-NOW) directly: button callbacks post
  * through bridge_enqueue_dimmer_cmd(), which resolves at build time to
@@ -12,8 +11,15 @@
  * Tank-level widgets are driven separately by ui_on_tank_status(), fed by
  * TANK_STATUS frames — a different DGN/namespace, never routed through
  * ui_on_status().
+ *
+ * Screen 2 (PANEL_HAS_SCREEN_2) is assumed to be a tank readout today —
+ * the only panel that defines one is living_room, with its SeeLevel
+ * FRESH/GREY/BLACK gauges. If a future panel wants a non-tank screen 2,
+ * build_screen2_tanks() will need to stop assuming that.
  */
 #include "ui.h"
+
+#include <string.h>
 
 #include "esp_log.h"
 #include "esp_lvgl_port.h"
@@ -26,16 +32,17 @@
 #include "ui_dimmer_button.h"
 #include "ui_theme.h"
 
-#if !PANEL_HAS_CAN
-#include "espnow_link.h"
-#endif
-
 static const char *TAG = "ui";
 
 #define STATUSBAR_H         36
 #define IDLE_DIM_TIMEOUT_MS 120000
 #define IDLE_OFF_TIMEOUT_MS 300000
 #define IDLE_DIM_PERCENT    50
+
+/* Tank status thresholds (percent). "OK" is anything below WARN. */
+#define TANK_WARN_PCT  80
+#define TANK_FULL_PCT  89 /* i.e. "over 88%" */
+#define TANK_STATUS_TIMER_MS 500
 
 typedef enum {
     BACKLIGHT_NORMAL,
@@ -44,7 +51,6 @@ typedef enum {
 } backlight_state_t;
 
 static lv_obj_t *s_buttons[PANEL_BUTTON_COUNT];
-static lv_obj_t *s_link_dot;
 static lv_obj_t *s_dim_overlay;
 static backlight_state_t s_backlight_state;
 static bool s_ui_ready;
@@ -53,6 +59,11 @@ static bool s_ui_ready;
 static lv_obj_t *s_buttons_2[PANEL_BUTTON_COUNT_2];
 static lv_obj_t *s_grid1;
 static lv_obj_t *s_grid2;
+static lv_obj_t *s_tank_status_label;
+static bool      s_grey_found, s_black_found;
+static uint8_t   s_grey_instance, s_black_instance;
+static bool      s_tank_critical;
+static bool      s_tank_blink_on;
 #endif
 
 /* ------------------------------------------------------- backlight ------ */
@@ -93,6 +104,22 @@ static void dim_overlay_event_cb(lv_event_t *e)
 static void idle_timer_cb(lv_timer_t *t)
 {
     (void)t;
+
+#if PANEL_HAS_SCREEN_2
+    /* A critical (>88%) grey/black tank overrides idle dimming entirely:
+     * this is a "go empty the tank" alert, the screen must stay readable.
+     * Only touch the backlight on the transition (or if some other state
+     * left it non-normal) to avoid a CH422G write every tick. */
+    if (s_tank_critical) {
+        if (s_backlight_state != BACKLIGHT_NORMAL) {
+            s_backlight_state = BACKLIGHT_NORMAL;
+            lv_obj_remove_flag(s_dim_overlay, LV_OBJ_FLAG_CLICKABLE);
+            apply_backlight(100);
+        }
+        return;
+    }
+#endif
+
     uint32_t inactive_ms = lv_display_get_inactive_time(NULL);
 
     if (s_backlight_state == BACKLIGHT_NORMAL && inactive_ms > IDLE_DIM_TIMEOUT_MS) {
@@ -107,18 +134,55 @@ static void idle_timer_cb(lv_timer_t *t)
     }
 }
 
-/* ------------------------------------------------------- link health ---- */
+#if PANEL_HAS_SCREEN_2
+/* ------------------------------------------------------- tank status ---- */
 
-static void link_health_timer_cb(lv_timer_t *t)
+static void tank_status_timer_cb(lv_timer_t *t)
 {
     (void)t;
-#if PANEL_HAS_CAN
-    const bool healthy = state_manager_bus_healthy();
-#else
-    const bool healthy = espnow_link_healthy();
-#endif
-    lv_obj_set_style_bg_color(s_link_dot, healthy ? UI_COLOR_OK : UI_COLOR_ERR, 0);
+    if (s_tank_status_label == NULL || !s_grey_found || !s_black_found) {
+        return;
+    }
+
+    uint8_t grey_pct = 0, black_pct = 0;
+    bool grey_valid = state_manager_get_tank(s_grey_instance, &grey_pct);
+    bool black_valid = state_manager_get_tank(s_black_instance, &black_pct);
+
+    s_tank_blink_on = !s_tank_blink_on;
+
+    if (!grey_valid || !black_valid) {
+        s_tank_critical = false;
+        lv_label_set_text(s_tank_status_label, "Grey-Black --");
+        lv_obj_set_style_text_color(s_tank_status_label, UI_COLOR_TEXT_DIM, 0);
+        lv_obj_remove_flag(s_tank_status_label, LV_OBJ_FLAG_HIDDEN);
+        return;
+    }
+
+    const uint8_t worst = grey_pct > black_pct ? grey_pct : black_pct;
+
+    if (worst >= TANK_FULL_PCT) {
+        s_tank_critical = true;
+        lv_label_set_text(s_tank_status_label, "Grey-Black FULL");
+        lv_obj_set_style_text_color(s_tank_status_label, UI_COLOR_ERR, 0);
+        /* Blink by toggling visibility every tick. */
+        if (s_tank_blink_on) {
+            lv_obj_remove_flag(s_tank_status_label, LV_OBJ_FLAG_HIDDEN);
+        } else {
+            lv_obj_add_flag(s_tank_status_label, LV_OBJ_FLAG_HIDDEN);
+        }
+    } else if (worst >= TANK_WARN_PCT) {
+        s_tank_critical = false;
+        lv_label_set_text(s_tank_status_label, "Grey-Black Warn");
+        lv_obj_set_style_text_color(s_tank_status_label, UI_COLOR_WARN, 0);
+        lv_obj_remove_flag(s_tank_status_label, LV_OBJ_FLAG_HIDDEN);
+    } else {
+        s_tank_critical = false;
+        lv_label_set_text(s_tank_status_label, "Grey-Black OK");
+        lv_obj_set_style_text_color(s_tank_status_label, UI_COLOR_TEXT, 0);
+        lv_obj_remove_flag(s_tank_status_label, LV_OBJ_FLAG_HIDDEN);
+    }
 }
+#endif
 
 /* --------------------------------------------------------- screen nav --- */
 
@@ -206,6 +270,48 @@ static void build_button_grid(lv_obj_t *parent, const panel_btn_def_t *buttons,
     }
 }
 
+#if PANEL_HAS_SCREEN_2
+/*
+ * Screen 2 is a tank readout (see the file header note): its
+ * PANEL_BTN_TANK_LEVEL entries are laid out as a centered horizontal row
+ * of wave gauges, and its one PANEL_BTN_SCREEN_SWITCH entry ("BACK") is a
+ * small button pinned to the bottom center, rather than an equal-sized
+ * grid cell like screen 1's buttons. PANEL_BTN_SPACER entries, if any, are
+ * skipped -- the row layout doesn't need manual gap positioning.
+ */
+static void build_screen2_tanks(lv_obj_t *parent, const panel_btn_def_t *buttons,
+                                uint32_t count, lv_obj_t **out_buttons)
+{
+    lv_obj_t *row = lv_obj_create(parent);
+    lv_obj_add_style(row, &ui_style_screen, 0);
+    lv_obj_set_size(row, LV_PCT(100), LV_PCT(75));
+    lv_obj_align(row, LV_ALIGN_TOP_MID, 0, 8);
+    lv_obj_remove_flag(row, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_flex_flow(row, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(row, LV_FLEX_ALIGN_SPACE_EVENLY, LV_FLEX_ALIGN_CENTER,
+                          LV_FLEX_ALIGN_CENTER);
+
+    for (uint32_t i = 0; i < count; i++) {
+        if (buttons[i].type == PANEL_BTN_SPACER) {
+            out_buttons[i] = NULL;
+            continue;
+        }
+        if (buttons[i].type == PANEL_BTN_SCREEN_SWITCH) {
+            lv_obj_t *btn = ui_dimmer_button_create(parent, &buttons[i],
+                                                    panel_send_cb, NULL);
+            lv_obj_set_size(btn, 130, 44);
+            lv_obj_align(btn, LV_ALIGN_BOTTOM_MID, 0, -8);
+            out_buttons[i] = btn;
+            continue;
+        }
+        lv_obj_t *btn = ui_dimmer_button_create(row, &buttons[i],
+                                                panel_send_cb, NULL);
+        lv_obj_set_size(btn, 140, LV_PCT(100));
+        out_buttons[i] = btn;
+    }
+}
+#endif
+
 static void build_screen(void)
 {
     ui_theme_init();
@@ -225,13 +331,31 @@ static void build_screen(void)
     lv_label_set_text(title, PANEL_NAME);
     lv_obj_align(title, LV_ALIGN_LEFT_MID, 0, 0);
 
-    s_link_dot = lv_obj_create(bar);
-    lv_obj_set_size(s_link_dot, 12, 12);
-    lv_obj_set_style_radius(s_link_dot, LV_RADIUS_CIRCLE, 0);
-    lv_obj_set_style_border_width(s_link_dot, 0, 0);
-    lv_obj_set_style_bg_color(s_link_dot, UI_COLOR_ERR, 0);
-    lv_obj_align(s_link_dot, LV_ALIGN_RIGHT_MID, 0, 0);
-    lv_obj_remove_flag(s_link_dot, LV_OBJ_FLAG_SCROLLABLE);
+#if PANEL_HAS_SCREEN_2
+    /* Find the GREY/BLACK tank buttons by label rather than hardcoding
+     * instance numbers here -- keeps ui.c panel-agnostic, consistent with
+     * the rest of this file. If a panel with screen 2 has no such buttons
+     * (not the case today), the header simply shows nothing. */
+    for (uint32_t i = 0; i < PANEL_BUTTON_COUNT_2; i++) {
+        const panel_btn_def_t *def = &PANEL_BUTTONS_2[i];
+        if (def->type != PANEL_BTN_TANK_LEVEL || def->instance_count == 0) {
+            continue;
+        }
+        if (strcmp(def->label, "GREY") == 0) {
+            s_grey_instance = def->instances[0];
+            s_grey_found = true;
+        } else if (strcmp(def->label, "BLACK") == 0) {
+            s_black_instance = def->instances[0];
+            s_black_found = true;
+        }
+    }
+    if (s_grey_found && s_black_found) {
+        s_tank_status_label = lv_label_create(bar);
+        lv_label_set_text(s_tank_status_label, "Grey-Black --");
+        lv_obj_set_style_text_color(s_tank_status_label, UI_COLOR_TEXT_DIM, 0);
+        lv_obj_align(s_tank_status_label, LV_ALIGN_RIGHT_MID, 0, 0);
+    }
+#endif
 
     /* Use logical height (post-rotation) so the grid fills correctly in
      * both landscape (480 px) and portrait (800 px) orientations. */
@@ -257,7 +381,7 @@ static void build_screen(void)
     lv_obj_align(grid2, LV_ALIGN_BOTTOM_MID, 0, 0);
     lv_obj_remove_flag(grid2, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_add_flag(grid2, LV_OBJ_FLAG_HIDDEN);
-    build_button_grid(grid2, PANEL_BUTTONS_2, PANEL_BUTTON_COUNT_2, s_buttons_2);
+    build_screen2_tanks(grid2, PANEL_BUTTONS_2, PANEL_BUTTON_COUNT_2, s_buttons_2);
     s_grid2 = grid2;
 #endif
 
@@ -274,7 +398,11 @@ static void build_screen(void)
     lv_obj_add_event_cb(s_dim_overlay, dim_overlay_event_cb, LV_EVENT_PRESSED, NULL);
 
     lv_timer_create(idle_timer_cb, 1000, NULL);
-    lv_timer_create(link_health_timer_cb, 500, NULL);
+#if PANEL_HAS_SCREEN_2
+    if (s_tank_status_label != NULL) {
+        lv_timer_create(tank_status_timer_cb, TANK_STATUS_TIMER_MS, NULL);
+    }
+#endif
 }
 
 /* ------------------------------------------------------------- API ------ */
