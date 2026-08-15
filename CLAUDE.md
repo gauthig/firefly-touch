@@ -504,17 +504,18 @@ flash and forces USB reflashing of every panel.
 - Decision log: this file, section above. Bench findings (verified pins,
   captured DGNs, instance corrections) should update the tables here and the
   matching TODO comments in code.
-- **Development workflow (as of 2026-08-15):** multi-file features get a
-  GitHub issue first (`enhancement` label for new capability, `bug` for a
-  defect), scoped to one reviewable piece of work — see the open issues on
-  [docs/SPEC-panel-v2.md](docs/SPEC-panel-v2.md) for the current example
-  (one issue per lettered section: A/B/C). Implementation happens on a
-  branch, gets tested (host tests + simulator, bench where applicable),
-  then goes up as a PR that references/closes its issue and runs CI before
-  merge — not a direct push to `main`. Small stuff (docs, instance-map
-  corrections, single-panel button tweaks) still goes straight to `main`
-  as before; this applies to the kind of change that needs its own spec
-  section per this file's spec-discipline rule.
+- **Development workflow (as of 2026-08-15):** every code change to this
+  repo, any size, gets a GitHub issue first (`enhancement` label for new
+  capability, `bug` for a defect), scoped to one reviewable piece of work
+  — see the issues behind [docs/SPEC-panel-v2.md](docs/SPEC-panel-v2.md)
+  or the MID COACH header/tank-wave rework (issues #8–#11, one branch,
+  one PR) for examples. Implementation happens on a branch, gets tested
+  (host tests + simulator, bench where applicable), then goes up as a PR
+  that references/closes its issue(s) and runs CI before merge — not a
+  direct push to `main`. There is no small-change exception anymore
+  (previously docs/instance-map/single-button tweaks skipped this); the
+  only things that don't need it are edits to files outside this repo,
+  like Claude's own memory notes.
 
 ## Repo hygiene — what belongs in git
 
