@@ -21,6 +21,17 @@
 # instances: a list. Buttons with more than one instance must send the
 # command once per instance (fire-and-forget to each, same as the existing
 # multi-instance buttons in panels/living_room.h e.g. SIDE CEILING {30,31}).
+#
+# `tank_sensors` (added 2026-08-15): a SEPARATE DGN from the dimmer loads
+# above -- TANK_STATUS (0x1FFB7), read-only, broadcast by the coach's Garnet
+# SeeLevel II 709-RVC tank monitor. NOT YET DISPLAYABLE on any panel:
+# panel_btn_def_t / ui_dimmer_button only understand DC_DIMMER_COMMAND_2/
+# STATUS_3 (on-off + ramp) today. Wiring a percentage-gauge readout onto a
+# panel needs a new button/widget type (e.g. PANEL_BTN_TANK_LEVEL) plus a
+# TANK_STATUS decoder in twai_rx_task and a place in state_manager to hold
+# it -- none of that exists yet. This section exists so the protocol
+# details are captured for when that feature gets built; it is a read
+# reference, not something panels/*.h can consume today.
 
 loads:
   - name: Bathroom Ceiling Light
@@ -269,6 +280,82 @@ loads:
       likely a different DGN or a hardwired master relay. Not implemented in
       firmware. Capture its frames in sniffer mode before building a button
       for it.
+
+# Garnet SeeLevel II 709-RVC tank monitor -- 3 sensors on this coach's bus
+# (Fresh, Grey, Black). Read-only TANK_STATUS broadcasts, NOT the
+# DC_DIMMER DGN the `loads` table above uses. See the header comment above
+# `tank_sensors` (top of file) for why no panel can display these yet.
+#
+# Researched from public RV-C references 2026-08-15 (not yet confirmed
+# against this coach's actual bus traffic -- verified: false throughout
+# until sniffed):
+#   - Garnet 709-RVC product docs (garnetinstruments.com) -- confirms the
+#     unit broadcasts fresh/grey/black (+ 1 LPG channel on some models) on
+#     RV-C, default source address 72 (0x48).
+#   - Victron GX RV-C support notes (victronenergy.com) and Victron
+#     community archive -- corroborate source address 72 and that
+#     SPN-ISB/instance values are 0=fresh, 1=black, 2=grey.
+#   - linuxkidd/coachproxy-os `rvc-spec.yml` (github.com/linuxkidd/
+#     coachproxy-os) -- same open-source RV-C spec family already used to
+#     verify this project's DC_DIMMER command codes (see CLAUDE.md's RV-C
+#     protocol section). Gives the full TANK_STATUS byte layout and the
+#     same 0/1/2/3 instance mapping, independently confirming the above.
+tank_dgn:
+  name: TANK_STATUS
+  dgn: "0x1FFB7"
+  direction: RX (broadcast by the SeeLevel unit, panels never send it)
+  source_address_default: "0x48 (72)"
+  fields:
+    - byte: 0
+      name: instance
+      notes: which tank -- see tank_sensors below for the values seen on
+        this coach's 3-sensor kit
+    - byte: 1
+      name: relative_level
+      notes: "raw fill level; percent = relative_level / resolution"
+    - byte: 2
+      name: resolution
+      notes: scale factor for relative_level (commonly 2, i.e. 0.5% steps,
+        matching the same convention DC_DIMMER_STATUS_3 uses for
+        brightness -- unconfirmed for this specific unit)
+    - byte: 3-4
+      name: absolute_level
+      unit: Liter (uint16)
+    - byte: 5-6
+      name: tank_size
+      unit: Liter (uint16)
+
+tank_sensors:
+  - name: Fresh Tank
+    instance: 0
+    dgn: "0x1FFB7 (TANK_STATUS)"
+    verified: false
+    notes: User-confirmed 2026-08-15 this coach has a Fresh Tank sensor on
+      the SeeLevel II 709-RVC. Instance 0 per RV-C convention (fresh water
+      is always instance 0) -- confirm via sniffer before wiring a button.
+
+  - name: Black Tank
+    instance: 1
+    dgn: "0x1FFB7 (TANK_STATUS)"
+    verified: false
+    notes: >
+      User-confirmed 2026-08-15 this coach has a Black Tank sensor. Public
+      references disagree on whether black is instance 1 or 2 -- Garnet/
+      Victron material and the coachproxy-os rvc-spec.yml both independently
+      say instance 1 = black waste, instance 2 = gray waste (one community
+      forum post claimed the reverse, but two independent technical sources
+      agree with each other, so that ordering is used here). CONFIRM VIA
+      SNIFFER before trusting -- this is the one value in this whole file
+      most worth double-checking first, since a swapped grey/black reading
+      would be actively misleading rather than just missing.
+
+  - name: Grey Tank
+    instance: 2
+    dgn: "0x1FFB7 (TANK_STATUS)"
+    verified: false
+    notes: User-confirmed 2026-08-15 this coach has a Grey Tank sensor.
+      Instance 2 per the same sourcing as Black Tank above -- verify via
+      sniffer together with it.
 
 # Physical factory panel layouts, for reference when laying out a new
 # panel's button grid to match a familiar physical location. Row order is

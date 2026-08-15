@@ -194,6 +194,7 @@ RV-C instance map used to pick these.
 |-----|------|-----------|-----|
 | `0x1FEDB` | DC_DIMMER_COMMAND_2 | TX | instance, group(0xFF), level 0–200 (0.5 % steps), command, duration |
 | `0x1FEDA` | DC_DIMMER_STATUS_3  | RX | instance, operating level, load status (derived from level > 0) |
+| `0x1FFB7` | TANK_STATUS | RX | broadcast by the Garnet SeeLevel II 709-RVC (source addr `0x48`, 3 sensors on this coach); instance, relative level, resolution, absolute level (L), tank size (L) — see *Tank sensors* below |
 
 29-bit ID: priority (default 6) bits 26–28, DGN bits 8–24, source address
 bits 0–7. Commands used: 0 set-level, 2 on, 3 off, 4 stop, 5 toggle,
@@ -211,6 +212,30 @@ Dimmer button behavior: tap = toggle (multi-instance buttons send explicit
 ON/OFF to all members so they can't desync; shown ON if **any** member is
 on), press-and-hold = ramp (direction alternates per hold, re-sent while
 held, STOP on release).
+
+### Tank sensors (SeeLevel II 709-RVC) — protocol documented, not yet wired
+
+This coach has a Garnet SeeLevel II 709-RVC tank monitor with 3 sensors
+(Fresh, Grey, Black) on the RV-C bus, default source address `0x48`. It
+broadcasts read-only `TANK_STATUS` (`0x1FFB7`) — a **different DGN from the
+dimmer loads above**, so it needs its own decode path, not a reuse of
+`DC_DIMMER_STATUS_3`. Full byte layout and instance numbers researched
+2026-08-15 (Garnet/Victron docs + `linuxkidd/coachproxy-os`'s
+`rvc-spec.yml`, the same open-source RV-C spec family already used to
+verify this project's dimmer command codes) are in
+[docs/instance_map.yaml](docs/instance_map.yaml) → `tank_dgn` /
+`tank_sensors`. Short version: instance 0 = fresh, 1 = black, 2 = grey;
+percent = relative-level byte ÷ resolution byte. **Unverified against this
+coach's actual bus traffic** — confirm via sniffer, especially the
+black/grey instance ordering, before trusting it.
+
+**Not yet displayable on any panel.** `panel_btn_def_t` /
+`ui_dimmer_button` only understand the DC_DIMMER on/off + ramp model today
+— there's no gauge/percentage widget and no `TANK_STATUS` decode in
+`twai_rx_task`/`state_manager`. Building that (new button/widget type, a
+second decode path, a place to hold 3 more values) is a real feature, not
+a config change — spec it out before implementing, per this project's
+spec-discipline rule for anything touching multiple files.
 
 ## Instance map (from factory Entegra legends — verify via sniffer!)
 
