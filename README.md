@@ -75,7 +75,8 @@ firefly-touch/
 ├── tools/check_panels.py     # enforces unique indices + registry sync
 ├── sim/                      # PC simulator (see the UI without hardware)
 ├── docs/                     # flashing guide, images
-├── .github/workflows/        # CI: builds every panel, runs host tests
+├── .github/workflows/        # CI/CD: lint, host tests, builds every panel,
+│                             #   releases firmware zips on version tags
 ├── CLAUDE.md                 # architecture, DGN tables, pinout, TODOs
 ├── partitions.csv            # dual-OTA flash layout (16 MB)
 ├── sdkconfig.defaults        # PSRAM, flash, LVGL, TWAI config
@@ -182,6 +183,15 @@ Pure protocol functions (RV-C ID pack/unpack, DGN encode/decode) run natively:
 cd components/rvc_protocol/host_test
 gcc -Wall -Wextra -Werror -I../include ../rvc_protocol.c test_rvc.c -o test_rvc && ./test_rvc
 ```
+
+## Releases
+
+Pushing a tag matching `v*.*.*` (e.g. `v1.2.0`) runs the full pipeline — lint,
+host tests, every panel build — then publishes a GitHub Release with a zip
+per panel (`firefly_touch.bin`, bootloader, partition table, OTA init data,
+`flash_args`) for flashing via [docs/FLASHING.md](docs/FLASHING.md). There's
+no server-side deploy target: these are wall-mounted panels, so "deploy"
+means "producible binaries a human flashes over USB" until Wi-Fi OTA lands.
 
 ## Bench verification
 
