@@ -19,7 +19,6 @@
 #include "freertos/timers.h"
 
 #include "esp_log.h"
-#include "esp_ota_ops.h"
 
 #include "board_4_3b.h"
 #include "panel_config.h"
@@ -116,25 +115,6 @@ void app_main(void)
     ESP_ERROR_CHECK(espnow_link_init(false));
     espnow_link_set_status_rx_cb(remote_status_rx, NULL);
 #endif
-
-    /*
-     * Everything came up: display, touch, UI, and the RV-C and/or ESP-NOW
-     * tasks. Confirm the image so the bootloader stops treating it as
-     * provisional.
-     *
-     * With CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE, an image installed over OTA
-     * boots as PENDING_VERIFY and is rolled back to the previous slot on the
-     * next reset unless this call happens. A panel that can't bring up its
-     * display, CAN bus, or ESP-NOW link therefore reverts on its own instead
-     * of needing to be pulled out of the wall. No-op for USB-flashed images.
-     */
-    const esp_partition_t *running = esp_ota_get_running_partition();
-    esp_ota_img_states_t ota_state;
-    if (esp_ota_get_state_partition(running, &ota_state) == ESP_OK &&
-        ota_state == ESP_OTA_IMG_PENDING_VERIFY) {
-        ESP_LOGI(TAG, "OTA image healthy — marking valid, cancelling rollback");
-        esp_ota_mark_app_valid_cancel_rollback();
-    }
 
     ESP_LOGI(TAG, "up");
 }

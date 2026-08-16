@@ -13,6 +13,27 @@ the full UI are verified on both the plain ESP32-S3-Touch-LCD-4.3 (bench,
 command-code/interlock bugs below. Hold-to-dim, the rest of the instance
 map, and the other items in *Unverified* below are still unconfirmed.
 
+### Removed — OTA update feature (2026-08-16)
+
+- **All OTA (over-the-air) update code has been removed.** Bench testing
+  against the target network ("grv") showed it is 5G-only with WPA3 +
+  PMF (Protected Management Frames) required. The ESP32-S3's Wi-Fi radio
+  is WPA2-only and cannot associate — authentication fails
+  (reason=202/AUTH_FAIL) even with strong RSSI and correct credentials.
+  This is a hardware/protocol incompatibility, not a code bug, and will
+  not be worked around (e.g. by weakening PMF).
+- Removed `components/ota_update/` in full (manifest parser + host test),
+  the OTA rollback-confirmation code in `main/main.c`, and
+  `CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE` from `sdkconfig.defaults`.
+- Reverted `partitions.csv` from the dual-OTA layout (`otadata`/`ota_0`/
+  `ota_1`) back to a single `factory` app partition, since the dual-slot
+  layout only existed to support a future OTA path that will now never
+  exist.
+- **Decision: firmware updates are USB-only, permanently**, for both the
+  Wi-Fi incompatibility above and security reasons (no network attack
+  surface for firmware updates). See `CLAUDE.md` and
+  `docs/FLASHING.md#firmware-updates-after-installation`.
+
 ### Changed
 
 - **Idle auto-dim timeout extended from 60 s to 5 min (300 000 ms)** —

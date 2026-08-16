@@ -78,7 +78,7 @@ firefly-touch/
 ├── .github/workflows/        # CI/CD: lint, host tests, builds every panel,
 │                             #   releases firmware zips on version tags
 ├── CLAUDE.md                 # architecture, DGN tables, pinout, TODOs
-├── partitions.csv            # dual-OTA flash layout (16 MB)
+├── partitions.csv            # single-app flash layout (16 MB)
 ├── sdkconfig.defaults        # PSRAM, flash, LVGL, TWAI config
 └── dependencies.lock         # pinned component versions (committed)
 ```
@@ -90,11 +90,10 @@ from [`panels/REGISTRY.md`](panels/REGISTRY.md), and run
 `python tools/check_panels.py`. Full procedure:
 [docs/FLASHING.md](docs/FLASHING.md#adding-a-new-panel).
 
-**Updates after installation.** The flash layout reserves two 4 MB OTA slots
-with automatic rollback, so panels sealed into walls can be updated over the
-air rather than pulled out. Wi-Fi OTA isn't written yet — the partitions are
-reserved now so enabling it later needs no repartitioning. See
-[docs/FLASHING.md](docs/FLASHING.md#firmware-updates-after-installation-ota).
+**Updates after installation.** No OTA — the ESP32-S3's Wi-Fi radio is
+WPA2-only and can't associate to a WPA3+PMF network, so updates stay
+USB-only by design (single-app `partitions.csv`, no Wi-Fi/OTA code). See
+[docs/FLASHING.md](docs/FLASHING.md#firmware-updates-after-installation).
 
 ## Toolchain setup
 
@@ -188,10 +187,11 @@ gcc -Wall -Wextra -Werror -I../include ../rvc_protocol.c test_rvc.c -o test_rvc 
 
 Pushing a tag matching `v*.*.*` (e.g. `v1.2.0`) runs the full pipeline — lint,
 host tests, every panel build — then publishes a GitHub Release with a zip
-per panel (`firefly_touch.bin`, bootloader, partition table, OTA init data,
-`flash_args`) for flashing via [docs/FLASHING.md](docs/FLASHING.md). There's
-no server-side deploy target: these are wall-mounted panels, so "deploy"
-means "producible binaries a human flashes over USB" until Wi-Fi OTA lands.
+per panel (`firefly_touch.bin`, bootloader, partition table, `flash_args`)
+for flashing via [docs/FLASHING.md](docs/FLASHING.md). There's no
+server-side deploy target and no OTA: these are wall-mounted panels updated
+by USB only, so "deploy" means "producible binaries a human flashes over
+USB."
 
 ## Bench verification
 
