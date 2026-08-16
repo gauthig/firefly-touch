@@ -3,10 +3,37 @@ name: build
 on:
   push:
     branches: [main]
+    tags: ['v*.*.*']
   pull_request:
   workflow_dispatch:
 
 jobs:
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.x'
+      - name: Ruff (tools/*.py)
+        run: |
+          python -m pip install --quiet ruff
+          ruff check tools/
+      # Static analysis of the C sources actually shared across panels.
+      # PANEL_CONFIG_HEADER is normally injected by CMakeLists.txt from
+      # -DPANEL=<name>; pinned to one real panel header here so cppcheck can
+      # resolve main/panel_config.h's #include.
+      - name: cppcheck (main/, components/)
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y cppcheck
+          cppcheck --enable=warning,performance,portability --error-exitcode=1 \
+            --suppress=missingIncludeSystem --inline-suppr \
+            -I panels -DPANEL_CONFIG_HEADER='"living_room.h"' \
+            main components/rvc_protocol components/ui_common \
+            components/board_4_3b components/espnow_link
+
   panels:
     name: Panel registry
     runs-on: ubuntu-latest
@@ -39,7 +66,7 @@ jobs:
 
   firmware:
     name: Build ${{ matrix.panel }}
-    needs: panels
+    needs: [lint, panels, host-tests]
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -67,3 +94,36 @@ jobs:
             build_${{ matrix.panel }}/partition_table/partition-table.bin
             build_${{ matrix.panel }}/ota_data_initial.bin
             build_${{ matrix.panel }}/flash_args
+
+  # "Deploy" for wall-mounted firmware means publishing flashable binaries,
+  # not pushing to a server. Runs only on a version tag (e.g. `v1.2.0`), once
+  # every panel above has built successfully, and attaches each panel's
+  # binaries to a GitHub Release for manual flashing per docs/FLASHING.md
+  # (OTA isn't wired up yet — see README).
+  release:
+    name: Publish release
+    needs: firmware
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download all firmware artifacts
+        uses: actions/download-artifact@v7
+        with:
+          pattern: firmware-*
+          path: artifacts
+
+      - name: Zip per-panel firmware bundles
+        run: |
+          mkdir -p dist
+          for dir in artifacts/firmware-*; do
+            panel="$(basename "$dir" | sed 's/^firmware-//')"
+            (cd "$dir" && zip -r "$GITHUB_WORKSPACE/dist/${panel}-${{ github.ref_name }}.zip" .)
+          done
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*.zip
+          generate_release_notes: true
