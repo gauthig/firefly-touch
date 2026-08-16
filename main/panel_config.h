@@ -57,3 +57,15 @@
 #ifndef PANEL_HAS_SCREEN_2
 #define PANEL_HAS_SCREEN_2 0
 #endif
+
+/*
+ * PANEL_HAS_OTA 1 = this panel builds components/ota_update and calls
+ * ota_update_init() from main.c, enabling Wi-Fi OTA update checks (see
+ * main/Kconfig.projbuild "Wi-Fi OTA update"). Off by default: a panel
+ * needs its build's main/CMakeLists.txt REQUIRES + a real
+ * CONFIG_FIREFLY_OTA_* Wi-Fi network + manifest server before this is
+ * useful. living_room_remote is the first panel with this set.
+ */
+#ifndef PANEL_HAS_OTA
+#define PANEL_HAS_OTA 0
+#endif

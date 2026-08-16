@@ -20,6 +20,7 @@
 #define PANEL_NAME  "LR REMOTE"
 #define PANEL_INDEX 2
 #define PANEL_HAS_CAN 0
+#define PANEL_HAS_OTA 1
 
 static const panel_btn_def_t PANEL_BUTTONS[] = {
     { "BEDROOM CEILING", PANEL_BTN_DIMMER, {17},     1 },

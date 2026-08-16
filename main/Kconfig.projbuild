@@ -49,4 +49,55 @@ menu "Firefly Touch Panel"
 
     endmenu
 
+    menu "Wi-Fi OTA update"
+
+        config FIREFLY_OTA_WIFI_SSID
+            string "OTA WiFi SSID"
+            default ""
+            help
+                SSID of the WiFi network to join when checking for or
+                downloading an OTA update. Only used while an update check
+                is running — the panel is off this network the rest of the
+                time (ESP-NOW does not need it).
+
+        config FIREFLY_OTA_WIFI_PASSWORD
+            string "OTA WiFi password"
+            default ""
+            help
+                WPA2 password for FIREFLY_OTA_WIFI_SSID. Stored in plain
+                text in sdkconfig — do not commit a real password (this
+                repo's sdkconfig is gitignored).
+
+        config FIREFLY_OTA_MANIFEST_URL
+            string "OTA manifest URL"
+            default "https://example.invalid/firefly-touch/living_room_remote/manifest.json"
+            help
+                HTTPS URL of the JSON manifest ({"version":"x.y.z",
+                "url":"..."}) describing the latest available firmware.
+                The url field must also be HTTPS — esp_https_ota()
+                validates the server certificate against the ESP-IDF
+                certificate bundle (CONFIG_MBEDTLS_CERTIFICATE_BUNDLE).
+
+        config FIREFLY_OTA_CONNECT_TIMEOUT_MS
+            int "OTA WiFi connect / HTTP timeout (ms)"
+            default 15000
+            range 1000 120000
+            help
+                Applies to both the WiFi STA connect wait and each HTTP(S)
+                request (manifest fetch, firmware download). A panel that
+                can't reach the update server gives up and returns to
+                normal operation instead of hanging.
+
+        config FIREFLY_OTA_CHECK_ON_BOOT
+            bool "Check for OTA update automatically on every boot"
+            default n
+            help
+                Off by default: OTA checks are triggered manually (see
+                ota_update_request_check(), wired to a UI action in
+                GitHub issue #17) so a panel never joins WiFi / drops its
+                ESP-NOW link without being asked to. Enable only if you
+                have a reliable always-on OTA WiFi network in the coach.
+
+    endmenu
+
 endmenu

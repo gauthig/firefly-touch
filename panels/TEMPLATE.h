@@ -52,6 +52,15 @@
 #define PANEL_HAS_CAN 1
 
 /*
+ * Set to 1 to enable Wi-Fi OTA firmware updates (components/ota_update) on
+ * this panel. Leave at 0 (the default in panel_config.h, so this line can
+ * be omitted) unless the panel has been set up with real
+ * CONFIG_FIREFLY_OTA_WIFI_SSID/PASSWORD/MANIFEST_URL values — see
+ * main/Kconfig.projbuild.
+ */
+#define PANEL_HAS_OTA 0
+
+/*
  * Buttons in reading order for the 2-column x 4-row grid:
  *
  *   [0] [1]

@@ -37,6 +37,10 @@
 #include "espnow_link.h"
 #endif
 
+#if PANEL_HAS_OTA
+#include "ota_update.h"
+#endif
+
 static const char *TAG = "main";
 
 #if !PANEL_HAS_CAN
@@ -135,6 +139,10 @@ void app_main(void)
         ESP_LOGI(TAG, "OTA image healthy — marking valid, cancelling rollback");
         esp_ota_mark_app_valid_cancel_rollback();
     }
+
+#if PANEL_HAS_OTA
+    ota_update_init();
+#endif
 
     ESP_LOGI(TAG, "up");
 }

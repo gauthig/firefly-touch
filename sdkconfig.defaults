@@ -13,6 +13,10 @@ CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions.csv"
 # bad OTA must not require pulling one out.
 CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE=y
 
+# Bundled CA certs, used by esp_crt_bundle_attach() to validate the HTTPS
+# connection when a panel checks/downloads a Wi-Fi OTA manifest/image.
+CONFIG_MBEDTLS_CERTIFICATE_BUNDLE=y
+
 CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ_240=y
 
 # Octal PSRAM @ 80 MHz; keep flash/rodata fetch from PSRAM to reduce RGB LCD
