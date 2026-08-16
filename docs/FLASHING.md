@@ -210,12 +210,11 @@ start:
 Artifacts land in the build directory. From the repo root, after a build:
 
 ```powershell
-python -m esptool --chip esp32s3 -b 460800 --before default_reset --after hard_reset write_flash --flash_mode dio --flash_size 16MB --flash_freq 80m 0x0 build_living_room\bootloader\bootloader.bin 0x8000 build_living_room\partition_table\partition-table.bin 0xf000 build_living_room\ota_data_initial.bin 0x20000 build_living_room\firefly_touch.bin
+python -m esptool --chip esp32s3 -b 460800 --before default_reset --after hard_reset write_flash --flash_mode dio --flash_size 16MB --flash_freq 80m 0x0 build_living_room\bootloader\bootloader.bin 0x8000 build_living_room\partition_table\partition-table.bin 0x10000 build_living_room\firefly_touch.bin
 ```
 
-Note the offsets: with the dual-OTA layout the app lives at **`0x20000`** (not
-`0x10000`), and `ota_data_initial.bin` at `0xf000` resets the boot-slot
-selector. Easier and less error-prone — let the build directory supply them:
+Note the offset: the app lives at **`0x10000`**. Easier and less
+error-prone — let the build directory supply them:
 
 ```powershell
 cd build_living_room
@@ -228,32 +227,16 @@ Full chip erase (clears NVS and any stored state):
 idf.py -p COM5 erase-flash
 ```
 
-## Firmware updates after installation (OTA)
+## Firmware updates after installation
 
-Panels are mounted **inside walls**, so USB flashing means physically removing
-one. The flash layout already reserves for over-the-air updates:
-
-| Partition | Size | Purpose |
-|---|---|---|
-| `ota_0` / `ota_1` | 4 MB each | two app slots — update one while running the other |
-| `otadata` | 8 KB | which slot boots |
-| `storage` | ~8 MB | reserved: icon fonts, captured bus logs, config |
-
-Rollback is enabled (`CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE`). A new image
-boots provisionally; `app_main()` only calls
-`esp_ota_mark_app_valid_cancel_rollback()` after the display, touch, and RV-C
-tasks come up. An update that fails to reach that point reverts to the
-previous slot on the next reset **without anyone opening the wall**.
-
-**Wi-Fi OTA is not implemented yet** — the partitions exist so enabling it is
-a pure software change with no repartitioning of installed panels. What
-remains: bring up Wi-Fi (station or provisioning), then pull an image with
-`esp_https_ota()` or accept a push over the local network. See
-[CLAUDE.md](../CLAUDE.md) → *OTA / Wi-Fi update path*.
-
-> The partition layout is fixed **before** panels go in the walls on purpose.
-> Changing it later invalidates flash and forces a USB reflash of every
-> installed panel — the exact thing OTA is meant to prevent.
+Panels are mounted **inside walls**, so an update means physically removing
+one and reflashing over USB per the steps above. There is no OTA path: a
+Wi-Fi STA + `esp_https_ota` transport was built and bench-tested (see
+[CLAUDE.md](../CLAUDE.md) → *OTA / Wi-Fi update path*), but the target
+network requires WPA3 + PMF, which the ESP32-S3's Wi-Fi radio (WPA2-only)
+cannot join. Rather than weaken network security to work around that,
+updates stay USB-only by design — `partitions.csv` is a single `factory`
+app partition, and there is no Wi-Fi/OTA code in the firmware.
 
 ## Bench / sniffer builds
 

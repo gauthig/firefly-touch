@@ -32,7 +32,7 @@ jobs:
             --suppress=missingIncludeSystem --inline-suppr \
             -I panels -DPANEL_CONFIG_HEADER='"living_room.h"' \
             main components/rvc_protocol components/ui_common \
-            components/board_4_3b components/espnow_link components/ota_update
+            components/board_4_3b components/espnow_link
 
   panels:
     name: Panel registry
@@ -63,11 +63,6 @@ jobs:
         run: |
           gcc -Wall -Wextra -Werror -I../include ../rvc_protocol.c test_rvc.c -o test_rvc
           ./test_rvc
-      - name: Compile and run ota_manifest tests
-        working-directory: components/ota_update/host_test
-        run: |
-          gcc -Wall -Wextra -Werror -I../include ../ota_manifest.c test_ota_manifest.c -o test_ota_manifest
-          ./test_ota_manifest
 
   firmware:
     name: Build ${{ matrix.panel }}
@@ -97,14 +92,13 @@ jobs:
             build_${{ matrix.panel }}/firefly_touch.bin
             build_${{ matrix.panel }}/bootloader/bootloader.bin
             build_${{ matrix.panel }}/partition_table/partition-table.bin
-            build_${{ matrix.panel }}/ota_data_initial.bin
             build_${{ matrix.panel }}/flash_args
 
   # "Deploy" for wall-mounted firmware means publishing flashable binaries,
   # not pushing to a server. Runs only on a version tag (e.g. `v1.2.0`), once
   # every panel above has built successfully, and attaches each panel's
-  # binaries to a GitHub Release for manual flashing per docs/FLASHING.md
-  # (OTA isn't wired up yet — see README).
+  # binaries to a GitHub Release for manual USB flashing per docs/FLASHING.md
+  # (no OTA — updates are USB-only by design, see CLAUDE.md).
   release:
     name: Publish release
     needs: firmware

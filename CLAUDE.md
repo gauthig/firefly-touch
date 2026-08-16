@@ -469,26 +469,24 @@ matrix from it, so a new panel gets build coverage automatically.
 
 `panels/TEMPLATE.h` carries an `#error` guard so it can never be flashed as-is.
 
-## OTA / Wi-Fi update path
+## OTA / Wi-Fi update path — removed, USB-only by design (2026-08-16)
 
-Panels are installed **inside walls**, so `partitions.csv` reserves a dual-OTA
-layout on the 16 MB flash: `ota_0` / `ota_1` at 4 MB each (current app ~0.65 MB),
-8 KB `otadata`, and ~8 MB `storage` for future icon fonts, captured bus logs,
-and config.
+Wi-Fi OTA (issues #15–#18) was implemented through a working Wi-Fi STA +
+`esp_https_ota` transport (issue #16, PR #20) and then removed. Bench testing
+found the target network is 5G-only with WPA3 + PMF required, which the
+ESP32-S3's Wi-Fi radio (WPA2-only) cannot associate to — auth fails with
+`reason=202` (AUTH_FAIL) despite strong RSSI and correct credentials. This is
+a hardware/protocol incompatibility, not a code defect.
 
-Rollback is on (`CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE`). An OTA image boots
-as `ESP_OTA_IMG_PENDING_VERIFY`; `app_main()` calls
-`esp_ota_mark_app_valid_cancel_rollback()` **only after** display, touch, UI,
-and the RV-C tasks are up. A bad update reverts itself on the next reset
-instead of requiring a panel to come out of the wall. Do not move that call
-earlier — it is the health gate.
-
-**Not yet implemented:** Wi-Fi bring-up and the update transport. Remaining
-work is (1) station/provisioning config, (2) `esp_https_ota()` pull or a local
-push endpoint, (3) a way to target one panel or all. None of it requires
-repartitioning — that is the entire point of fixing the layout now, before
-panels are sealed in. Changing `partitions.csv` after installation invalidates
-flash and forces USB reflashing of every panel.
+**Decision (final): no networked update path at all.** Rather than weaken
+network security (e.g. disabling PMF) to work around the radio limitation,
+firmware updates are USB-flashed only — see
+[docs/FLASHING.md](docs/FLASHING.md). `components/ota_update/` (manifest
+parser + transport), the OTA Kconfig menu, `PANEL_HAS_OTA` panel guards, the
+dual-OTA partition layout, and bootloader rollback were all removed
+accordingly; `partitions.csv` is back to a single `factory` app partition.
+Do not reintroduce Wi-Fi/OTA code without revisiting this decision with the
+project owner first.
 
 ## Conventions / decisions
 
