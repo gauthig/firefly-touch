@@ -1,9 +1,9 @@
 # Build (and optionally run) the PC simulator.
-#   .\build.ps1                        # build living_room
+#   .\build.ps1                        # build mid_coach
 #   .\build.ps1 -Panel ent_center -Run
 #   .\build.ps1 -Shot preview.bmp      # headless screenshot
 param(
-    [string]$Panel = "living_room",
+    [string]$Panel = "mid_coach",
     [switch]$Run,
     [string]$Shot = ""
 )

@@ -1,23 +1,28 @@
 /*
- * Panel: living_room_remote — no CAN wiring. Relays commands to, and
- * mirrors status from, panels/living_room.h (PANEL_IS_BRIDGE=1) over
- * ESP-NOW. Bridge forwards whatever instance it's given onto the real bus
- * regardless of living_room's own button list, so this panel's instances
- * don't need to match living_room.h's — see docs/instance_map.yaml for the
- * full RV-C instance map this was chosen from.
- * Build: idf.py -DPANEL=living_room_remote build
+ * Panel: bedroom_remote — an ESP-NOW remote (no RV-C CAN wiring). Relays
+ * commands to, and mirrors status from, panels/mid_coach.h
+ * (PANEL_IS_BRIDGE=1) over ESP-NOW. Bridge forwards whatever instance it's
+ * given onto the real bus regardless of mid_coach's own button list, so
+ * this panel's instances don't need to match mid_coach.h's — see
+ * docs/instance_map.yaml for the full RV-C instance map this was chosen
+ * from.
+ * Build: idf.py -DPANEL=bedroom_remote build
  *
- * Before flashing: set CONFIG_FIREFLY_ESPNOW_PEER_MAC to living_room's MAC
- * (and living_room's build to this panel's MAC), and change
+ * Before flashing: set CONFIG_FIREFLY_ESPNOW_PEER_MAC to mid_coach's MAC
+ * (and mid_coach's build to this panel's MAC), and change
  * CONFIG_FIREFLY_ESPNOW_PMK/LMK from the placeholder defaults — see
  * main/Kconfig.projbuild.
+ *
+ * Naming convention: any panel whose ID ends in _remote is an ESP-NOW
+ * device (no RV-C CAN wiring) that reports to the Mid Coach bridge. Panels
+ * without _remote in the ID are hardwired to the RV-C CAN bus.
  */
 #pragma once
 
 #include "lvgl.h"
 #include "panel_def.h"
 
-#define PANEL_NAME  "LR REMOTE"
+#define PANEL_NAME  "BED REMOTE"
 #define PANEL_INDEX 2
 #define PANEL_HAS_CAN 0
 

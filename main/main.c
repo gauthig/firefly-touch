@@ -5,7 +5,7 @@
  *
  * A PANEL_HAS_CAN=0 panel (panel_config.h) has no CAN wiring at all — it
  * relays commands/status to/from a PANEL_IS_BRIDGE panel over ESP-NOW
- * instead (components/espnow_link). living_room is PANEL_IS_BRIDGE=1: it
+ * instead (components/espnow_link). mid_coach is PANEL_IS_BRIDGE=1: it
  * runs the normal CAN stack AND the ESP-NOW side, forwarding one to the
  * other.
  *

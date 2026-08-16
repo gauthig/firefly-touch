@@ -5,7 +5,7 @@
 # factory legend, NOT a sniffer capture -- treat every entry as "verified: false"
 # until confirmed by watching real DC_DIMMER_STATUS_3 frames in sniffer mode
 # (see CLAUDE.md -> Build/flash/monitor -> Sniffer mode). Entries already
-# exercised in firmware (panels/living_room.h, panels/ent_center.h) are
+# exercised in firmware (panels/mid_coach.h, panels/ent_center.h) are
 # marked verified: true -- they've moved a real load on the coach.
 #
 # Use `loads` as the lookup table when assigning buttons on a new panel
@@ -20,7 +20,7 @@
 #
 # instances: a list. Buttons with more than one instance must send the
 # command once per instance (fire-and-forget to each, same as the existing
-# multi-instance buttons in panels/living_room.h e.g. SIDE CEILING {30,31}).
+# multi-instance buttons in panels/mid_coach.h e.g. SIDE CEILING {30,31}).
 #
 # `tank_sensors` (added 2026-08-15): a SEPARATE DGN from the dimmer loads
 # above -- TANK_STATUS (0x1FFB7), read-only, broadcast by the coach's Garnet
@@ -38,10 +38,10 @@ loads:
     instances: [13]
     type: dimmer
     source: [Entegra Bath Room fixture (Entegra-provided, not a wall switch
-      panel), living_room_remote]
+      panel), bedroom_remote]
     verified: false
     notes: User-confirmed naming 2026-08-13. Wired to the "BATHROOM" button
-      on panels/living_room_remote.h as of 2026-08-13 -- still unverified,
+      on panels/bedroom_remote.h as of 2026-08-13 -- still unverified,
       first real-world test of this instance.
 
   - name: Lavatory Accent Light
@@ -65,7 +65,7 @@ loads:
     source: Entegra Stool Room fixture ("CEILING" rocker, up position)
     verified: true
     notes: >
-      Bus-confirmed 2026-08-15 via sniffer capture on living_room (COM16):
+      Bus-confirmed 2026-08-15 via sniffer capture on mid_coach (COM16):
       the up position of the two-position rocker sends DC_DIMMER_COMMAND_2
       toggle for instance 22 only (0x16), echoed by DC_DIMMER_STATUS_3 with
       operating_level 200 (on). No instance-23 traffic accompanied it --
@@ -78,7 +78,7 @@ loads:
     source: Entegra Stool Room fixture ("ACCENT" rocker, down position)
     verified: true
     notes: >
-      Bus-confirmed 2026-08-15 via sniffer capture on living_room (COM16):
+      Bus-confirmed 2026-08-15 via sniffer capture on mid_coach (COM16):
       the down position of the same rocker sends DC_DIMMER_COMMAND_2 toggle
       for instance 23 only (0x17), echoed by DC_DIMMER_STATUS_3 with
       operating_level 0 (off). Previously listed with no instance number;
@@ -89,19 +89,19 @@ loads:
   - name: Bedroom Ceiling Light
     instances: [17]
     type: dimmer
-    source: [SW6-E1 Bedroom Wall (0291147/75803), living_room_remote]
+    source: [SW6-E1 Bedroom Wall (0291147/75803), bedroom_remote]
     verified: false
-    notes: Wired to the "BEDROOM CEILING" button on panels/living_room_remote.h
+    notes: Wired to the "BEDROOM CEILING" button on panels/bedroom_remote.h
       as of 2026-08-13 -- still unverified, first real-world test of this
       instance.
 
   - name: Bed Overhead Light
     instances: [18]
     type: dimmer
-    source: [SW6-E1 Bedroom Wall, living_room_remote]
+    source: [SW6-E1 Bedroom Wall, bedroom_remote]
     verified: false
     notes: Factory legend "BED O/H". Wired to the "BED O/H" button on
-      panels/living_room_remote.h as of 2026-08-13 -- still unverified.
+      panels/bedroom_remote.h as of 2026-08-13 -- still unverified.
 
   - name: Bedroom Accent Light
     instances: [19]
@@ -118,9 +118,9 @@ loads:
   - name: Courtesy Light (bedroom)
     instances: [21]
     type: dimmer
-    source: [SW6-E1 Bedroom Wall, living_room_remote]
+    source: [SW6-E1 Bedroom Wall, bedroom_remote]
     verified: false
-    notes: Wired to the "COURTESY" button on panels/living_room_remote.h as
+    notes: Wired to the "COURTESY" button on panels/bedroom_remote.h as
       of 2026-08-13 -- still unverified.
 
   - name: Entry Ceiling Light
@@ -128,8 +128,8 @@ loads:
     type: dimmer
     source: [SW1-E1 Entry Door, SW2-E7 Living Room]
     verified: true
-    notes: Was live in panels/living_room.h; dropped from its button layout
-      2026-08-15 when living_room was renamed "MID COACH" and relaid out to
+    notes: Was live in panels/mid_coach.h; dropped from its button layout
+      2026-08-15 when mid_coach was renamed "MID COACH" and relaid out to
       match ent_center's instance set. Still verified true -- was
       bench/coach-confirmed before removal, and instance 24 itself hasn't
       changed. Not currently wired to any firmware panel.
@@ -137,18 +137,18 @@ loads:
   - name: Center Ceiling Light
     instances: [25]
     type: dimmer
-    source: [SW2-E7 Living Room, SW4-E7 Ent. Center, living_room_remote]
+    source: [SW2-E7 Living Room, SW4-E7 Ent. Center, bedroom_remote]
     verified: true
-    notes: Live in panels/living_room.h and panels/ent_center.h today; the
+    notes: Live in panels/mid_coach.h and panels/ent_center.h today; the
       one bench-confirmed-on-real-hardware instance. Also wired to
-      living_room_remote's "CENTER CEILING" button as of 2026-08-13.
+      bedroom_remote's "CENTER CEILING" button as of 2026-08-13.
 
   - name: Accent Light
     instances: [26, 27]
     type: dimmer
-    source: [SW4-E7 Ent. Center, living_room]
+    source: [SW4-E7 Ent. Center, mid_coach]
     verified: true
-    notes: Live in panels/ent_center.h; also added to panels/living_room.h
+    notes: Live in panels/ent_center.h; also added to panels/mid_coach.h
       ("MID COACH") 2026-08-15. Driven as a pair.
 
   - name: Side Ceiling Light
@@ -176,17 +176,17 @@ loads:
   - name: Sink / Counter Light
     instances: [34]
     type: dimmer
-    source: [SW4-E7 Ent. Center, living_room]
+    source: [SW4-E7 Ent. Center, mid_coach]
     verified: true
-    notes: Live in panels/ent_center.h; also added to panels/living_room.h
+    notes: Live in panels/ent_center.h; also added to panels/mid_coach.h
       ("MID COACH") 2026-08-15.
 
   - name: Midship / Hall-Midship Light
     instances: [35]
     type: dimmer
-    source: [SW2-E7 Living Room, SW4-E7 Ent. Center, living_room_remote]
+    source: [SW2-E7 Living Room, SW4-E7 Ent. Center, bedroom_remote]
     verified: true
-    notes: Live in both panels today. Also wired to living_room_remote's
+    notes: Live in both panels today. Also wired to bedroom_remote's
       "MIDSHIP" button as of 2026-08-13.
 
   - name: Under Slideout Light
@@ -234,7 +234,7 @@ loads:
       SW6-E1 Bedroom Wall]
     verified: false
     notes: >
-      Live today in panels/living_room.h as SECURITY P+H {44,45}, matching
+      Live today in panels/mid_coach.h as SECURITY P+H {44,45}, matching
       the factory legend "P45, H44,45" seen on SW1 (P45 restates that
       instance 45 doubles as the patio light; H44,45 = hitch instances 44 and
       45). CLAUDE.md's existing Note A flags this pairing as unverified --
@@ -243,14 +243,14 @@ loads:
   - name: Motion Light (exterior)
     instances: [46]
     type: switch
-    source: [SW1-E1 Entry Door, living_room_remote]
+    source: [SW1-E1 Entry Door, bedroom_remote]
     verified: false
     notes: >
       Standalone "MOTION" button on SW1, separate from the combined
       "MOTION P+H" button (46,44,45) seen on SW2/SW4/SW6 below. Same
       physical instance 46 either way -- SW1 just exposes it on its own
       button instead of grouped with patio/hitch. Wired standalone (instance
-      46 only, not the grouped 46/44/45) to living_room_remote's "MOTION"
+      46 only, not the grouped 46/44/45) to bedroom_remote's "MOTION"
       button as of 2026-08-13 -- still unverified.
 
   - name: Motion + Patio + Hitch Light (grouped)
@@ -343,7 +343,7 @@ tank_dgn:
       name: tank_size
       unit: Liter (uint16, seen as 0xFFFF/not-available on this coach)
 
-# Displayed on panels/living_room.h ("MID COACH") screen 2 as of GitHub
+# Displayed on panels/mid_coach.h ("MID COACH") screen 2 as of GitHub
 # issue #5. verified: true below means the instance number + decode
 # formula are bus-confirmed correct (sniffer capture 2026-08-15) -- NOT
 # that the displayed percent exactly matches the SeeLevel unit's own
@@ -371,7 +371,7 @@ tank_sensors:
     instance: 0
     dgn: "0x1FFB7 (TANK_STATUS)"
     verified: true
-    notes: Bus-confirmed 2026-08-15 via sniffer capture on living_room
+    notes: Bus-confirmed 2026-08-15 via sniffer capture on mid_coach
       (source addr 0xAF). Instance 0 = fresh, matching RV-C convention.
       Displayed percent runs a few points off the SeeLevel's own display
       -- see the tank-shape-compensation note above this block.
@@ -419,13 +419,13 @@ switch_panels:
 
   - panel: SW2-E7 Living Room
     part_number: "0291134/75569"
-    firmware: panels/living_room.h
+    firmware: panels/mid_coach.h
     notes: >
       Physical wall panel factory layout, for reference only -- as of
-      2026-08-15 panels/living_room.h no longer matches this row-for-row
+      2026-08-15 panels/mid_coach.h no longer matches this row-for-row
       (on-screen name changed to "MID COACH" and buttons were relaid out
       to match ent_center's set plus a dedicated ACCENT button). See
-      "Current living_room.h firmware layout" below for what's actually
+      "Current mid_coach.h firmware layout" below for what's actually
       flashed.
     rows:
       - left: { name: Center Ceiling Light, instances: [25] }
@@ -437,9 +437,9 @@ switch_panels:
       - left: { name: Midship Light, instances: [35] }
         right: { name: Panel Lights, instances: [], type: local }
 
-  - panel: Current living_room.h firmware layout
+  - panel: Current mid_coach.h firmware layout
     part_number: null
-    firmware: panels/living_room.h
+    firmware: panels/mid_coach.h
     notes: >
       What's actually flashed as of 2026-08-15 (on-screen name "MID COACH"),
       not the factory SW2-E7 row above. Reprogrammed to mirror ent_center's

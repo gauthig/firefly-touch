@@ -27,15 +27,15 @@ global PATH:
 ```
 
 ```
-idf.py -B build_living_room -DPANEL=living_room build
+idf.py -B build_mid_coach -DPANEL=mid_coach build
 idf.py -B build_ent_center  -DPANEL=ent_center  build
-idf.py -B build_living_room -DPANEL=living_room -p COM5 flash monitor
+idf.py -B build_mid_coach -DPANEL=mid_coach -p COM5 flash monitor
 ```
 
 Use one build dir per panel (PANEL is cached; switching values in a shared
 build dir requires `fullclean`). Valid PANEL values = basenames of headers in
 `panels/`. Panel identity: `PANEL_INDEX` → RV-C source address `0x80 + index`;
-`living_room` = 0/0x80, `ent_center` = 1/0x81. Never reuse an index.
+`mid_coach` = 0/0x80, `ent_center` = 1/0x81. Never reuse an index.
 
 Sniffer mode (log every RV-C frame — how the instance map gets verified):
 `idf.py menuconfig` → *Firefly Touch Panel* → *RV-C sniffer mode*, or add
@@ -59,7 +59,7 @@ the status-driven UI path is exercised exactly like on hardware.
 
 ```
 cd sim
-.\build.ps1 -Run                    # living_room, interactive window
+.\build.ps1 -Run                    # mid_coach, interactive window
 .\build.ps1 -Panel ent_center -Run
 .\build.ps1 -Shot preview.bmp       # headless screenshot, then exits
 ```
@@ -69,7 +69,7 @@ gcc (winget) and cmake/ninja (auto-sourced from ESP-IDF's export.ps1). SDL2
 lives in `sim/third_party/` (gitignored; build.ps1 error tells you the
 download if missing).
 
-`sim_stubs.c` also fakes `TANK_STATUS` on `living_room` (a periodic sweep
+`sim_stubs.c` also fakes `TANK_STATUS` on `mid_coach` (a periodic sweep
 through FRESH/GREY/BLACK percentages, `tank_sweep_timer_cb`) so the wave
 gauges and the header's Grey-Black OK/Warn/FULL readout are visible without
 real hardware. `--shot <file> screen2` (`main_sim.c`) taps the TANK LEVELS
@@ -130,9 +130,15 @@ enqueuing locally, and status arrives the same way in reverse (see below).
 
 ## ESP-NOW remote-panel bridge
 
-`living_room_remote` (`panels/living_room_remote.h`) has no CAN wiring — it
-relays button taps to `living_room` (`PANEL_IS_BRIDGE 1`) over ESP-NOW, and
-`living_room` relays real `DC_DIMMER_STATUS_3` changes back to it, using the
+**Naming convention:** a panel whose ID ends in `_remote` is an **ESP-NOW
+device** (no RV-C CAN wiring) that reports to the Mid Coach bridge. A panel
+without `_remote` in its ID is **hardwired to the RV-C CAN bus**. `mid_coach`
+is the **ESP-NOW router/bridge** between the RV-C bus and all remotes
+(`PANEL_IS_BRIDGE 1`).
+
+`bedroom_remote` (`panels/bedroom_remote.h`) has no CAN wiring — it
+relays button taps to `mid_coach` (`PANEL_IS_BRIDGE 1`) over ESP-NOW, and
+`mid_coach` relays real `DC_DIMMER_STATUS_3` changes back to it, using the
 same non-blocking, drop-if-full contract `twai_enqueue_dimmer_cmd()` already
 had. v1 scope: exactly one remote per bridge, one fixed ESP-NOW peer (MAC +
 PMK/LMK) configured entirely through Kconfig at build time — no runtime
@@ -164,12 +170,12 @@ pairing/flashing procedure.
   from their placeholder defaults before deploying**, these frames actuate
   real loads.
 
-**Bench-verified 2026-08-13** on real hardware (`living_room` on COM16,
-`living_room_remote` on COM11): both boards boot, initialize ESP-NOW, log
+**Bench-verified 2026-08-13** on real hardware (`mid_coach` on COM16,
+`bedroom_remote` on COM11): both boards boot, initialize ESP-NOW, log
 the correct peer MAC for each other after pairing, and the full round trip
 works — tap on the remote actuates the real load and confirms via the
 status echo, and the remote's display updates when the load is toggled from
-`living_room`'s own button. Known v1 limits, not bugs:
+`mid_coach`'s own button. Known v1 limits, not bugs:
 status broadcasts are best-effort with no delivery ack (mitigated by the 30 s
 resync, same as RV-C's own status frames having no ack); exactly one
 remote/bridge pair; no runtime pairing UI.
@@ -178,20 +184,20 @@ remote/bridge pair; no runtime pairing UI.
 directory** — discovered while pairing the two boards above. Only `PANEL`
 (the C source selection) is a per-build-dir CMake cache var; Kconfig
 settings like the ESP-NOW peer MAC/PMK/LMK are not, and both panels need
-different values. Give each of `living_room`/`living_room_remote` its own
+different values. Give each of `mid_coach`/`bedroom_remote` its own
 sdkconfig with `-D SDKCONFIG=build_<panel>/sdkconfig` on every `idf.py`
 invocation (configure, menuconfig, build, flash) — see
 `docs/FLASHING.md` → *ESP-NOW remote panel*. Skipping it on one command
 silently edits the shared root `sdkconfig` and the other panel's next build
 picks up whatever was last written there.
 
-**Remote panel button layout is independent of `living_room`'s own buttons.**
+**Remote panel button layout is independent of `mid_coach`'s own buttons.**
 Since `bridge_tx.c`/`state_manager`'s status sink forward whatever instance
-they're given regardless of what's in `living_room.h`'s `PANEL_BUTTONS[]`,
+they're given regardless of what's in `mid_coach.h`'s `PANEL_BUTTONS[]`,
 the remote doesn't need to mirror the bridge's local button set — as of
-2026-08-13 `panels/living_room_remote.h` was reprogrammed to a bedroom/
+2026-08-13 `panels/bedroom_remote.h` was reprogrammed to a bedroom/
 bathroom-focused layout (instances 17, 25, 35, 46 left column; 18, 13, 21,
-Panel Lights right column) unrelated to `living_room`'s living-room-focused
+Panel Lights right column) unrelated to `mid_coach`'s living-room-focused
 buttons. See [docs/instance_map.yaml](docs/instance_map.yaml) for the full
 RV-C instance map used to pick these.
 
@@ -230,7 +236,7 @@ table in `state_manager.c`, never the dimmer instance table) and displayed
 via the read-only `PANEL_BTN_TANK_LEVEL` button type.
 
 **Byte layout and instance mapping bus-confirmed 2026-08-15** via sniffer
-mode on `living_room`: instance 0 = fresh, 1 = black, 2 = gray (matches
+mode on `mid_coach`: instance 0 = fresh, 1 = black, 2 = gray (matches
 the public research). **Percent formula corrected against real captured
 frames** — public sources (Garnet/Victron docs,
 `linuxkidd/coachproxy-os`'s `rvc-spec.yml`) describe it as
@@ -243,10 +249,10 @@ detail and the three captured frames (also used as
 `host_test/test_rvc.c` regression vectors) are in
 [docs/instance_map.yaml](docs/instance_map.yaml) → `tank_dgn`.
 
-Live on `panels/living_room.h` ("MID COACH") as of GitHub issues #4/#5:
+Live on `panels/mid_coach.h` ("MID COACH") as of GitHub issues #4/#5:
 screen 2 shows FRESH/GREY/BLACK with a BACK button, reached via a
 **TANK LEVELS** button in screen 1's bottom-right slot (see *Dual screens*
-below). Not yet wired to `ent_center` or `living_room_remote` — the latter
+below). Not yet wired to `ent_center` or `bedroom_remote` — the latter
 has no CAN wiring and can't see `TANK_STATUS` frames directly (ESP-NOW
 relay of tank data is explicitly out of scope for now, see
 `docs/SPEC-panel-v2.md`).
@@ -274,10 +280,10 @@ full comparison and reasoning.
 | SINK/COUNTER    | 34 | both |
 | MIDSHIP / HALL-MIDSHIP      | 35 | both |
 
-`living_room` (on-screen "MID COACH") and `ent_center` were realigned
+`mid_coach` (on-screen "MID COACH") and `ent_center` were realigned
 2026-08-15 to drive the same instance set. **ENTRY CEILING (24)** and
 **SECURITY P+H (44, 45 — Note A)** are no longer wired to any CAN-connected
-panel (they were dropped from `living_room.h`'s button grid); both remain
+panel (they were dropped from `mid_coach.h`'s button grid); both remain
 valid RV-C instances, just not currently exposed by a button. See
 [docs/instance_map.yaml](docs/instance_map.yaml) for the full instance map
 including everything not yet wired to firmware.
@@ -331,13 +337,13 @@ Dark night theme (near-black screen bg) in `ui_theme.h`. Status bar (36 px):
 panel name, left. The CAN-health dot that used to sit on the right (green/
 red circle) was removed 2026-08-15 (GitHub issue #8) — no per-panel toggle
 existed for it, so it's gone from every panel's header, not just
-`living_room`'s. On a panel with `PANEL_HAS_SCREEN_2` and GREY/BLACK tank
-buttons (today: only `living_room`), that space now shows the Grey/Black
+`mid_coach`'s. On a panel with `PANEL_HAS_SCREEN_2` and GREY/BLACK tank
+buttons (today: only `mid_coach`), that space now shows the Grey/Black
 tank status readout described below (issue #9); other panels' headers are
 just the name.
 
 **Grey/Black tank status readout + critical backlight override (GitHub
-issue #9, `living_room`/"MID COACH" only).** `build_screen()` in
+issue #9, `mid_coach`/"MID COACH" only).** `build_screen()` in
 `main/ui/ui.c` finds the screen 2 buttons labeled `"GREY"`/`"BLACK"` by
 scanning `PANEL_BUTTONS_2` (no hardcoded instance numbers in `ui.c`) and, if
 both exist, creates a status-bar label updated every 500 ms by
@@ -364,7 +370,7 @@ confirm on the bench before trusting the OFF stage on a coach-installed
 panel).
 
 **Buttons (2026-08-15, coach-installed and confirmed working with the new
-color scheme on `living_room`/"MID COACH"):** label text only, no icon glyph — the
+color scheme on `mid_coach`/"MID COACH"):** label text only, no icon glyph — the
 `panel_btn_def_t.symbol` field was removed along with it, so `panels/*.h`
 button rows no longer take an `LV_SYMBOL_*` argument (see any panel header
 for the current field order). Label font bumped from Montserrat 16 to 20.
@@ -389,13 +395,13 @@ Screen 1 stays the plain 2x4 button grid (`build_button_grid()`);
 `PANEL_BTN_SPACER` fills a grid cell with nothing, which is how it
 positions a button at a specific cell instead of wherever sequential fill
 would put it. Screen 2 is assumed to be a tank readout — the only panel
-that defines one is `living_room` — and since GitHub issue #10/#11
+that defines one is `mid_coach` — and since GitHub issue #10/#11
 (2026-08-15) uses its own layout builder, `build_screen2_tanks()`: its
 `PANEL_BTN_TANK_LEVEL` entries lay out as a centered horizontal row of
 `ui_tank_wave` gauges (`components/ui_common/ui_tank_wave.c`, see below),
 and its one `PANEL_BTN_SCREEN_SWITCH` entry ("BACK") is a small button
 pinned to the bottom center rather than an equal grid cell — see
-`panels/living_room.h`'s `PANEL_BUTTONS_2[]` (just the 3 tank buttons +
+`panels/mid_coach.h`'s `PANEL_BUTTONS_2[]` (just the 3 tank buttons +
 BACK now; no manual spacer positioning needed for this layout). If a
 future panel wants a non-tank screen 2, `build_screen2_tanks()` will need
 to stop assuming that.

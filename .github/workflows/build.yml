@@ -30,7 +30,7 @@ jobs:
           sudo apt-get install -y cppcheck
           cppcheck --enable=warning,performance,portability --error-exitcode=1 \
             --suppress=missingIncludeSystem --inline-suppr \
-            -I panels -DPANEL_CONFIG_HEADER='"living_room.h"' \
+            -I panels -DPANEL_CONFIG_HEADER='"mid_coach.h"' \
             main components/rvc_protocol components/ui_common \
             components/board_4_3b components/espnow_link
 

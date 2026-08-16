@@ -5,13 +5,13 @@
 # bus in sim_stubs.c.
 #
 # Build via build.ps1, or manually:
-#   cmake -G Ninja -B build_living_room -DPANEL=living_room -DCMAKE_C_COMPILER=<gcc> .
-#   cmake --build build_living_room
+#   cmake -G Ninja -B build_mid_coach -DPANEL=mid_coach -DCMAKE_C_COMPILER=<gcc> .
+#   cmake --build build_mid_coach
 #
 cmake_minimum_required(VERSION 3.16)
 project(firefly_sim C)
 
-set(PANEL "living_room" CACHE STRING "Panel configuration (basename of a header in panels/)")
+set(PANEL "mid_coach" CACHE STRING "Panel configuration (basename of a header in panels/)")
 
 set(REPO ${CMAKE_CURRENT_SOURCE_DIR}/..)
 set(LVGL_DIR ${REPO}/managed_components/lvgl__lvgl)
