@@ -16,9 +16,9 @@ map, and the other items in *Unverified* below are still unconfirmed.
 ### Removed — OTA update feature (2026-08-16)
 
 - **All OTA (over-the-air) update code has been removed.** Bench testing
-  against the target network showed it is 5G-only with WPA3 +
-  PMF (Protected Management Frames) required. The ESP32-S3's Wi-Fi radio
-  is WPA2-only and cannot associate — authentication fails
+  against the target network showed it is 5G-only with WPA3 + PMF
+  (Protected Management Frames) required. The ESP32-S3's Wi-Fi radio is
+  WPA2-only and cannot associate — authentication fails
   (reason=202/AUTH_FAIL) even with strong RSSI and correct credentials.
   This is a hardware/protocol incompatibility, not a code bug, and will
   not be worked around (e.g. by weakening PMF).
