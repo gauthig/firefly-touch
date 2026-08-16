@@ -504,18 +504,25 @@ flash and forces USB reflashing of every panel.
 - Decision log: this file, section above. Bench findings (verified pins,
   captured DGNs, instance corrections) should update the tables here and the
   matching TODO comments in code.
-- **Development workflow (as of 2026-08-15):** every code change to this
+- **Development workflow (as of 2026-08-16):** every code change to this
   repo, any size, gets a GitHub issue first (`enhancement` label for new
   capability, `bug` for a defect), scoped to one reviewable piece of work
   — see the issues behind [docs/SPEC-panel-v2.md](docs/SPEC-panel-v2.md)
   or the MID COACH header/tank-wave rework (issues #8–#11, one branch,
-  one PR) for examples. Implementation happens on a branch, gets tested
-  (host tests + simulator, bench where applicable), then goes up as a PR
-  that references/closes its issue(s) and runs CI before merge — not a
-  direct push to `main`. There is no small-change exception anymore
-  (previously docs/instance-map/single-button tweaks skipped this); the
-  only things that don't need it are edits to files outside this repo,
-  like Claude's own memory notes.
+  one PR) for examples. Work happens on a branch named/tagged to the
+  issue number(s) (`feature/<issue#>[-<issue#>...]-<slug>`, e.g.
+  `feature/8-11-tank-header-wave-ui`; multiple issues can share one
+  branch when solved together). Implementation gets verified (host tests
+  + simulator, build where applicable), **then the actual device is
+  flashed and the user is asked to test on real hardware — do not claim
+  a fix/feature works, or report success, until the user explicitly
+  confirms it on hardware.** Only after that confirmation: commit, open
+  a PR that references/closes its issue(s), get CI green, merge the PR
+  to `main`, close the issue(s). No direct push to `main`.
+  **Exceptions** (no issue/branch/PR/CI needed, safe to edit and commit
+  — or just answer — directly): `.md` file updates (README, docs/*.md,
+  etc.), memory-file updates (this file and `CLAUDE.local.md`), and
+  general questions about the code that don't change anything.
 
 ## Repo hygiene — what belongs in git
 
