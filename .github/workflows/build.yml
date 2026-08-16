@@ -32,7 +32,7 @@ jobs:
             --suppress=missingIncludeSystem --inline-suppr \
             -I panels -DPANEL_CONFIG_HEADER='"living_room.h"' \
             main components/rvc_protocol components/ui_common \
-            components/board_4_3b components/espnow_link
+            components/board_4_3b components/espnow_link components/ota_update
 
   panels:
     name: Panel registry
@@ -54,15 +54,20 @@ jobs:
         run: echo "panels=$(python tools/check_panels.py --matrix)" >> "$GITHUB_OUTPUT"
 
   host-tests:
-    name: rvc_protocol host tests
+    name: Host-testable component tests
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
-      - name: Compile and run protocol tests
+      - name: Compile and run rvc_protocol tests
         working-directory: components/rvc_protocol/host_test
         run: |
           gcc -Wall -Wextra -Werror -I../include ../rvc_protocol.c test_rvc.c -o test_rvc
           ./test_rvc
+      - name: Compile and run ota_manifest tests
+        working-directory: components/ota_update/host_test
+        run: |
+          gcc -Wall -Wextra -Werror -I../include ../ota_manifest.c test_ota_manifest.c -o test_ota_manifest
+          ./test_ota_manifest
 
   firmware:
     name: Build ${{ matrix.panel }}
