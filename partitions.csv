@@ -1,25 +1,16 @@
-# firefly-touch partition table — 16 MB flash, dual OTA slots.
+# firefly-touch partition table — 16 MB flash, single factory app.
 #
-# WHY DUAL OTA: these panels are mounted inside RV walls. Without an OTA slot,
-# every firmware update means physically removing a panel and connecting USB.
-# This layout is committed BEFORE installation on purpose — changing the
-# partition table later invalidates flash and forces a USB reflash of every
-# installed panel, which is exactly what OTA exists to avoid.
+# Firmware updates are USB-flashed only (no OTA — see CLAUDE.md "OTA / Wi-Fi
+# update path"); a dual-OTA layout would only add complexity with no benefit.
 #
-# Wi-Fi OTA is not implemented yet (see CLAUDE.md "OTA / Wi-Fi update path");
-# the flash layout is reserved now so enabling it later is a pure software
-# change with no repartitioning.
-#
-# App slots are 4 MB each against a current app of ~0.65 MB — generous room
-# for the Wi-Fi + HTTPS + OTA stack and future LVGL assets. ~8 MB remains for
-# the storage partition (custom icon fonts, captured bus logs, config).
+# App partition is 4 MB against a current app of ~0.65 MB — generous room for
+# future LVGL assets. ~11 MB remains for the storage partition (custom icon
+# fonts, captured bus logs, config).
 #
 # App partitions must start on a 64 KB (0x10000) boundary.
 #
 # Name,     Type, SubType, Offset,   Size,     Flags
 nvs,        data, nvs,     0x9000,   0x6000,
-otadata,    data, ota,     0xf000,   0x2000,
-phy_init,   data, phy,     0x11000,  0x1000,
-ota_0,      app,  ota_0,   0x20000,  0x400000,
-ota_1,      app,  ota_1,   0x420000, 0x400000,
-storage,    data, spiffs,  0x820000, 0x7E0000,
+phy_init,   data, phy,     0xf000,   0x1000,
+factory,    app,  factory, 0x10000,  0x400000,
+storage,    data, spiffs,  0x410000, 0xBF0000,
