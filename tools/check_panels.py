@@ -32,9 +32,9 @@ REGISTRY = PANEL_DIR / "REGISTRY.md"
 # contains a placeholder index plus an #error guard.
 SKIP = {"TEMPLATE.h"}
 
-RE_NAME = re.compile(r'^\s*#define\s+PANEL_NAME\s+"([^"]*)"', re.M)
-RE_INDEX = re.compile(r"^\s*#define\s+PANEL_INDEX\s+(\d+)", re.M)
-RE_ROW = re.compile(r"^\|\s*`([A-Za-z0-9_]+)`\s*\|\s*(\d+)\s*\|", re.M)
+RE_NAME = re.compile(r'^\s*#define\s+PANEL_NAME\s+"([^"]*)"', re.MULTILINE)
+RE_INDEX = re.compile(r"^\s*#define\s+PANEL_INDEX\s+(\d+)", re.MULTILINE)
+RE_ROW = re.compile(r"^\|\s*`([A-Za-z0-9_]+)`\s*\|\s*(\d+)\s*\|", re.MULTILINE)
 RE_NEXT = re.compile(r"\*\*Next free index:\s*(\d+)\*\*")
 
 
