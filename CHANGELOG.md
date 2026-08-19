@@ -36,6 +36,20 @@ map, and the other items in *Unverified* below are still unconfirmed.
 
 ### Changed
 
+- **Panel nomenclature standardized (2026-08-16).** The living room panel
+  was renamed from `living_room` to **`mid_coach`** (on-screen name stays
+  "MID COACH") and the remote panel from `living_room_remote` to
+  **`bedroom_remote`** (on-screen name now "BED REMOTE"). This covers the
+  panel headers (`panels/mid_coach.h`, `panels/bedroom_remote.h`), build
+  directories (`build_mid_coach`, `build_bedroom_remote`), all build
+  configs, docs, registry, and memory files. No hardware assignments,
+  button layouts, instances, indices, or source addresses changed.
+- **New naming convention documented:** a panel whose ID ends in `_remote`
+  is an **ESP-NOW device** (no RV-C CAN wiring) that reports to the Mid
+  Coach bridge; a panel without `_remote` is **hardwired to the RV-C CAN
+  bus**; `mid_coach` is the ESP-NOW router/bridge between the RV-C bus and
+  all remotes. See `panels/REGISTRY.md`, `docs/FLASHING.md`, and
+  `CLAUDE.md`.
 - **Idle auto-dim timeout extended from 60 s to 5 min (300 000 ms)** —
   the 1-minute timeout proved too aggressive for normal use.
 - **Diagnostic logging added to `idle_timer_cb`** — logs `inactive_ms` every

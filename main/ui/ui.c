@@ -13,7 +13,7 @@
  * ui_on_status().
  *
  * Screen 2 (PANEL_HAS_SCREEN_2) is assumed to be a tank readout today —
- * the only panel that defines one is living_room, with its SeeLevel
+ * the only panel that defines one is mid_coach, with its SeeLevel
  * FRESH/GREY/BLACK gauges. If a future panel wants a non-tank screen 2,
  * build_screen2_tanks() will need to stop assuming that.
  */

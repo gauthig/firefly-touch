@@ -15,8 +15,8 @@ and the Firefly app automatically.
 
 |  |  |
 |---|---|
-| ![Living room panel](docs/images/panel-living-room.png) | ![Entertainment center panel](docs/images/panel-ent-center.png) |
-| **`living_room`** — replaces Entegra SW2-E8 | **`ent_center`** — replaces Entegra SW4-E1 |
+| ![Mid coach panel](docs/images/panel-living-room.png) | ![Entertainment center panel](docs/images/panel-ent-center.png) |
+| **`mid_coach`** — replaces Entegra SW2-E8 | **`ent_center`** — replaces Entegra SW4-E1 |
 
 *Screenshots from the built-in PC simulator (`sim/`) showing real UI code —
 amber icon = load on, bar = brightness level from the bus.*
@@ -70,7 +70,7 @@ firefly-touch/
 ├── panels/                   # ← per-panel config, selected at build time
 │   ├── REGISTRY.md           #   canonical index → source-address allocation
 │   ├── TEMPLATE.h            #   copy this to add a panel
-│   ├── living_room.h
+│   ├── mid_coach.h
 │   └── ent_center.h
 ├── tools/check_panels.py     # enforces unique indices + registry sync
 ├── sim/                      # PC simulator (see the UI without hardware)
@@ -144,7 +144,7 @@ buttons and identity are compiled in** — see
 [docs/FLASHING.md](docs/FLASHING.md) for the full per-device procedure.
 
 ```powershell
-idf.py -B build_living_room -DPANEL=living_room -p COM5 flash monitor
+idf.py -B build_mid_coach -DPANEL=mid_coach -p COM5 flash monitor
 ```
 
 ```powershell
@@ -166,7 +166,7 @@ fake RV-C bus that echoes status frames back.
 
 ```powershell
 cd sim
-.\build.ps1 -Run                      # living_room
+.\build.ps1 -Run                      # mid_coach
 .\build.ps1 -Panel ent_center -Run
 ```
 
@@ -200,7 +200,7 @@ confirmed on the real bus**. Build with sniffer mode to log every frame
 (raw ID, DGN, source address, data bytes):
 
 ```powershell
-idf.py -B build_living_room -DPANEL=living_room menuconfig
+idf.py -B build_mid_coach -DPANEL=mid_coach menuconfig
 ```
 → *Firefly Touch Panel* → *RV-C sniffer mode*
 
@@ -213,7 +213,7 @@ Instance table, DGN reference, task map, and the full TODO list live in
 ESP32-S3-Touch-LCD-4.3 (bench, 2026-08-05) and the target
 ESP32-S3-Touch-LCD-4.3B (2026-08-08, COM11).** Protocol unit tests pass.
 **RV-C dimmer on/off is verified working on the live coach** (2026-08-09,
-`living_room` panel against a real G6), which also confirms the TWAI TX/RX
+`mid_coach` panel against a real G6), which also confirms the TWAI TX/RX
 GPIO 15/16 assignment is correct on the 4.3B — commands were reaching the
 G6 all along. A separate bug (misnumbered ramp command codes, fixed
 2026-08-08) had been wedging the target load until the G6 was power-cycled;

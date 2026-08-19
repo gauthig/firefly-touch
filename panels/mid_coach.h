@@ -1,7 +1,7 @@
 /*
- * Panel: living_room (on-screen name "MID COACH") — replaces Entegra SW2-E8
+ * Panel: mid_coach (on-screen name "MID COACH") — replaces Entegra SW2-E8
  * (p/n 0291135 / 75570).
- * Build: idf.py -DPANEL=living_room build
+ * Build: idf.py -DPANEL=mid_coach build
  *
  * Screen 1 — 2-column x 4-row grid, reading order (row-major). Bottom-right
  * is the screen-switch button (GitHub issue #4) that flips to screen 2:
@@ -30,9 +30,11 @@
 #define PANEL_NAME  "MID COACH"
 #define PANEL_INDEX 0
 
-/* Also the ESP-NOW bridge for panels/living_room_remote.h: relays that
- * panel's commands onto this bus and mirrors real status back to it. See
- * main/panel_config.h and components/espnow_link. */
+/* This panel is the ESP-NOW bridge/router between the RV-C CAN bus and all
+ * remote panels (any panel whose ID ends in _remote, e.g.
+ * panels/bedroom_remote.h). It relays remote commands onto this bus and
+ * mirrors real status back to them. See main/panel_config.h and
+ * components/espnow_link. */
 #define PANEL_IS_BRIDGE 1
 
 #define PANEL_HAS_SCREEN_2 1

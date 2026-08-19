@@ -16,7 +16,7 @@
  *
  * Ask yourself which case you are in:
  *
- *   A. UPDATING AN EXISTING PANEL (living_room, ent_center, ...)
+ *   A. UPDATING AN EXISTING PANEL (mid_coach, ent_center, ...)
  *      -> You do not need this template. Edit that panel's header directly
  *         and KEEP its existing PANEL_INDEX.
  *
@@ -43,6 +43,11 @@
 #define PANEL_INDEX 99
 
 /*
+ * Naming convention: a panel whose <name> ends in `_remote` is an ESP-NOW
+ * device (no RV-C CAN wiring) that reports to the Mid Coach bridge. A panel
+ * without `_remote` in its name is hardwired to the RV-C CAN bus. mid_coach
+ * is the ESP-NOW router/bridge between the RV-C bus and all remotes.
+ *
  * Set to 0 for a panel with no CAN wiring at all — it relays
  * commands/status to/from a PANEL_IS_BRIDGE=1 panel over ESP-NOW instead.
  * See main/panel_config.h and components/espnow_link. Leave at 1 (the

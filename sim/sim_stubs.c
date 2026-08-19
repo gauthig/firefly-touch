@@ -121,7 +121,7 @@ bool bridge_enqueue_dimmer_cmd(uint8_t instance, rvc_dimmer_cmd_t cmd,
 /* Sweeps fake TANK_STATUS readings so the wave gauges and the header's
  * Grey-Black OK/Warn/FULL readout (+ backlight-critical override) are all
  * visible and testable in the simulator without touching real hardware.
- * Instance numbers match panels/living_room.h: 0=fresh, 1=black, 2=gray. */
+ * Instance numbers match panels/mid_coach.h: 0=fresh, 1=black, 2=gray. */
 static void tank_sweep_timer_cb(lv_timer_t *t)
 {
     (void)t;

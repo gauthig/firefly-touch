@@ -1,6 +1,6 @@
 # Flashing guide — which firmware goes on which panel
 
-Every panel runs the **same codebase**. What makes a board "the living room
+Every panel runs the **same codebase**. What makes a board "the mid coach
 panel" is a single build-time parameter, `PANEL`, which selects a header from
 `panels/`. That header decides the panel's on-screen name, its button grid and
 RV-C instances, and its **RV-C source address** (a unique bus identity).
@@ -27,13 +27,13 @@ python tools/check_panels.py
 ```
 
 ```
-  living_room         index 0   source addr 0x80   "MID COACH"
-  ent_center          index 1   source addr 0x81   "ENT CENTER"
-  living_room_remote  index 2   source addr 0x82†  "LR REMOTE"
-  next free           index 3   source addr 0x83
+  mid_coach         index 0   source addr 0x80   "MID COACH"
+  ent_center        index 1   source addr 0x81   "ENT CENTER"
+  bedroom_remote    index 2   source addr 0x82†  "BED REMOTE"
+  next free         index 3   source addr 0x83
 ```
 
-† `living_room_remote` has no CAN wiring (`PANEL_HAS_CAN 0`) and never
+† `bedroom_remote` has no CAN wiring (`PANEL_HAS_CAN 0`) and never
 transmits on the bus — see *ESP-NOW remote panel* below. Its index is still
 allocated here because it doubles as the panel's ESP-NOW peer identity.
 
@@ -67,10 +67,10 @@ apart by looking at the hardware.
 
 ## Step 3 — Build and flash the correct panel
 
-### Living room panel
+### Mid coach panel
 
 ```powershell
-idf.py -B build_living_room -DPANEL=living_room -p COM5 flash monitor
+idf.py -B build_mid_coach -DPANEL=mid_coach -p COM5 flash monitor
 ```
 
 ### Entertainment center panel
@@ -79,10 +79,10 @@ idf.py -B build_living_room -DPANEL=living_room -p COM5 flash monitor
 idf.py -B build_ent_center -DPANEL=ent_center -p COM5 flash monitor
 ```
 
-### Living room remote panel (no CAN — see *ESP-NOW remote panel* below)
+### Bedroom remote panel (no CAN — see *ESP-NOW remote panel* below)
 
 ```powershell
-idf.py -B build_living_room_remote -DPANEL=living_room_remote -p COM5 flash monitor
+idf.py -B build_bedroom_remote -DPANEL=bedroom_remote -p COM5 flash monitor
 ```
 
 Replace `COM5` with the port from step 2. Keep the `-B <dir>` and `-DPANEL=`
@@ -93,7 +93,7 @@ build directory per panel (as above) prevents this.
 If you must reuse a build directory for a different panel, clean it first:
 
 ```powershell
-idf.py -B build_living_room fullclean
+idf.py -B build_mid_coach fullclean
 ```
 
 ## Step 4 — Verify the board got the right firmware
@@ -110,8 +110,8 @@ I (549) twai_tasks: RX/TX tasks running on core 0, source addr 0x80
 I (551) espnow_link: ESP-NOW link up (bridge), peer XX:XX:XX:XX:XX:XX, channel 1
 ```
 
-The `espnow_link` line only appears on `living_room` (the bridge) and on
-`living_room_remote`; `ent_center` has neither ESP-NOW nor a peer configured
+The `espnow_link` line only appears on `mid_coach` (the bridge) and on
+`bedroom_remote`; `ent_center` has neither ESP-NOW nor a peer configured
 and won't print it.
 
 The panel name is also shown in the top-left of the status bar on screen — the
@@ -119,17 +119,23 @@ quickest way to confirm a mounted panel without a serial cable.
 
 ## ESP-NOW remote panel
 
-`living_room_remote` has no CAN wiring at all — it relays button taps to
-`living_room` (its "bridge") over ESP-NOW, and `living_room` relays real
+`bedroom_remote` has no CAN wiring at all — it relays button taps to
+`mid_coach` (its "bridge") over ESP-NOW, and `mid_coach` relays real
 `DC_DIMMER_STATUS_3` changes back to it. See `CLAUDE.md` → *ESP-NOW
 remote-panel bridge* and `components/espnow_link/` for the design. v1 is a
 single fixed peer pair, configured entirely through Kconfig — no runtime
 pairing.
 
+**Naming convention:** any panel whose `PANEL` value ends in `_remote` is an
+ESP-NOW device (no RV-C CAN wiring) that reports to the Mid Coach bridge.
+Panels without `_remote` in the name are hardwired to the RV-C CAN bus.
+`mid_coach` is the ESP-NOW router/bridge between the RV-C bus and all
+remotes.
+
 > ⚠️ **`sdkconfig` is shared at the repo root across every `-B build_<panel>`
 > directory** — only `PANEL` (the C source selection) is cached per build
 > dir; Kconfig settings are not. Since the peer MAC/PMK/LMK below must
-> differ between `living_room` and `living_room_remote`, **give each build
+> differ between `mid_coach` and `bedroom_remote`, **give each build
 > its own sdkconfig file** with `-D SDKCONFIG=build_<panel>/sdkconfig` on
 > every `idf.py` invocation for these two panels (configure, menuconfig,
 > build, flash — all of it). Skipping this on even one command silently
@@ -150,16 +156,16 @@ idf.py -p COM5 read-mac
    each panel's Kconfig points at the *other* panel's MAC:
 
 ```powershell
-idf.py -B build_living_room -DPANEL=living_room -D SDKCONFIG=build_living_room/sdkconfig menuconfig
-idf.py -B build_living_room_remote -DPANEL=living_room_remote -D SDKCONFIG=build_living_room_remote/sdkconfig menuconfig
+idf.py -B build_mid_coach -DPANEL=mid_coach -D SDKCONFIG=build_mid_coach/sdkconfig menuconfig
+idf.py -B build_bedroom_remote -DPANEL=bedroom_remote -D SDKCONFIG=build_bedroom_remote/sdkconfig menuconfig
 ```
 
 Navigate to *Firefly Touch Panel* → *ESP-NOW remote-panel link* on each and
 set:
 
-| Setting | On `living_room` | On `living_room_remote` |
+| Setting | On `mid_coach` | On `bedroom_remote` |
 |---|---|---|
-| `FIREFLY_ESPNOW_PEER_MAC` | `living_room_remote`'s MAC | `living_room`'s MAC |
+| `FIREFLY_ESPNOW_PEER_MAC` | `bedroom_remote`'s MAC | `mid_coach`'s MAC |
 | `FIREFLY_ESPNOW_CHANNEL` | same value on both | same value on both |
 | `FIREFLY_ESPNOW_PMK` | same value on both | same value on both |
 | `FIREFLY_ESPNOW_LMK` | same value on both | same value on both |
@@ -175,23 +181,23 @@ bytes; keep them at 16 ASCII characters.
    always repeating `-DPANEL=`):
 
 ```powershell
-idf.py -B build_living_room -DPANEL=living_room -D SDKCONFIG=build_living_room/sdkconfig -p COM5 flash
-idf.py -B build_living_room_remote -DPANEL=living_room_remote -D SDKCONFIG=build_living_room_remote/sdkconfig -p COM5 flash
+idf.py -B build_mid_coach -DPANEL=mid_coach -D SDKCONFIG=build_mid_coach/sdkconfig -p COM5 flash
+idf.py -B build_bedroom_remote -DPANEL=bedroom_remote -D SDKCONFIG=build_bedroom_remote/sdkconfig -p COM5 flash
 ```
 
-A link-health dot appears in `living_room_remote`'s status bar, same place
+A link-health dot appears in `bedroom_remote`'s status bar, same place
 and colors as the CAN-health dot on a normal panel — green once
-`living_room` is up and frames have been exchanged within the last 5 s, red
+`mid_coach` is up and frames have been exchanged within the last 5 s, red
 otherwise.
 
 4. Bench-verify before trusting it on the coach: tap a button on
-   `living_room_remote` and confirm the corresponding real load actuates and
+   `bedroom_remote` and confirm the corresponding real load actuates and
    the remote panel's own button visually confirms (round-trip status echo);
-   then toggle the same load from `living_room`'s hardware button or the
+   then toggle the same load from `mid_coach`'s hardware button or the
    factory switch and confirm the remote panel's display updates.
 
-The simulator can preview `living_room_remote`'s layout (`cd sim; .\build.ps1
--Panel living_room_remote -Run`) but cannot exercise the ESP-NOW link itself —
+The simulator can preview `bedroom_remote`'s layout (`cd sim; .\build.ps1
+-Panel bedroom_remote -Run`) but cannot exercise the ESP-NOW link itself —
 no radio in a PC build.
 
 ## If the board will not enter download mode
@@ -210,14 +216,14 @@ start:
 Artifacts land in the build directory. From the repo root, after a build:
 
 ```powershell
-python -m esptool --chip esp32s3 -b 460800 --before default_reset --after hard_reset write_flash --flash_mode dio --flash_size 16MB --flash_freq 80m 0x0 build_living_room\bootloader\bootloader.bin 0x8000 build_living_room\partition_table\partition-table.bin 0x10000 build_living_room\firefly_touch.bin
+python -m esptool --chip esp32s3 -b 460800 --before default_reset --after hard_reset write_flash --flash_mode dio --flash_size 16MB --flash_freq 80m 0x0 build_mid_coach\bootloader\bootloader.bin 0x8000 build_mid_coach\partition_table\partition-table.bin 0x10000 build_mid_coach\firefly_touch.bin
 ```
 
 Note the offset: the app lives at **`0x10000`**. Easier and less
 error-prone — let the build directory supply them:
 
 ```powershell
-cd build_living_room
+cd build_mid_coach
 python -m esptool --chip esp32s3 -b 460800 --before default_reset --after hard_reset write_flash "@flash_args"
 ```
 
@@ -244,7 +250,7 @@ To verify the RV-C instance map or capture the factory PANEL LIGHTS frames,
 enable sniffer mode — it logs **every** frame seen on the bus:
 
 ```powershell
-idf.py -B build_living_room -DPANEL=living_room menuconfig
+idf.py -B build_mid_coach -DPANEL=mid_coach menuconfig
 ```
 
 Navigate to *Firefly Touch Panel* → *RV-C sniffer mode*, enable, save, then

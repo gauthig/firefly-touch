@@ -17,9 +17,9 @@ menu "Firefly Touch Panel"
             default "AA:BB:CC:DD:EE:FF"
             help
                 MAC address of this panel's ESP-NOW counterpart. For the
-                living_room bridge build, this is the remote panel's MAC;
+                mid_coach bridge build, this is the remote panel's MAC;
                 for a remote (PANEL_HAS_CAN=0) panel build, this is
-                living_room's MAC. Read a board's factory MAC with
+                mid_coach's MAC. Read a board's factory MAC with
                 `idf.py -p COMx read-mac` before flashing either side. v1
                 supports exactly one peer per panel.
 
