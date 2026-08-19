@@ -175,7 +175,7 @@ tap on/off is responsive and repeatable, no further latchup observed.
   get coverage automatically. Uploads flashable artifacts.
 - `README.md`, `docs/FLASHING.md` (per-device upload, OTA, adding a panel), and
   `CLAUDE.md` (architecture, DGN tables, pinout, gotchas).
-- Released into the public domain under The Unlicense.
+- Licensed under the MIT License (Copyright (c) 2026 Garrett).
 
 ### Unverified — read before connecting to a live bus
 

@@ -1,7 +1,7 @@
 # firefly-touch
 
 [![build](https://github.com/gauthig/firefly-touch/actions/workflows/build.yml/badge.svg)](https://github.com/gauthig/firefly-touch/actions/workflows/build.yml)
-[![license: Unlicense](https://img.shields.io/badge/license-Unlicense-blue.svg)](LICENSE)
+[![license: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
 Replacement **touchscreen wall panels** for a 2019 Entegra Aspire 44W with a
 Firefly Integrations **G6A multiplex system**.
@@ -228,8 +228,14 @@ is still assumption.
 
 ## License
 
-Released into the **public domain** under [The Unlicense](LICENSE) — no rights
-reserved. Copy, modify, sell, or ship it with no attribution required.
+Licensed under the [MIT License](LICENSE). Copyright (c) 2026 Garrett.
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files, to deal in the Software
+without restriction, including without limitation the rights to use, copy,
+modify, merge, publish, distribute, sublicense, and/or sell copies of the
+Software, and to permit persons to whom the Software is furnished to do so,
+subject to the condition that the above copyright notice and this permission
+notice be included in all copies or substantial portions of the Software.
 
 RV-C is an open standard published by the RV Industry Association. This
 project is not affiliated with or endorsed by Firefly Integrations, Entegra

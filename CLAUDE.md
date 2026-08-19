@@ -510,8 +510,9 @@ project owner first.
 - Adding a panel = one header in `panels/` + a build flag. No C changes.
   Resolve the A/B question above first; procedure in
   [docs/FLASHING.md](docs/FLASHING.md#adding-a-new-panel).
-- Licensed under The Unlicense (public domain). Don't add code that can't be
-  released that way — no vendored GPL sources, no proprietary vendor blobs.
+- Licensed under the MIT License (Copyright (c) 2026 Garrett). Don't add
+  code that can't be released that way — no vendored GPL sources, no
+  proprietary vendor blobs.
 - Decision log: this file, section above. Bench findings (verified pins,
   captured DGNs, instance corrections) should update the tables here and the
   matching TODO comments in code.
