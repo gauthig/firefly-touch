@@ -180,6 +180,13 @@ status broadcasts are best-effort with no delivery ack (mitigated by the 30 s
 resync, same as RV-C's own status frames having no ack); exactly one
 remote/bridge pair; no runtime pairing UI.
 
+**Rename verified 2026-08-16 (issue #23 / PR #24):** the panels were renamed
+`living_room` → `mid_coach` and `living_room_remote` → `bedroom_remote`
+(filenames, panel IDs, build dirs; on-screen names "MID COACH" / "BED
+REMOTE"). `mid_coach` was flashed and **confirmed working on real hardware**
+by the user. `bedroom_remote` build is verified but **not yet flashed** —
+pending interactive flash + user confirmation.
+
 ⚠️ **`sdkconfig` is shared at the repo root across every `-B build_<panel>`
 directory** — discovered while pairing the two boards above. Only `PANEL`
 (the C source selection) is a per-build-dir CMake cache var; Kconfig
