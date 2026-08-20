@@ -4,6 +4,7 @@
 
 #include "esp_log.h"
 
+#include "ui_battery_gauge.h"
 #include "ui_tank_wave.h"
 #include "ui_theme.h"
 
@@ -38,8 +39,9 @@ typedef struct {
 
     lv_obj_t *btn;
     lv_obj_t *name;
-    lv_obj_t *bar;         /* PANEL_BTN_DIMMER only: brightness bar */
-    lv_obj_t *tank_wave;   /* PANEL_BTN_TANK_LEVEL only: animated gauge */
+    lv_obj_t *bar;            /* PANEL_BTN_DIMMER only: brightness bar */
+    lv_obj_t *tank_wave;      /* PANEL_BTN_TANK_LEVEL only: animated gauge */
+    lv_obj_t *battery_gauge;  /* PANEL_BTN_BATTERY_STATUS only: animated gauge */
 } btn_ctx_t;
 
 static bool any_on(const btn_ctx_t *ctx)
@@ -120,7 +122,7 @@ static void handle_tap(btn_ctx_t *ctx)
         send(ctx, RVC_DIMMER_CMD_TOGGLE);
         return;
     }
-    if (ctx->def->type == PANEL_BTN_TANK_LEVEL) {
+    if (ctx->def->type == PANEL_BTN_TANK_LEVEL || ctx->def->type == PANEL_BTN_BATTERY_STATUS) {
         /* Read-only display, no command, no confirm timer. */
         return;
     }
@@ -251,6 +253,10 @@ lv_obj_t *ui_dimmer_button_create(lv_obj_t *parent,
         ctx->tank_wave = ui_tank_wave_create(btn);
     }
 
+    if (def->type == PANEL_BTN_BATTERY_STATUS) {
+        ctx->battery_gauge = ui_battery_gauge_create(btn);
+    }
+
     lv_obj_add_event_cb(btn, event_cb, LV_EVENT_ALL, ctx);
     refresh_visuals(ctx);
     return btn;
@@ -260,11 +266,12 @@ void ui_dimmer_button_update(lv_obj_t *btn, uint8_t instance,
                              uint8_t level, bool on)
 {
     btn_ctx_t *ctx = lv_obj_get_user_data(btn);
-    /* Tank widgets never participate in this pathway -- a numeric instance
-     * collision with a real dimmer (e.g. both using instance 1) must not
-     * cross-contaminate a tank-level button's state. See
-     * ui_dimmer_button_update_tank() for the tank-only equivalent. */
-    if (ctx == NULL || ctx->def->type == PANEL_BTN_TANK_LEVEL) {
+    /* Tank/battery widgets never participate in this pathway -- a numeric
+     * instance collision with a real dimmer (e.g. both using instance 1)
+     * must not cross-contaminate their state. See
+     * ui_dimmer_button_update_tank()/_update_battery() for those. */
+    if (ctx == NULL || ctx->def->type == PANEL_BTN_TANK_LEVEL ||
+        ctx->def->type == PANEL_BTN_BATTERY_STATUS) {
         return;
     }
 
@@ -304,4 +311,25 @@ void ui_dimmer_button_update_tank(lv_obj_t *btn, uint8_t instance,
     }
 
     ui_tank_wave_set_percent(ctx->tank_wave, percent, valid);
+}
+
+void ui_dimmer_button_update_battery(lv_obj_t *btn, uint8_t index, uint8_t percent,
+                                     float rate_amps, float hours, bool valid)
+{
+    btn_ctx_t *ctx = lv_obj_get_user_data(btn);
+    if (ctx == NULL || ctx->def->type != PANEL_BTN_BATTERY_STATUS) {
+        return;
+    }
+
+    bool hit = false;
+    for (uint8_t i = 0; i < ctx->def->instance_count; i++) {
+        if (ctx->def->instances[i] == index) {
+            hit = true;
+        }
+    }
+    if (!hit) {
+        return;
+    }
+
+    ui_battery_gauge_set_status(ctx->battery_gauge, percent, rate_amps, hours, valid);
 }

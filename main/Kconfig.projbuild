@@ -49,4 +49,38 @@ menu "Firefly Touch Panel"
 
     endmenu
 
+    menu "JBD-BMS battery monitor"
+
+        config FIREFLY_BATTERY_1_MAC
+            string "Battery 1 BLE MAC address (AA:BB:CC:DD:EE:FF)"
+            default "00:00:00:00:00:00"
+            help
+                BLE MAC of the first Xiaoxiang/JBD BMS. The placeholder
+                all-zero address means "unconfigured" -- that slot is
+                skipped entirely (no connection attempted, status always
+                reads as invalid) until a real MAC is set.
+
+        config FIREFLY_BATTERY_2_MAC
+            string "Battery 2 BLE MAC address (AA:BB:CC:DD:EE:FF)"
+            default "00:00:00:00:00:00"
+            help
+                Same as FIREFLY_BATTERY_1_MAC, for the second battery.
+
+        config FIREFLY_BATTERY_3_MAC
+            string "Battery 3 BLE MAC address (AA:BB:CC:DD:EE:FF)"
+            default "00:00:00:00:00:00"
+            help
+                Same as FIREFLY_BATTERY_1_MAC, for the third battery.
+
+        config FIREFLY_BATTERY_POLL_INTERVAL_MS
+            int "Battery status poll interval (ms)"
+            default 5000
+            range 1000 60000
+            help
+                How often each connected battery is asked for a fresh
+                basic-info reading. SOC/current are slow-moving values --
+                no need to poll faster than the UI refresh cadence.
+
+    endmenu
+
 endmenu

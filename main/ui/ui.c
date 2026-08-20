@@ -12,13 +12,19 @@
  * TANK_STATUS frames — a different DGN/namespace, never routed through
  * ui_on_status().
  *
- * Screen 2 (PANEL_HAS_SCREEN_2) is assumed to be a tank readout today —
- * the only panel that defines one is mid_coach, with its SeeLevel
- * FRESH/GREY/BLACK gauges. If a future panel wants a non-tank screen 2,
- * build_screen2_tanks() will need to stop assuming that.
+ * Screen 2 (PANEL_HAS_SCREEN_2) is either a tank readout (mid_coach's
+ * SeeLevel FRESH/GREY/BLACK gauges) or a battery-status readout
+ * (bedroom_remote's 3 JBD-BMS gauges) — both use the same generic
+ * build_screen2_row() layout since ui_dimmer_button_create() already
+ * dispatches to the right gauge widget by button type, so ui.c stays
+ * panel-agnostic rather than hardcoding which panel gets which screen.
+ * Whichever screen-2 flavor is showing, idle_timer_cb() switches back to
+ * screen 1 once the backlight goes fully idle-off, so a secondary screen
+ * is never left showing after the user walks away.
  */
 #include "ui.h"
 
+#include <math.h>
 #include <string.h>
 
 #include "esp_log.h"
@@ -32,6 +38,10 @@
 #include "ui_dimmer_button.h"
 #include "ui_theme.h"
 
+#if PANEL_HAS_SCREEN_2
+#include "jbd_bms_client.h"
+#endif
+
 static const char *TAG = "ui";
 
 #define STATUSBAR_H         36
@@ -43,6 +53,8 @@ static const char *TAG = "ui";
 #define TANK_WARN_PCT  80
 #define TANK_FULL_PCT  89 /* i.e. "over 88%" */
 #define TANK_STATUS_TIMER_MS 500
+
+#define BATTERY_STATUS_TIMER_MS 1000
 
 typedef enum {
     BACKLIGHT_NORMAL,
@@ -64,6 +76,9 @@ static bool      s_grey_found, s_black_found;
 static uint8_t   s_grey_instance, s_black_instance;
 static bool      s_tank_critical;
 static bool      s_tank_blink_on;
+static bool      s_screen2_is_battery;
+
+static void switch_screen(void);
 #endif
 
 /* ------------------------------------------------------- backlight ------ */
@@ -131,6 +146,14 @@ static void idle_timer_cb(lv_timer_t *t)
         s_backlight_state = BACKLIGHT_OFF;
         apply_backlight(0);
         ESP_LOGI(TAG, "idle %lu ms -> backlight off", (unsigned long)inactive_ms);
+#if PANEL_HAS_SCREEN_2
+        /* Screen actually going dark -- don't leave a secondary screen
+         * (tank/battery readout) showing for whoever glances at it next;
+         * fall back to the primary light-button grid. */
+        if (s_grid2 != NULL && !lv_obj_has_flag(s_grid2, LV_OBJ_FLAG_HIDDEN)) {
+            switch_screen();
+        }
+#endif
     }
 }
 
@@ -180,6 +203,27 @@ static void tank_status_timer_cb(lv_timer_t *t)
         lv_label_set_text(s_tank_status_label, "Grey-Black OK");
         lv_obj_set_style_text_color(s_tank_status_label, UI_COLOR_TEXT, 0);
         lv_obj_remove_flag(s_tank_status_label, LV_OBJ_FLAG_HIDDEN);
+    }
+}
+
+/* ----------------------------------------------------- battery status --- */
+
+static void battery_status_timer_cb(lv_timer_t *t)
+{
+    (void)t;
+    for (uint8_t i = 0; i < JBD_BMS_MAX_BATTERIES; i++) {
+        jbd_bms_status_t status;
+        const bool valid = jbd_bms_get_status(i, &status);
+        const float hours = valid ? jbd_bms_estimate_hours(&status) : NAN;
+        const uint8_t percent = valid ? status.soc_percent : 0;
+        const float current = valid ? status.current_a : 0.0f;
+
+        for (uint32_t j = 0; j < PANEL_BUTTON_COUNT_2; j++) {
+            if (s_buttons_2[j] != NULL) {
+                ui_dimmer_button_update_battery(s_buttons_2[j], i, percent, current,
+                                                hours, valid);
+            }
+        }
     }
 }
 #endif
@@ -272,15 +316,18 @@ static void build_button_grid(lv_obj_t *parent, const panel_btn_def_t *buttons,
 
 #if PANEL_HAS_SCREEN_2
 /*
- * Screen 2 is a tank readout (see the file header note): its
- * PANEL_BTN_TANK_LEVEL entries are laid out as a centered horizontal row
- * of wave gauges, and its one PANEL_BTN_SCREEN_SWITCH entry ("BACK") is a
- * small button pinned to the bottom center, rather than an equal-sized
- * grid cell like screen 1's buttons. PANEL_BTN_SPACER entries, if any, are
- * skipped -- the row layout doesn't need manual gap positioning.
+ * Screen 2 is a row of read-only gauges -- tank levels (mid_coach) or
+ * battery status (bedroom_remote), see the file header note. Both
+ * PANEL_BTN_TANK_LEVEL and PANEL_BTN_BATTERY_STATUS entries are laid out
+ * identically as a centered horizontal row (ui_dimmer_button_create()
+ * already dispatches to the right gauge widget by button type), and the
+ * one PANEL_BTN_SCREEN_SWITCH entry ("BACK") is a small button pinned to
+ * the bottom center, rather than an equal-sized grid cell like screen 1's
+ * buttons. PANEL_BTN_SPACER entries, if any, are skipped -- the row layout
+ * doesn't need manual gap positioning.
  */
-static void build_screen2_tanks(lv_obj_t *parent, const panel_btn_def_t *buttons,
-                                uint32_t count, lv_obj_t **out_buttons)
+static void build_screen2_row(lv_obj_t *parent, const panel_btn_def_t *buttons,
+                              uint32_t count, lv_obj_t **out_buttons)
 {
     lv_obj_t *row = lv_obj_create(parent);
     lv_obj_add_style(row, &ui_style_screen, 0);
@@ -355,6 +402,13 @@ static void build_screen(void)
         lv_obj_set_style_text_color(s_tank_status_label, UI_COLOR_TEXT_DIM, 0);
         lv_obj_align(s_tank_status_label, LV_ALIGN_RIGHT_MID, 0, 0);
     }
+
+    for (uint32_t i = 0; i < PANEL_BUTTON_COUNT_2; i++) {
+        if (PANEL_BUTTONS_2[i].type == PANEL_BTN_BATTERY_STATUS) {
+            s_screen2_is_battery = true;
+            break;
+        }
+    }
 #endif
 
     /* Use logical height (post-rotation) so the grid fills correctly in
@@ -381,7 +435,7 @@ static void build_screen(void)
     lv_obj_align(grid2, LV_ALIGN_BOTTOM_MID, 0, 0);
     lv_obj_remove_flag(grid2, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_add_flag(grid2, LV_OBJ_FLAG_HIDDEN);
-    build_screen2_tanks(grid2, PANEL_BUTTONS_2, PANEL_BUTTON_COUNT_2, s_buttons_2);
+    build_screen2_row(grid2, PANEL_BUTTONS_2, PANEL_BUTTON_COUNT_2, s_buttons_2);
     s_grid2 = grid2;
 #endif
 
@@ -401,6 +455,9 @@ static void build_screen(void)
 #if PANEL_HAS_SCREEN_2
     if (s_tank_status_label != NULL) {
         lv_timer_create(tank_status_timer_cb, TANK_STATUS_TIMER_MS, NULL);
+    }
+    if (s_screen2_is_battery) {
+        lv_timer_create(battery_status_timer_cb, BATTERY_STATUS_TIMER_MS, NULL);
     }
 #endif
 }

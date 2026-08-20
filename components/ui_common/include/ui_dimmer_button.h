@@ -65,6 +65,17 @@ void ui_dimmer_button_update(lv_obj_t *btn, uint8_t instance,
 void ui_dimmer_button_update_tank(lv_obj_t *btn, uint8_t instance,
                                   uint8_t percent, bool valid);
 
+/*
+ * Feed a battery-status update for one battery index (0..2, matching
+ * jbd_bms_get_status()'s slot numbering -- not an RV-C instance). No-op
+ * unless this widget is a PANEL_BTN_BATTERY_STATUS watching that index.
+ * rate_amps: positive = charging, negative = discharging. hours: pass a
+ * non-finite value to show "--". valid=false shows "--" everywhere.
+ * Caller must hold the LVGL lock.
+ */
+void ui_dimmer_button_update_battery(lv_obj_t *btn, uint8_t index, uint8_t percent,
+                                     float rate_amps, float hours, bool valid);
+
 #ifdef __cplusplus
 }
 #endif

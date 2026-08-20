@@ -107,14 +107,16 @@ static int run_screenshot(const char *path, bool screen2)
     sim_seed_demo_state();
 
     if (screen2) {
-        if (!click_button_labeled(lv_screen_active(), "TANK LEVELS")) {
-            fprintf(stderr, "[sim] TANK LEVELS button not found (no screen 2 on this panel?)\n");
+        if (!click_button_labeled(lv_screen_active(), "TANK LEVELS") &&
+            !click_button_labeled(lv_screen_active(), "BATTERY STATUS")) {
+            fprintf(stderr, "[sim] no screen-switch button found (no screen 2 on this panel?)\n");
         }
     }
 
-    /* Run real time forward so the tank-status timer (500 ms) and the
-     * wave-gauge animation timer (100 ms) both get to fire at least once. */
-    for (int i = 0; i < 20; i++) {
+    /* Run real time forward so the tank/battery-status timers (500 ms /
+     * 1000 ms) and the wave-gauge animation timer (100 ms) all get to fire
+     * at least once, with margin -- 40 * 50 ms = ~2 s. */
+    for (int i = 0; i < 40; i++) {
         lv_timer_handler();
         SDL_Delay(50);
     }
