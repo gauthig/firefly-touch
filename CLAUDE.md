@@ -108,7 +108,7 @@ CAN-connected case in `main/panel_config.h`.
 | `twai_tx`      | 0    | 11   | drains TX queue → `twai_transmit`; bus-off recovery. Nothing else ever blocks on the bus |
 | `espnow_rx`    | 0    | 10   | (only if `PANEL_IS_BRIDGE` or `!PANEL_HAS_CAN`) drains ESP-NOW recv queue, invokes the registered cmd/status callback |
 | `state_mgr`    | 0    | 9    | owns instance→{level,on} table; on change calls `ui_on_status()` under the LVGL lock, and the registered ESP-NOW status sink if any |
-| `jbd_bms`      | ?    | 9    | (only if `PANEL_HAS_BLE_BATTERY`) drives each configured battery's connect/discover/subscribe/poll state machine; NimBLE host runs its own task alongside it (see *Battery monitor* below) |
+| `jbd_bms`      | ?    | 9    | (only if `PANEL_HAS_BLE_BATTERY`) drives each configured battery's connect/discover/subscribe/poll state machine; Bluedroid's own host task runs alongside it (see *Battery monitor* below) |
 | LVGL (port)    | 1    | 4    | rendering + touch; button callbacks only enqueue via `bridge_enqueue_dimmer_cmd()` |
 
 **Invariant:** icon/button visual state is driven ONLY by status frames from
@@ -142,7 +142,7 @@ enqueuing locally, and status arrives the same way in reverse (see below).
   ESP-free-of-`main` structs.
 - `components/jbd_bms` — Xiaoxiang/JBD Smart BMS protocol codec
   (`jbd_bms_protocol.c`, pure C, host-testable like `rvc_protocol`) plus a
-  NimBLE central-role client (`jbd_bms_client.c`) for up to 3 fixed battery
+  Bluedroid GATT-client (`jbd_bms_client.c`) for up to 3 fixed battery
   peripherals (see *Battery monitor* below). Always compiled into `main`
   (same precedent as `espnow_link`), but the BLE stack is only actually
   started when a panel sets `PANEL_HAS_BLE_BATTERY 1`.
@@ -229,13 +229,17 @@ RV-C instance map used to pick these.
 
 ## Battery monitor (JBD-BMS via BLE)
 
-`bedroom_remote` (`PANEL_HAS_BLE_BATTERY 1`) additionally runs a NimBLE
-central-role client (`components/jbd_bms`) alongside its ESP-NOW light-
-switch relay, connecting to up to 3 Vatrer 300AH batteries' Xiaoxiang/JBD-
-BMS boards over BLE and showing State of Charge, charge/discharge rate
-(Amps), and estimated remaining hours on a **BATTERY STATUS** screen
-(issues #25–#27). v1 scope mirrors ESP-NOW's: fixed MAC addresses from
-Kconfig, no scanning/pairing UI, no mesh.
+`bedroom_remote` (`PANEL_HAS_BLE_BATTERY 1`) additionally runs a Bluedroid
+GATT-client central role (`components/jbd_bms`) alongside its ESP-NOW
+light-switch relay, connecting to up to 3 Vatrer 300AH batteries'
+Xiaoxiang/JBD-BMS boards over BLE and showing State of Charge,
+charge/discharge rate (Amps), and estimated remaining hours on a
+**BATTERY STATUS** screen (issues #25–#27). v1 scope mirrors ESP-NOW's:
+fixed MAC addresses from Kconfig, no scanning/pairing UI, no mesh.
+Bluedroid rather than NimBLE per explicit project decision — each battery
+is its own GATTC "app" (`esp_ble_gattc_app_register()`, app_id == battery
+slot index), connected directly by known address (no scan needed, the MAC
+is already fixed).
 
 - `CONFIG_FIREFLY_BATTERY_1_MAC`/`_2_MAC`/`_3_MAC` (`main/Kconfig.projbuild`)
   — each battery's BLE MAC. The placeholder `00:00:00:00:00:00` means
@@ -258,12 +262,14 @@ Kconfig, no scanning/pairing UI, no mesh.
   batteries.
 - `components/jbd_bms/jbd_bms_client.c` — one connect/discover-service
   (`0xFF00`)/discover-characteristics (notify `0xFF01`, write
-  `0xFF02`)/subscribe/poll state machine per configured slot, modeled on
-  the connect/discover chain in Espressif's NimBLE `blecent` example.
+  `0xFF02`)/subscribe (register-for-notify + write the CCCD)/poll state
+  machine per configured slot, modeled directly on Espressif's Bluedroid
+  `gatt_client` example
+  (`examples/bluetooth/bluedroid/ble/gatt_client/main/gattc_demo.c`).
   Service/characteristic UUIDs and the assumed public BLE address type
   (`JBD_BMS_ADDR_TYPE` in the file) are also bench-TODO items — flip to
-  `BLE_ADDR_RANDOM` there if connections never establish against the real
-  modules. Polls every `CONFIG_FIREFLY_BATTERY_POLL_INTERVAL_MS` once
+  `BLE_ADDR_TYPE_RANDOM` there if connections never establish against the
+  real modules. Polls every `CONFIG_FIREFLY_BATTERY_POLL_INTERVAL_MS` once
   subscribed; `jbd_bms_get_status()`/`jbd_bms_healthy()` mirror
   `state_manager_get_tank()`'s valid/invalid contract.
 - **BLE/WiFi coexistence, unverified:** `bedroom_remote` already runs

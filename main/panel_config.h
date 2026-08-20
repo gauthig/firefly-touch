@@ -64,7 +64,7 @@
  * it. The jbd_bms component is always compiled into main (see
  * main/CMakeLists.txt, same precedent as espnow_link being required
  * unconditionally even though only some panels use it) but the BLE/
- * NimBLE stack is only actually started when this is set, so a
+ * Bluedroid BLE stack is only actually started when this is set, so a
  * CAN-only panel like mid_coach never pays the coexistence/runtime cost.
  */
 #ifndef PANEL_HAS_BLE_BATTERY

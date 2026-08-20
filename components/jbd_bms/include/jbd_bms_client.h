@@ -1,5 +1,5 @@
 /*
- * jbd_bms_client — NimBLE central-role client for up to 3 fixed
+ * jbd_bms_client — Bluedroid GATT-client central role for up to 3 fixed
  * Xiaoxiang/JBD BMS peripherals (v1: fixed MAC addresses from Kconfig, no
  * scanning/pairing UI, no mesh -- same v1 scoping as components/espnow_link's
  * single fixed ESP-NOW peer).
@@ -26,7 +26,7 @@ extern "C" {
 #define JBD_BMS_MAX_BATTERIES 3
 
 /*
- * Brings up NimBLE and starts connecting to each configured battery MAC.
+ * Brings up Bluedroid and starts connecting to each configured battery MAC.
  * Must be called after nvs_flash_init(); safe to call once per boot.
  */
 esp_err_t jbd_bms_client_start(void);

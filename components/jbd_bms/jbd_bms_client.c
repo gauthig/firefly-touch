@@ -1,76 +1,79 @@
 /*
- * jbd_bms_client — NimBLE central role, up to JBD_BMS_MAX_BATTERIES fixed
- * peripherals. Each slot runs an independent connect -> discover service
- * (0xFF00) -> discover characteristics (notify 0xFF01, write 0xFF02) ->
- * discover the notify characteristic's CCCD -> enable notifications ->
- * periodic write-request/parse-notify state machine. Modeled on the
- * connect/discover chain in Espressif's NimBLE "blecent" example.
+ * jbd_bms_client — Bluedroid GATT-client central role, up to
+ * JBD_BMS_MAX_BATTERIES fixed peripherals. Each slot is its own GATTC
+ * "app" (one esp_gattc_app_register() per battery, app_id == slot index)
+ * connected directly by known BLE address (no scanning -- the MACs are
+ * fixed via Kconfig, same v1 scoping as components/espnow_link's single
+ * fixed ESP-NOW peer). Once connected: discover service (0xFF00) ->
+ * discover characteristics (notify 0xFF01, write 0xFF02) -> register for
+ * notify -> discover + write the notify characteristic's CCCD -> ready,
+ * then periodic write-request/parse-notify. Modeled directly on
+ * Espressif's Bluedroid `gatt_client` example
+ * (examples/bluetooth/bluedroid/ble/gatt_client/main/gattc_demo.c).
  *
  * TODO(bench, unverified without real hardware):
  *   - Peer BLE address type: JBD_BMS_ADDR_TYPE below is a guess
- *     (BLE_ADDR_PUBLIC). If connections never establish, try
- *     BLE_ADDR_RANDOM instead -- easy to see with a phone BLE scanner app
- *     against the actual module.
+ *     (BLE_ADDR_TYPE_PUBLIC). If connections never establish, try
+ *     BLE_ADDR_TYPE_RANDOM instead -- easy to see with a phone BLE
+ *     scanner app against the actual module.
  *   - Service/characteristic UUIDs (0xFF00/0xFF01/0xFF02) are the values
  *     commonly used by JBD/Xiaoxiang BLE UART modules across the open
  *     ecosystem (ESPHome's jbd_bms component and others), not yet
  *     confirmed against these specific batteries.
  *   - Whether the write characteristic wants write-with-response or
  *     write-without-response; this uses write-without-response
- *     (ble_gattc_write_no_rsp_flat), the more common case for this class
+ *     (ESP_GATT_WRITE_TYPE_NO_RSP), the more common case for this class
  *     of module.
  */
 #include "jbd_bms_client.h"
 
 #include <string.h>
 
+#include "esp_bt.h"
+#include "esp_bt_main.h"
+#include "esp_gap_ble_api.h"
+#include "esp_gatt_defs.h"
+#include "esp_gattc_api.h"
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 #include "freertos/task.h"
-#include "host/ble_hs.h"
-#include "host/util/util.h"
-#include "nimble/nimble_port.h"
-#include "nimble/nimble_port_freertos.h"
 #include "nvs_flash.h"
-#include "services/gap/ble_svc_gap.h"
 #include "sdkconfig.h"
 
 static const char *TAG = "jbd_bms_client";
 
-#define JBD_BMS_ADDR_TYPE BLE_ADDR_PUBLIC
+#define JBD_BMS_ADDR_TYPE BLE_ADDR_TYPE_PUBLIC
 
-#define JBD_SVC_UUID       0xFF00
+#define JBD_SVC_UUID        0xFF00
 #define JBD_CHR_NOTIFY_UUID 0xFF01
 #define JBD_CHR_WRITE_UUID  0xFF02
-#define JBD_DSC_CCCD_UUID   0x2902
 
-#define JBD_TASK_STACK       4096
-#define JBD_TASK_PRIO        9
-#define JBD_TASK_PERIOD_MS   1000
-#define JBD_RECONNECT_MS     5000
+#define JBD_TASK_STACK        4096
+#define JBD_TASK_PRIO         9
+#define JBD_TASK_PERIOD_MS    1000
+#define JBD_RECONNECT_MS      5000
 #define JBD_HEALTHY_WINDOW_MS 15000
 #define JBD_REASSEMBLE_BUF_LEN 136
+#define JBD_ATTR_RESULT_MAX    2   /* JBD peripherals expose exactly one of each -- small margin */
 
 typedef enum {
     SLOT_DISABLED = 0,   /* placeholder MAC -- never touched */
-    SLOT_IDLE,            /* waiting to (re)connect */
-    SLOT_CONNECTING,
-    SLOT_DISCOVERING,
-    SLOT_READY,           /* subscribed, polling on schedule */
+    SLOT_IDLE,            /* app registered, waiting to (re)connect */
+    SLOT_CONNECTING,       /* esp_ble_gattc_open() called, discovering service/chars */
+    SLOT_READY,            /* subscribed, polling on schedule */
 } slot_state_t;
 
 typedef struct {
-    bool          enabled;
-    ble_addr_t    addr;
-    slot_state_t  state;
-    uint16_t      conn_handle;
-    uint16_t      svc_start_handle;
-    uint16_t      svc_end_handle;
-    uint16_t      notify_val_handle;
-    uint16_t      notify_end_handle;   /* for CCCD discovery range */
-    uint16_t      write_val_handle;
-    uint16_t      cccd_handle;
+    bool             enabled;
+    esp_bd_addr_t    bda;
+    esp_gatt_if_t    gattc_if;
+    slot_state_t     state;
+    uint16_t         conn_id;
+    uint16_t         svc_start_handle;
+    uint16_t         svc_end_handle;
+    uint16_t         notify_char_handle;
+    uint16_t         write_char_handle;
 
     uint8_t  reassemble_buf[JBD_REASSEMBLE_BUF_LEN];
     size_t   reassemble_len;
@@ -86,6 +89,23 @@ static jbd_slot_t s_slots[JBD_BMS_MAX_BATTERIES];
 static SemaphoreHandle_t s_status_mutex;
 static uint32_t s_poll_interval_ms = CONFIG_FIREFLY_BATTERY_POLL_INTERVAL_MS;
 
+static const esp_bt_uuid_t k_svc_uuid = {
+    .len = ESP_UUID_LEN_16,
+    .uuid = { .uuid16 = JBD_SVC_UUID },
+};
+static const esp_bt_uuid_t k_notify_char_uuid = {
+    .len = ESP_UUID_LEN_16,
+    .uuid = { .uuid16 = JBD_CHR_NOTIFY_UUID },
+};
+static const esp_bt_uuid_t k_write_char_uuid = {
+    .len = ESP_UUID_LEN_16,
+    .uuid = { .uuid16 = JBD_CHR_WRITE_UUID },
+};
+static const esp_bt_uuid_t k_cccd_uuid = {
+    .len = ESP_UUID_LEN_16,
+    .uuid = { .uuid16 = ESP_GATT_UUID_CHAR_CLIENT_CONFIG },
+};
+
 static bool parse_mac(const char *str, uint8_t mac[6])
 {
     unsigned b[6];
@@ -99,104 +119,14 @@ static bool parse_mac(const char *str, uint8_t mac[6])
     return true;
 }
 
-/* NimBLE addresses are little-endian on the wire; a MAC string is written
- * big-endian (AA:BB:...), so reverse byte order when filling ble_addr_t. */
-static void mac_to_ble_addr(const uint8_t mac[6], ble_addr_t *out)
-{
-    out->type = JBD_BMS_ADDR_TYPE;
-    for (int i = 0; i < 6; i++) {
-        out->val[i] = mac[5 - i];
-    }
-}
-
 static void reset_slot_for_retry(jbd_slot_t *slot)
 {
     slot->state = SLOT_IDLE;
-    slot->conn_handle = BLE_HS_CONN_HANDLE_NONE;
     slot->reassemble_len = 0;
     slot->next_action_tick = xTaskGetTickCount() + pdMS_TO_TICKS(JBD_RECONNECT_MS);
 }
 
-/* ---------------------------------------------------------- GATT chain --- */
-
-static int on_dsc_disc(uint16_t conn_handle, const struct ble_gatt_error *error,
-                       uint16_t chr_val_handle, const struct ble_gatt_dsc *dsc, void *arg)
-{
-    jbd_slot_t *slot = arg;
-    (void)conn_handle;
-    (void)chr_val_handle;
-
-    if (error->status == 0 && dsc != NULL &&
-        ble_uuid_u16(&dsc->uuid.u) == JBD_DSC_CCCD_UUID) {
-        slot->cccd_handle = dsc->handle;
-    } else if (error->status != 0) {
-        /* BLE_HS_EDONE (or any terminal status) -- discovery finished. */
-        if (slot->cccd_handle != 0) {
-            uint8_t enable[2] = { 0x01, 0x00 };
-            ble_gattc_write_flat(slot->conn_handle, slot->cccd_handle,
-                                 enable, sizeof(enable), NULL, NULL);
-            slot->state = SLOT_READY;
-            slot->next_action_tick = xTaskGetTickCount();   /* poll ASAP */
-            ESP_LOGI(TAG, "slot ready, subscribed to notify (handle %u)", slot->cccd_handle);
-        } else {
-            ESP_LOGW(TAG, "no CCCD found on notify characteristic -- giving up on this connection");
-            ble_gap_terminate(slot->conn_handle, BLE_ERR_REM_USER_CONN_TERM);
-        }
-    }
-    return 0;
-}
-
-static int on_chr_disc(uint16_t conn_handle, const struct ble_gatt_error *error,
-                       const struct ble_gatt_chr *chr, void *arg)
-{
-    jbd_slot_t *slot = arg;
-    (void)conn_handle;
-
-    if (error->status == 0 && chr != NULL) {
-        const uint16_t uuid16 = ble_uuid_u16(&chr->uuid.u);
-        if (uuid16 == JBD_CHR_NOTIFY_UUID) {
-            slot->notify_val_handle = chr->val_handle;
-        } else if (uuid16 == JBD_CHR_WRITE_UUID) {
-            slot->write_val_handle = chr->val_handle;
-        }
-        return 0;
-    }
-
-    /* Characteristic discovery finished (error->status == BLE_HS_EDONE on
-     * success, or a real error). */
-    if (slot->notify_val_handle == 0) {
-        ESP_LOGW(TAG, "JBD notify characteristic (0xFF01) not found -- terminating");
-        ble_gap_terminate(slot->conn_handle, BLE_ERR_REM_USER_CONN_TERM);
-        return 0;
-    }
-    ble_gattc_disc_all_dscs(slot->conn_handle, slot->notify_val_handle,
-                            slot->notify_end_handle, on_dsc_disc, slot);
-    return 0;
-}
-
-static int on_svc_disc(uint16_t conn_handle, const struct ble_gatt_error *error,
-                       const struct ble_gatt_svc *svc, void *arg)
-{
-    jbd_slot_t *slot = arg;
-    (void)conn_handle;
-
-    if (error->status != 0 || svc == NULL) {
-        if (slot->svc_start_handle == 0) {
-            ESP_LOGW(TAG, "JBD service (0xFF00) not found -- giving up on this connection");
-            ble_gap_terminate(slot->conn_handle, BLE_ERR_REM_USER_CONN_TERM);
-        }
-        return 0;
-    }
-
-    slot->svc_start_handle = svc->start_handle;
-    slot->svc_end_handle = svc->end_handle;
-    slot->notify_end_handle = svc->end_handle;
-    ble_gattc_disc_all_chrs(slot->conn_handle, svc->start_handle, svc->end_handle,
-                            on_chr_disc, slot);
-    return 0;
-}
-
-/* --------------------------------------------------------- notify data --- */
+/* ---------------------------------------------------------- notify data - */
 
 static void on_notify_data(jbd_slot_t *slot, const uint8_t *data, size_t len)
 {
@@ -225,61 +155,172 @@ static void on_notify_data(jbd_slot_t *slot, const uint8_t *data, size_t len)
     }
 }
 
-/* ------------------------------------------------------------ GAP event -- */
+/* ----------------------------------------------------------- GATTC event- */
 
-static int on_gap_event(struct ble_gap_event *event, void *arg)
+static void on_gattc_event(jbd_slot_t *slot, esp_gattc_cb_event_t event,
+                           esp_ble_gattc_cb_param_t *p)
 {
-    jbd_slot_t *slot = arg;
+    switch (event) {
+    case ESP_GATTC_CONNECT_EVT:
+        slot->conn_id = p->connect.conn_id;
+        memcpy(slot->bda, p->connect.remote_bda, sizeof(esp_bd_addr_t));
+        slot->svc_start_handle = 0;
+        slot->svc_end_handle = 0;
+        slot->notify_char_handle = 0;
+        slot->write_char_handle = 0;
+        slot->reassemble_len = 0;
+        slot->state = SLOT_CONNECTING;
+        esp_ble_gattc_send_mtu_req(slot->gattc_if, slot->conn_id);
+        break;
 
-    switch (event->type) {
-    case BLE_GAP_EVENT_CONNECT:
-        if (event->connect.status == 0) {
-            slot->conn_handle = event->connect.conn_handle;
-            slot->state = SLOT_DISCOVERING;
-            slot->svc_start_handle = 0;
-            slot->svc_end_handle = 0;
-            slot->notify_val_handle = 0;
-            slot->write_val_handle = 0;
-            slot->cccd_handle = 0;
-            ble_gattc_disc_svc_by_uuid(slot->conn_handle,
-                                       BLE_UUID16_DECLARE(JBD_SVC_UUID),
-                                       on_svc_disc, slot);
-        } else {
-            ESP_LOGW(TAG, "connect failed, status=%d", event->connect.status);
-            reset_slot_for_retry(slot);
+    case ESP_GATTC_DIS_SRVC_CMPL_EVT:
+        if (p->dis_srvc_cmpl.status != ESP_GATT_OK) {
+            ESP_LOGW(TAG, "service discovery failed, status %d", p->dis_srvc_cmpl.status);
+            break;
         }
-        return 0;
+        esp_ble_gattc_search_service(slot->gattc_if, slot->conn_id, (esp_bt_uuid_t *)&k_svc_uuid);
+        break;
 
-    case BLE_GAP_EVENT_DISCONNECT:
-        ESP_LOGW(TAG, "disconnected, reason=%d", event->disconnect.reason);
+    case ESP_GATTC_SEARCH_RES_EVT:
+        if (p->search_res.srvc_id.uuid.len == ESP_UUID_LEN_16 &&
+            p->search_res.srvc_id.uuid.uuid.uuid16 == JBD_SVC_UUID) {
+            slot->svc_start_handle = p->search_res.start_handle;
+            slot->svc_end_handle = p->search_res.end_handle;
+        }
+        break;
+
+    case ESP_GATTC_SEARCH_CMPL_EVT: {
+        if (p->search_cmpl.status != ESP_GATT_OK || slot->svc_start_handle == 0) {
+            ESP_LOGW(TAG, "JBD service (0xFF00) not found -- terminating connection");
+            esp_ble_gattc_close(slot->gattc_if, slot->conn_id);
+            break;
+        }
+
+        esp_gattc_char_elem_t chars[JBD_ATTR_RESULT_MAX];
+        uint16_t count = JBD_ATTR_RESULT_MAX;
+        if (esp_ble_gattc_get_char_by_uuid(slot->gattc_if, slot->conn_id,
+                                           slot->svc_start_handle, slot->svc_end_handle,
+                                           k_notify_char_uuid, chars, &count) == ESP_GATT_OK &&
+            count > 0) {
+            slot->notify_char_handle = chars[0].char_handle;
+        }
+
+        count = JBD_ATTR_RESULT_MAX;
+        if (esp_ble_gattc_get_char_by_uuid(slot->gattc_if, slot->conn_id,
+                                           slot->svc_start_handle, slot->svc_end_handle,
+                                           k_write_char_uuid, chars, &count) == ESP_GATT_OK &&
+            count > 0) {
+            slot->write_char_handle = chars[0].char_handle;
+        }
+
+        if (slot->notify_char_handle == 0 || slot->write_char_handle == 0) {
+            ESP_LOGW(TAG, "JBD notify/write characteristic not found -- terminating connection");
+            esp_ble_gattc_close(slot->gattc_if, slot->conn_id);
+            break;
+        }
+        esp_ble_gattc_register_for_notify(slot->gattc_if, slot->bda, slot->notify_char_handle);
+        break;
+    }
+
+    case ESP_GATTC_REG_FOR_NOTIFY_EVT: {
+        if (p->reg_for_notify.status != ESP_GATT_OK) {
+            ESP_LOGW(TAG, "notify registration failed, status %d", p->reg_for_notify.status);
+            break;
+        }
+        esp_gattc_descr_elem_t descrs[JBD_ATTR_RESULT_MAX];
+        uint16_t count = JBD_ATTR_RESULT_MAX;
+        if (esp_ble_gattc_get_descr_by_char_handle(slot->gattc_if, slot->conn_id,
+                                                    p->reg_for_notify.handle, k_cccd_uuid,
+                                                    descrs, &count) != ESP_GATT_OK ||
+            count == 0) {
+            ESP_LOGW(TAG, "no CCCD found on notify characteristic -- giving up on this connection");
+            esp_ble_gattc_close(slot->gattc_if, slot->conn_id);
+            break;
+        }
+        uint8_t enable[2] = { 0x01, 0x00 };
+        esp_ble_gattc_write_char_descr(slot->gattc_if, slot->conn_id, descrs[0].handle,
+                                       sizeof(enable), enable,
+                                       ESP_GATT_WRITE_TYPE_RSP, ESP_GATT_AUTH_REQ_NONE);
+        slot->state = SLOT_READY;
+        slot->next_action_tick = xTaskGetTickCount();   /* poll ASAP */
+        ESP_LOGI(TAG, "slot ready, subscribed to notify");
+        break;
+    }
+
+    case ESP_GATTC_NOTIFY_EVT:
+        on_notify_data(slot, p->notify.value, p->notify.value_len);
+        break;
+
+    case ESP_GATTC_DISCONNECT_EVT:
+        ESP_LOGW(TAG, "disconnected, reason 0x%02x", p->disconnect.reason);
         reset_slot_for_retry(slot);
-        return 0;
-
-    case BLE_GAP_EVENT_NOTIFY_RX:
-        if (event->notify_rx.attr_handle == slot->notify_val_handle) {
-            const struct os_mbuf *om = event->notify_rx.om;
-            uint8_t chunk[64];
-            uint16_t chunk_len = OS_MBUF_PKTLEN(om) > sizeof(chunk)
-                                     ? sizeof(chunk) : (uint16_t)OS_MBUF_PKTLEN(om);
-            os_mbuf_copydata((struct os_mbuf *)om, 0, chunk_len, chunk);
-            on_notify_data(slot, chunk, chunk_len);
-        }
-        return 0;
+        break;
 
     default:
-        return 0;
+        break;
     }
+}
+
+static void gattc_event_handler(esp_gattc_cb_event_t event, esp_gatt_if_t gattc_if,
+                                esp_ble_gattc_cb_param_t *param)
+{
+    if (event == ESP_GATTC_REG_EVT) {
+        const uint16_t app_id = param->reg.app_id;
+        if (app_id >= JBD_BMS_MAX_BATTERIES) {
+            return;
+        }
+        jbd_slot_t *slot = &s_slots[app_id];
+        if (param->reg.status != ESP_GATT_OK) {
+            ESP_LOGW(TAG, "battery %u: app register failed, status %d", app_id + 1,
+                     param->reg.status);
+            return;
+        }
+        slot->gattc_if = gattc_if;
+        slot->state = SLOT_IDLE;
+        slot->next_action_tick = xTaskGetTickCount();
+        return;
+    }
+
+    for (uint8_t i = 0; i < JBD_BMS_MAX_BATTERIES; i++) {
+        if (s_slots[i].enabled && s_slots[i].gattc_if == gattc_if) {
+            on_gattc_event(&s_slots[i], event, param);
+            return;
+        }
+    }
+}
+
+static void gap_event_handler(esp_gap_ble_cb_event_t event, esp_ble_gap_cb_param_t *param)
+{
+    /* No scanning/advertising here -- batteries are connected directly by
+     * known address, so nothing in this project currently needs a GAP
+     * event, but Bluedroid requires a registered callback regardless. */
+    (void)event;
+    (void)param;
 }
 
 static void try_connect(jbd_slot_t *slot)
 {
-    slot->state = SLOT_CONNECTING;
-    int rc = ble_gap_connect(BLE_OWN_ADDR_PUBLIC, &slot->addr, 5000, NULL,
-                             on_gap_event, slot);
-    if (rc != 0) {
-        ESP_LOGW(TAG, "ble_gap_connect failed, rc=%d", rc);
+    /* esp_ble_gattc_open() requires BT_BLE_42_FEATURES_SUPPORTED, which is
+     * off by default on ESP32-S3 (BT_BLE_50_FEATURES_SUPPORTED is the
+     * default instead) -- use the BLE 5.0 "enhanced" connect API, same
+     * call shape as the official Bluedroid gattc_demo example's direct
+     * (non-scan) connect path. */
+    esp_ble_gatt_creat_conn_params_t conn_params = { 0 };
+    memcpy(conn_params.remote_bda, slot->bda, sizeof(esp_bd_addr_t));
+    conn_params.remote_addr_type = JBD_BMS_ADDR_TYPE;
+    conn_params.own_addr_type = BLE_ADDR_TYPE_PUBLIC;
+    conn_params.is_direct = true;
+    conn_params.is_aux = false;
+    conn_params.phy_mask = 0x0;
+
+    esp_err_t err = esp_ble_gattc_enh_open(slot->gattc_if, &conn_params);
+    if (err != ESP_OK) {
+        ESP_LOGW(TAG, "esp_ble_gattc_enh_open failed, err=%s", esp_err_to_name(err));
         reset_slot_for_retry(slot);
+        return;
     }
+    slot->state = SLOT_CONNECTING;
+    slot->next_action_tick = xTaskGetTickCount() + pdMS_TO_TICKS(JBD_RECONNECT_MS);
 }
 
 static void try_poll(jbd_slot_t *slot)
@@ -287,10 +328,11 @@ static void try_poll(jbd_slot_t *slot)
     uint8_t req[JBD_BMS_REQUEST_LEN];
     jbd_bms_build_request(JBD_BMS_REG_BASIC_INFO, req, sizeof(req));
     slot->reassemble_len = 0;
-    int rc = ble_gattc_write_no_rsp_flat(slot->conn_handle, slot->write_val_handle,
-                                         req, sizeof(req));
-    if (rc != 0) {
-        ESP_LOGW(TAG, "poll write failed, rc=%d", rc);
+    esp_err_t err = esp_ble_gattc_write_char(slot->gattc_if, slot->conn_id, slot->write_char_handle,
+                                             sizeof(req), req,
+                                             ESP_GATT_WRITE_TYPE_NO_RSP, ESP_GATT_AUTH_REQ_NONE);
+    if (err != ESP_OK) {
+        ESP_LOGW(TAG, "poll write failed, err=%s", esp_err_to_name(err));
     }
     slot->next_action_tick = xTaskGetTickCount() + pdMS_TO_TICKS(s_poll_interval_ms);
 }
@@ -319,29 +361,6 @@ static void jbd_bms_task(void *arg)
 
 /* ------------------------------------------------------------- lifecycle - */
 
-static void ble_app_on_sync(void)
-{
-    ble_hs_id_infer_auto(0, NULL);
-    for (uint8_t i = 0; i < JBD_BMS_MAX_BATTERIES; i++) {
-        if (s_slots[i].enabled) {
-            s_slots[i].state = SLOT_IDLE;
-            s_slots[i].next_action_tick = xTaskGetTickCount();
-        }
-    }
-}
-
-static void ble_app_on_reset(int reason)
-{
-    ESP_LOGW(TAG, "NimBLE host reset, reason=%d", reason);
-}
-
-static void nimble_host_task(void *param)
-{
-    (void)param;
-    nimble_port_run();
-    nimble_port_freertos_deinit();
-}
-
 esp_err_t jbd_bms_client_start(void)
 {
     s_status_mutex = xSemaphoreCreateMutex();
@@ -366,27 +385,54 @@ esp_err_t jbd_bms_client_start(void)
             ESP_LOGI(TAG, "battery %u: MAC unconfigured, skipping", i + 1);
             continue;
         }
-        mac_to_ble_addr(mac, &s_slots[i].addr);
+        memcpy(s_slots[i].bda, mac, sizeof(esp_bd_addr_t));
         s_slots[i].enabled = true;
-        s_slots[i].conn_handle = BLE_HS_CONN_HANDLE_NONE;
+        s_slots[i].gattc_if = ESP_GATT_IF_NONE;
         enabled_count++;
     }
     if (enabled_count == 0) {
         ESP_LOGI(TAG, "no batteries configured -- BLE client idle until MACs are set");
     }
 
-    esp_err_t err = nimble_port_init();
+    esp_err_t err = esp_bt_controller_mem_release(ESP_BT_MODE_CLASSIC_BT);
+    if (err != ESP_OK && err != ESP_ERR_INVALID_STATE) {
+        ESP_LOGW(TAG, "esp_bt_controller_mem_release: %s", esp_err_to_name(err));
+    }
+
+    esp_bt_controller_config_t bt_cfg = BT_CONTROLLER_INIT_CONFIG_DEFAULT();
+    err = esp_bt_controller_init(&bt_cfg);
     if (err != ESP_OK) {
-        ESP_LOGE(TAG, "nimble_port_init failed: %s", esp_err_to_name(err));
+        ESP_LOGE(TAG, "esp_bt_controller_init failed: %s", esp_err_to_name(err));
+        return err;
+    }
+    err = esp_bt_controller_enable(ESP_BT_MODE_BLE);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "esp_bt_controller_enable failed: %s", esp_err_to_name(err));
+        return err;
+    }
+    err = esp_bluedroid_init();
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "esp_bluedroid_init failed: %s", esp_err_to_name(err));
+        return err;
+    }
+    err = esp_bluedroid_enable();
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "esp_bluedroid_enable failed: %s", esp_err_to_name(err));
         return err;
     }
 
-    ble_hs_cfg.reset_cb = ble_app_on_reset;
-    ble_hs_cfg.sync_cb = ble_app_on_sync;
-    ble_svc_gap_init();
-    ble_svc_gap_device_name_set("firefly-touch");
+    ESP_ERROR_CHECK(esp_ble_gap_register_callback(gap_event_handler));
+    ESP_ERROR_CHECK(esp_ble_gattc_register_callback(gattc_event_handler));
 
-    nimble_port_freertos_init(nimble_host_task);
+    for (uint8_t i = 0; i < JBD_BMS_MAX_BATTERIES; i++) {
+        if (s_slots[i].enabled) {
+            esp_err_t reg_err = esp_ble_gattc_app_register(i);
+            if (reg_err != ESP_OK) {
+                ESP_LOGW(TAG, "battery %u: app register call failed: %s", i + 1,
+                         esp_err_to_name(reg_err));
+            }
+        }
+    }
 
     const BaseType_t ok = xTaskCreate(jbd_bms_task, "jbd_bms", JBD_TASK_STACK, NULL,
                                       JBD_TASK_PRIO, NULL);
