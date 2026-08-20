@@ -122,8 +122,15 @@ static void handle_tap(btn_ctx_t *ctx)
         send(ctx, RVC_DIMMER_CMD_TOGGLE);
         return;
     }
-    if (ctx->def->type == PANEL_BTN_TANK_LEVEL || ctx->def->type == PANEL_BTN_BATTERY_STATUS) {
+    if (ctx->def->type == PANEL_BTN_TANK_LEVEL) {
         /* Read-only display, no command, no confirm timer. */
+        return;
+    }
+    if (ctx->def->type == PANEL_BTN_BATTERY_STATUS) {
+        /* Read-only display -- the only "action" a tap has is toggling the
+         * BLE-MAC troubleshooting popup, local UI only, never an RV-C/
+         * ESP-NOW command. */
+        ui_battery_gauge_toggle_mac_popup(ctx->battery_gauge);
         return;
     }
 
@@ -332,4 +339,13 @@ void ui_dimmer_button_update_battery(lv_obj_t *btn, uint8_t index, uint8_t perce
     }
 
     ui_battery_gauge_set_status(ctx->battery_gauge, percent, rate_amps, hours, valid);
+}
+
+void ui_dimmer_button_set_battery_mac(lv_obj_t *btn, const char *mac)
+{
+    btn_ctx_t *ctx = lv_obj_get_user_data(btn);
+    if (ctx == NULL || ctx->def->type != PANEL_BTN_BATTERY_STATUS) {
+        return;
+    }
+    ui_battery_gauge_set_mac(ctx->battery_gauge, mac);
 }

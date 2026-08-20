@@ -353,7 +353,24 @@ static void build_screen2_row(lv_obj_t *parent, const panel_btn_def_t *buttons,
         }
         lv_obj_t *btn = ui_dimmer_button_create(row, &buttons[i],
                                                 panel_send_cb, NULL);
-        lv_obj_set_size(btn, 140, LV_PCT(100));
+        if (buttons[i].type == PANEL_BTN_BATTERY_STATUS) {
+            /* Plain box, roughly half the screen tall (per the user's
+             * request -- no animated graphic, just a bigger version of the
+             * light-switch button card), centered in the row by its own
+             * flex-align. */
+            lv_obj_set_size(btn, 190, LV_PCT(50));
+            static const char *const k_battery_macs[JBD_BMS_MAX_BATTERIES] = {
+                CONFIG_FIREFLY_BATTERY_1_MAC,
+                CONFIG_FIREFLY_BATTERY_2_MAC,
+                CONFIG_FIREFLY_BATTERY_3_MAC,
+            };
+            if (buttons[i].instance_count > 0 &&
+                buttons[i].instances[0] < JBD_BMS_MAX_BATTERIES) {
+                ui_dimmer_button_set_battery_mac(btn, k_battery_macs[buttons[i].instances[0]]);
+            }
+        } else {
+            lv_obj_set_size(btn, 140, LV_PCT(100));
+        }
         out_buttons[i] = btn;
     }
 }

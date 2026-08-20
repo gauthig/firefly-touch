@@ -12,5 +12,13 @@
 
 #define JBD_BMS_MAX_BATTERIES 3
 
+/* ui.c reads these CONFIG_FIREFLY_BATTERY_*_MAC symbols (normally from
+ * sdkconfig.h, which doesn't exist in this plain-CMake sim build) to feed
+ * the tap-to-reveal MAC popup -- fake values so that popup is exercisable
+ * in the sim too. */
+#define CONFIG_FIREFLY_BATTERY_1_MAC "AA:BB:CC:DD:EE:01"
+#define CONFIG_FIREFLY_BATTERY_2_MAC "AA:BB:CC:DD:EE:02"
+#define CONFIG_FIREFLY_BATTERY_3_MAC "AA:BB:CC:DD:EE:03"
+
 bool jbd_bms_get_status(uint8_t index, jbd_bms_status_t *out);
 bool jbd_bms_healthy(uint8_t index);

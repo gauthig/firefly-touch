@@ -157,13 +157,51 @@ static void on_notify_data(jbd_slot_t *slot, const uint8_t *data, size_t len)
 
 /* ----------------------------------------------------------- GATTC event- */
 
+static uint8_t slot_index(const jbd_slot_t *slot)
+{
+    return (uint8_t)(slot - s_slots);
+}
+
 static void on_gattc_event(jbd_slot_t *slot, esp_gattc_cb_event_t event,
                            esp_ble_gattc_cb_param_t *p)
 {
     switch (event) {
+    case ESP_GATTC_OPEN_EVT:
+        /* A failed direct-connect attempt (peer never responds, timeout,
+         * etc.) surfaces here, NOT as ESP_GATTC_DISCONNECT_EVT -- without
+         * this case a failed slot stayed stuck in SLOT_CONNECTING forever,
+         * which (via the one-attempt-at-a-time serialization in
+         * jbd_bms_task) permanently blocked every other slot from ever
+         * getting a turn. Confirmed on real hardware: only the first
+         * configured battery ever connected until this was added. Same
+         * foreign-peer guard as ESP_GATTC_CONNECT_EVT below -- ignore
+         * (don't reset a slot that never actually tried to connect). */
+        if (memcmp(p->open.remote_bda, slot->bda, sizeof(esp_bd_addr_t)) != 0) {
+            break;
+        }
+        if (p->open.status != ESP_GATT_OK) {
+            ESP_LOGW(TAG, "battery %u: open failed, status %d", slot_index(slot) + 1,
+                     p->open.status);
+            reset_slot_for_retry(slot);
+        }
+        break;
+
     case ESP_GATTC_CONNECT_EVT:
+        /* Bluedroid quirk (documented behavior, confirmed on real hardware
+         * here): when ANY registered GATTC app's connection comes up,
+         * every OTHER registered app also gets a "virtual connection"
+         * ESP_GATTC_CONNECT_EVT for that SAME peer, not just the app that
+         * actually opened it. Without this check, battery 2/3's apps
+         * accepted battery 1's connection as their own the moment it
+         * connected, got permanently stuck in SLOT_CONNECTING (no real
+         * connection behind it, so discovery never progressed), and their
+         * one-connect-attempt-at-a-time gate never freed up for a real
+         * attempt. Only accept this event if the connected peer is
+         * actually the address this slot was told to connect to. */
+        if (memcmp(p->connect.remote_bda, slot->bda, sizeof(esp_bd_addr_t)) != 0) {
+            break;
+        }
         slot->conn_id = p->connect.conn_id;
-        memcpy(slot->bda, p->connect.remote_bda, sizeof(esp_bd_addr_t));
         slot->svc_start_handle = 0;
         slot->svc_end_handle = 0;
         slot->notify_char_handle = 0;
@@ -243,7 +281,7 @@ static void on_gattc_event(jbd_slot_t *slot, esp_gattc_cb_event_t event,
                                        ESP_GATT_WRITE_TYPE_RSP, ESP_GATT_AUTH_REQ_NONE);
         slot->state = SLOT_READY;
         slot->next_action_tick = xTaskGetTickCount();   /* poll ASAP */
-        ESP_LOGI(TAG, "slot ready, subscribed to notify");
+        ESP_LOGI(TAG, "battery %u: ready, subscribed to notify", slot_index(slot) + 1);
         break;
     }
 
@@ -252,7 +290,14 @@ static void on_gattc_event(jbd_slot_t *slot, esp_gattc_cb_event_t event,
         break;
 
     case ESP_GATTC_DISCONNECT_EVT:
-        ESP_LOGW(TAG, "disconnected, reason 0x%02x", p->disconnect.reason);
+        /* Same foreign-peer guard as CONNECT_EVT/OPEN_EVT -- a slot that
+         * never connected shouldn't have its idle backoff reset just
+         * because some OTHER slot's peer disconnected. */
+        if (memcmp(p->disconnect.remote_bda, slot->bda, sizeof(esp_bd_addr_t)) != 0) {
+            break;
+        }
+        ESP_LOGW(TAG, "battery %u: disconnected, reason 0x%02x", slot_index(slot) + 1,
+                 p->disconnect.reason);
         reset_slot_for_retry(slot);
         break;
 
@@ -278,6 +323,7 @@ static void gattc_event_handler(esp_gattc_cb_event_t event, esp_gatt_if_t gattc_
         slot->gattc_if = gattc_if;
         slot->state = SLOT_IDLE;
         slot->next_action_tick = xTaskGetTickCount();
+        ESP_LOGI(TAG, "battery %u: app registered, gattc_if %d", app_id + 1, gattc_if);
         return;
     }
 
@@ -300,6 +346,8 @@ static void gap_event_handler(esp_gap_ble_cb_event_t event, esp_ble_gap_cb_param
 
 static void try_connect(jbd_slot_t *slot)
 {
+    ESP_LOGI(TAG, "battery %u: connecting...", slot_index(slot) + 1);
+
     /* esp_ble_gattc_open() requires BT_BLE_42_FEATURES_SUPPORTED, which is
      * off by default on ESP32-S3 (BT_BLE_50_FEATURES_SUPPORTED is the
      * default instead) -- use the BLE 5.0 "enhanced" connect API, same
@@ -345,13 +393,30 @@ static void jbd_bms_task(void *arg)
     for (;;) {
         vTaskDelay(pdMS_TO_TICKS(JBD_TASK_PERIOD_MS));
         const TickType_t now = xTaskGetTickCount();
+
+        /* The BLE controller can only have one LE connection attempt in
+         * flight at a time -- starting a second one while the first is
+         * still connecting fails outright ("L2CAP - LE - cannot start new
+         * connection", seen on real hardware with all 3 batteries kicked
+         * off in the same tick). Only ever start one new connect per pass,
+         * and skip entirely if a connection attempt is already pending. */
+        bool connect_in_flight = false;
+        for (uint8_t i = 0; i < JBD_BMS_MAX_BATTERIES; i++) {
+            if (s_slots[i].enabled && s_slots[i].state == SLOT_CONNECTING) {
+                connect_in_flight = true;
+                break;
+            }
+        }
+
         for (uint8_t i = 0; i < JBD_BMS_MAX_BATTERIES; i++) {
             jbd_slot_t *slot = &s_slots[i];
             if (!slot->enabled) {
                 continue;
             }
-            if (slot->state == SLOT_IDLE && (int32_t)(now - slot->next_action_tick) >= 0) {
+            if (!connect_in_flight && slot->state == SLOT_IDLE &&
+                (int32_t)(now - slot->next_action_tick) >= 0) {
                 try_connect(slot);
+                connect_in_flight = true;
             } else if (slot->state == SLOT_READY && (int32_t)(now - slot->next_action_tick) >= 0) {
                 try_poll(slot);
             }

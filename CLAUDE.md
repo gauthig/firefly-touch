@@ -266,27 +266,36 @@ is already fixed).
   machine per configured slot, modeled directly on Espressif's Bluedroid
   `gatt_client` example
   (`examples/bluetooth/bluedroid/ble/gatt_client/main/gattc_demo.c`).
-  Service/characteristic UUIDs and the assumed public BLE address type
-  (`JBD_BMS_ADDR_TYPE` in the file) are also bench-TODO items — flip to
-  `BLE_ADDR_TYPE_RANDOM` there if connections never establish against the
-  real modules. Polls every `CONFIG_FIREFLY_BATTERY_POLL_INTERVAL_MS` once
-  subscribed; `jbd_bms_get_status()`/`jbd_bms_healthy()` mirror
-  `state_manager_get_tank()`'s valid/invalid contract.
-- **BLE/WiFi coexistence, unverified:** `bedroom_remote` already runs
-  WiFi/ESP-NOW continuously; ESP32-S3 shares one 2.4 GHz radio between
-  WiFi and BLE via IDF's software coexistence manager
-  (`CONFIG_SW_COEXIST_ENABLE`, on by default once both `esp_wifi` and `bt`
-  are enabled — see `sdkconfig.defaults`). Concurrent WiFi + 3 BLE
-  connections is a supported combination but hasn't been bench-tested on
-  this hardware; watch ESP-NOW light-switch responsiveness once real
-  batteries are connected.
+  Service/characteristic UUIDs and `BLE_ADDR_TYPE_PUBLIC`
+  (`JBD_BMS_ADDR_TYPE` in the file) are **bench-verified 2026-08-20**: all
+  3 real batteries connect, subscribe, and stay connected against them —
+  no need to try `BLE_ADDR_TYPE_RANDOM`. Polls every
+  `CONFIG_FIREFLY_BATTERY_POLL_INTERVAL_MS` once subscribed;
+  `jbd_bms_get_status()`/`jbd_bms_healthy()` mirror
+  `state_manager_get_tank()`'s valid/invalid contract. See *Development
+  notes & gotchas* below for the Bluedroid virtual-connection bug that had
+  to be fixed to get all 3 connecting instead of just the first.
+- **BLE/WiFi coexistence: bench-verified 2026-08-20**, no ESP-NOW
+  degradation observed with all 3 BLE connections active on
+  `bedroom_remote` (`mid_coach` on COM16, `bedroom_remote` on COM11).
+  ESP32-S3 shares one 2.4 GHz radio between WiFi and BLE via IDF's
+  software coexistence manager (`CONFIG_SW_COEXIST_ENABLE`, on by default
+  once both `esp_wifi` and `bt` are enabled — see `sdkconfig.defaults`).
 - UI: `main/ui/ui.c`'s `battery_status_timer_cb` polls
   `jbd_bms_get_status()` every second and feeds the 3
   `PANEL_BTN_BATTERY_STATUS` gauges (`components/ui_common/
-  ui_battery_gauge.c`, the same animated-wave-fill technique as
-  `ui_tank_wave.c` but battery-silhouette shaped and colored by SOC band:
-  green ≥50%, `UI_COLOR_WARN` orange 20–49%, `UI_COLOR_ERR` red <20%). See
-  *Dual screens* below for how screen 2 picks this layout vs. the tank one.
+  ui_battery_gauge.c`) — a plain flex-column of text (SOC%, rate in Amps,
+  a "Charging"/"Discharging"/"Idle" word, ETA hours) inside the same card
+  background as a light-switch button, no animation or battery-silhouette
+  graphic (an animated wave-fill/silhouette version shipped first, then
+  was replaced 2026-08-19 per explicit user feedback after bench testing).
+  Box is sized taller than a
+  normal button (`LV_PCT(50)` of the row) so the text has room. Tapping the
+  box toggles a small popup showing that slot's configured BLE MAC
+  (`ui_battery_gauge_toggle_mac_popup()`), for telling which physical
+  battery is which during bench troubleshooting; tapping the popup itself
+  dismisses it. See *Dual screens* below for how screen 2 picks this
+  layout vs. the tank one.
 
 ## RV-C protocol
 
@@ -698,3 +707,41 @@ ESP32-S3-Touch-LCD-4.3, **not** the B):
   the RS-485 transceiver on that variant, and CAN on 19/20 conflicts with
   native USB. Still unverified against a schematic for either variant; the
   `TODO(critical)` in `board_4_3b.h` stands.
+
+Hard-won during battery-status BLE bring-up (2026-08-19/20, `bedroom_remote`
+on COM11, `mid_coach` on COM16):
+
+- **Regenerating `sdkconfig` wipes anything not in `sdkconfig.defaults`,
+  including per-panel secrets like the ESP-NOW peer MAC/PMK/LMK.** Deleting
+  the root `sdkconfig` (or a per-panel `build_<panel>/sdkconfig`) to pick up
+  a `sdkconfig.defaults` change — done here to switch the BLE host stack —
+  silently reset `FIREFLY_ESPNOW_PEER_MAC` back to the placeholder on
+  `bedroom_remote`, breaking the already-working ESP-NOW link to
+  `mid_coach` with no error on either side (a wrong/placeholder peer MAC
+  just means the other board never receives anything). If you must
+  regenerate a panel's sdkconfig, re-apply every real MAC/key by hand
+  afterward (`idf.py -p COMx read-mac` to recover a board's own address if
+  it isn't recorded anywhere) — don't assume Kconfig values survive.
+- **`esp_ble_gattc_open()` requires `BT_BLE_42_FEATURES_SUPPORTED`, which is
+  off by default on ESP32-S3** (`BT_BLE_50_FEATURES_SUPPORTED` is the
+  default host-stack choice instead) — linking against it fails with
+  `undefined reference to esp_ble_gattc_open`. Use
+  `esp_ble_gattc_enh_open()` with an `esp_ble_gatt_creat_conn_params_t`
+  instead (see `jbd_bms_client.c`'s `try_connect()`), the BLE 5.0-
+  compatible direct-connect path.
+- **Bluedroid delivers `ESP_GATTC_CONNECT_EVT`/`OPEN_EVT`/`DISCONNECT_EVT`
+  to every registered GATTC app, not just the one that initiated the
+  connection** ("virtual connection" — documented Bluedroid behavior, hit
+  here with 3 independent battery apps). Without checking
+  `p->connect.remote_bda` (etc.) against the specific slot's own intended
+  address, batteries 2 and 3 silently "accepted" battery 1's connection
+  the moment it came up, got stuck in `SLOT_CONNECTING` forever (no real
+  connection behind it, so discovery never progressed), and — combined
+  with the one-connect-attempt-at-a-time serialization
+  `jbd_bms_client.c`'s `jbd_bms_task` needs (the BLE controller can only
+  have one LE connection attempt in flight; starting a second before the
+  first resolves fails outright with `L2CAP - LE - cannot start new
+  connection`) — permanently starved every battery after the first from
+  ever getting a real connection attempt. Fix: every GATTC event handler
+  in `on_gattc_event()` first checks the event's `remote_bda` against
+  `slot->bda` and ignores the event entirely if they don't match.

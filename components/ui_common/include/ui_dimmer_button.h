@@ -76,6 +76,13 @@ void ui_dimmer_button_update_tank(lv_obj_t *btn, uint8_t instance,
 void ui_dimmer_button_update_battery(lv_obj_t *btn, uint8_t index, uint8_t percent,
                                      float rate_amps, float hours, bool valid);
 
+/*
+ * Set the BLE MAC string shown by a PANEL_BTN_BATTERY_STATUS widget's tap-
+ * to-reveal troubleshooting popup. No-op for any other button type. Caller
+ * must hold the LVGL lock.
+ */
+void ui_dimmer_button_set_battery_mac(lv_obj_t *btn, const char *mac);
+
 #ifdef __cplusplus
 }
 #endif
