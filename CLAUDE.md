@@ -78,6 +78,18 @@ timers get a chance to fire; `SIM_TANK_START_TICK=<n>` (env var) jumps the
 sweep straight to a specific point (e.g. a FULL/blink frame) for a
 one-off capture instead of waiting on it.
 
+`sim_stubs.c` similarly fakes `jbd_bms_get_status()` on `bedroom_remote`
+(`battery_sweep_timer_cb`) — battery 1 slow-charges 0→100→0, battery 2
+slow-discharges the opposite phase, battery 3 sits idle at a fixed low SOC
+— so the battery gauges, SOC color bands (green/warn/err), and rate/ETA
+text are all visible without real BLE hardware. There's no real BLE stack
+in the sim at all — `sim/stubs/jbd_bms_client.h` shadows the real
+component header (which pulls in the ESP `bt` component) with just the
+declarations `ui.c` needs, backed by that fake table; `jbd_bms_protocol.c`
+itself is compiled straight into the sim unmodified (same host-testable
+pure-C pattern as `rvc_protocol.c`). `--shot <file> screen2` taps whichever
+of "TANK LEVELS" or "BATTERY STATUS" exists on the built panel.
+
 ## Architecture
 
 One codebase, many panels: `panels/<name>.h` (selected at build time via
@@ -96,6 +108,7 @@ CAN-connected case in `main/panel_config.h`.
 | `twai_tx`      | 0    | 11   | drains TX queue → `twai_transmit`; bus-off recovery. Nothing else ever blocks on the bus |
 | `espnow_rx`    | 0    | 10   | (only if `PANEL_IS_BRIDGE` or `!PANEL_HAS_CAN`) drains ESP-NOW recv queue, invokes the registered cmd/status callback |
 | `state_mgr`    | 0    | 9    | owns instance→{level,on} table; on change calls `ui_on_status()` under the LVGL lock, and the registered ESP-NOW status sink if any |
+| `jbd_bms`      | ?    | 9    | (only if `PANEL_HAS_BLE_BATTERY`) drives each configured battery's connect/discover/subscribe/poll state machine; Bluedroid's own host task runs alongside it (see *Battery monitor* below) |
 | LVGL (port)    | 1    | 4    | rendering + touch; button callbacks only enqueue via `bridge_enqueue_dimmer_cmd()` |
 
 **Invariant:** icon/button visual state is driven ONLY by status frames from
@@ -127,6 +140,12 @@ enqueuing locally, and status arrives the same way in reverse (see below).
   CAN wiring (see *ESP-NOW remote-panel bridge* below). No dependency on
   `main/`; mirrors `dimmer_cmd_msg_t`/`dimmer_status_msg_t` as its own
   ESP-free-of-`main` structs.
+- `components/jbd_bms` — Xiaoxiang/JBD Smart BMS protocol codec
+  (`jbd_bms_protocol.c`, pure C, host-testable like `rvc_protocol`) plus a
+  Bluedroid GATT-client (`jbd_bms_client.c`) for up to 3 fixed battery
+  peripherals (see *Battery monitor* below). Always compiled into `main`
+  (same precedent as `espnow_link`), but the BLE stack is only actually
+  started when a panel sets `PANEL_HAS_BLE_BATTERY 1`.
 
 ## ESP-NOW remote-panel bridge
 
@@ -207,6 +226,76 @@ bathroom-focused layout (instances 17, 25, 35, 46 left column; 18, 13, 21,
 Panel Lights right column) unrelated to `mid_coach`'s living-room-focused
 buttons. See [docs/instance_map.yaml](docs/instance_map.yaml) for the full
 RV-C instance map used to pick these.
+
+## Battery monitor (JBD-BMS via BLE)
+
+`bedroom_remote` (`PANEL_HAS_BLE_BATTERY 1`) additionally runs a Bluedroid
+GATT-client central role (`components/jbd_bms`) alongside its ESP-NOW
+light-switch relay, connecting to up to 3 Vatrer 300AH batteries'
+Xiaoxiang/JBD-BMS boards over BLE and showing State of Charge,
+charge/discharge rate (Amps), and estimated remaining hours on a
+**BATTERY STATUS** screen (issues #25–#27). v1 scope mirrors ESP-NOW's:
+fixed MAC addresses from Kconfig, no scanning/pairing UI, no mesh.
+Bluedroid rather than NimBLE per explicit project decision — each battery
+is its own GATTC "app" (`esp_ble_gattc_app_register()`, app_id == battery
+slot index), connected directly by known address (no scan needed, the MAC
+is already fixed).
+
+- `CONFIG_FIREFLY_BATTERY_1_MAC`/`_2_MAC`/`_3_MAC` (`main/Kconfig.projbuild`)
+  — each battery's BLE MAC. The placeholder `00:00:00:00:00:00` means
+  "unconfigured": that slot is never connected to and its gauge always
+  shows "--". `CONFIG_FIREFLY_BATTERY_POLL_INTERVAL_MS` (default 5000)
+  controls how often a connected battery is polled. Same shared-
+  `sdkconfig`-per-build-dir caveat as the ESP-NOW peer MAC above applies —
+  use `-D SDKCONFIG=build_bedroom_remote/sdkconfig`.
+- `components/jbd_bms/jbd_bms_protocol.c` — pure C frame codec (request
+  builder, `0x03` "basic info" response parser, hours-remaining estimator),
+  host-testable exactly like `rvc_protocol`
+  (`components/jbd_bms/host_test/test_jbd_bms.c`). **Unverified against
+  real hardware, same TODO(bench) spirit as the RV-C byte-layout notes
+  above:** the checksum scope, payload field offsets, and — most
+  importantly — the current sign convention (this project assumes
+  positive = charging, negative = discharging; flip
+  `jbd_bms_estimate_hours()`'s branches if a real pack disagrees) are all
+  sourced from publicly documented JBD/Xiaoxiang implementations (e.g.
+  ESPHome's `jbd_bms` component), not yet captured from these specific
+  batteries.
+- `components/jbd_bms/jbd_bms_client.c` — one connect/discover-service
+  (`0xFF00`)/discover-characteristics (notify `0xFF01`, write
+  `0xFF02`)/subscribe (register-for-notify + write the CCCD)/poll state
+  machine per configured slot, modeled directly on Espressif's Bluedroid
+  `gatt_client` example
+  (`examples/bluetooth/bluedroid/ble/gatt_client/main/gattc_demo.c`).
+  Service/characteristic UUIDs and `BLE_ADDR_TYPE_PUBLIC`
+  (`JBD_BMS_ADDR_TYPE` in the file) are **bench-verified 2026-08-20**: all
+  3 real batteries connect, subscribe, and stay connected against them —
+  no need to try `BLE_ADDR_TYPE_RANDOM`. Polls every
+  `CONFIG_FIREFLY_BATTERY_POLL_INTERVAL_MS` once subscribed;
+  `jbd_bms_get_status()`/`jbd_bms_healthy()` mirror
+  `state_manager_get_tank()`'s valid/invalid contract. See *Development
+  notes & gotchas* below for the Bluedroid virtual-connection bug that had
+  to be fixed to get all 3 connecting instead of just the first.
+- **BLE/WiFi coexistence: bench-verified 2026-08-20**, no ESP-NOW
+  degradation observed with all 3 BLE connections active on
+  `bedroom_remote` (`mid_coach` on COM16, `bedroom_remote` on COM11).
+  ESP32-S3 shares one 2.4 GHz radio between WiFi and BLE via IDF's
+  software coexistence manager (`CONFIG_SW_COEXIST_ENABLE`, on by default
+  once both `esp_wifi` and `bt` are enabled — see `sdkconfig.defaults`).
+- UI: `main/ui/ui.c`'s `battery_status_timer_cb` polls
+  `jbd_bms_get_status()` every second and feeds the 3
+  `PANEL_BTN_BATTERY_STATUS` gauges (`components/ui_common/
+  ui_battery_gauge.c`) — a plain flex-column of text (SOC%, rate in Amps,
+  a "Charging"/"Discharging"/"Idle" word, ETA hours) inside the same card
+  background as a light-switch button, no animation or battery-silhouette
+  graphic (an animated wave-fill/silhouette version shipped first, then
+  was replaced 2026-08-19 per explicit user feedback after bench testing).
+  Box is sized taller than a
+  normal button (`LV_PCT(50)` of the row) so the text has room. Tapping the
+  box toggles a small popup showing that slot's configured BLE MAC
+  (`ui_battery_gauge_toggle_mac_popup()`), for telling which physical
+  battery is which during bench troubleshooting; tapping the popup itself
+  dismisses it. See *Dual screens* below for how screen 2 picks this
+  layout vs. the tank one.
 
 ## RV-C protocol
 
@@ -401,17 +490,25 @@ RV-C command.
 Screen 1 stays the plain 2x4 button grid (`build_button_grid()`);
 `PANEL_BTN_SPACER` fills a grid cell with nothing, which is how it
 positions a button at a specific cell instead of wherever sequential fill
-would put it. Screen 2 is assumed to be a tank readout — the only panel
-that defines one is `mid_coach` — and since GitHub issue #10/#11
-(2026-08-15) uses its own layout builder, `build_screen2_tanks()`: its
-`PANEL_BTN_TANK_LEVEL` entries lay out as a centered horizontal row of
-`ui_tank_wave` gauges (`components/ui_common/ui_tank_wave.c`, see below),
-and its one `PANEL_BTN_SCREEN_SWITCH` entry ("BACK") is a small button
-pinned to the bottom center rather than an equal grid cell — see
-`panels/mid_coach.h`'s `PANEL_BUTTONS_2[]` (just the 3 tank buttons +
-BACK now; no manual spacer positioning needed for this layout). If a
-future panel wants a non-tank screen 2, `build_screen2_tanks()` will need
-to stop assuming that.
+would put it. Screen 2 is a row of read-only gauges — tank levels
+(`mid_coach`, GitHub issue #10/#11) or battery status (`bedroom_remote`,
+issues #25–#27) — both built by the same `build_screen2_row()` in
+`main/ui/ui.c`: `PANEL_BTN_TANK_LEVEL` and `PANEL_BTN_BATTERY_STATUS`
+entries both lay out as a centered horizontal row of gauges
+(`ui_dimmer_button_create()` already dispatches to `ui_tank_wave` or
+`ui_battery_gauge` by button type — see below), and the one
+`PANEL_BTN_SCREEN_SWITCH` entry ("BACK") is a small button pinned to the
+bottom center rather than an equal grid cell — see `panels/mid_coach.h`'s
+and `panels/bedroom_remote.h`'s `PANEL_BUTTONS_2[]` (just the gauge
+buttons + BACK; no manual spacer positioning needed for this layout).
+`build_screen()` decides which optional header widgets/timers to create
+(the tank-status text, the battery-status polling timer) by scanning
+`PANEL_BUTTONS_2` for the matching button type, so `ui.c` stays
+panel-agnostic. Whichever flavor is showing, `idle_timer_cb()` switches
+back to screen 1 once the backlight reaches the fully-off idle stage
+(300 s) — see *Automatic backlight* below — so a secondary screen is never
+left showing after the user walks away; the tank-critical backlight
+override (next paragraph) continues to take priority over this.
 
 **Wave-style tank gauge (GitHub issue #10).**
 `components/ui_common/ui_tank_wave.c` replaces the old plain progress-bar
@@ -610,3 +707,41 @@ ESP32-S3-Touch-LCD-4.3, **not** the B):
   the RS-485 transceiver on that variant, and CAN on 19/20 conflicts with
   native USB. Still unverified against a schematic for either variant; the
   `TODO(critical)` in `board_4_3b.h` stands.
+
+Hard-won during battery-status BLE bring-up (2026-08-19/20, `bedroom_remote`
+on COM11, `mid_coach` on COM16):
+
+- **Regenerating `sdkconfig` wipes anything not in `sdkconfig.defaults`,
+  including per-panel secrets like the ESP-NOW peer MAC/PMK/LMK.** Deleting
+  the root `sdkconfig` (or a per-panel `build_<panel>/sdkconfig`) to pick up
+  a `sdkconfig.defaults` change — done here to switch the BLE host stack —
+  silently reset `FIREFLY_ESPNOW_PEER_MAC` back to the placeholder on
+  `bedroom_remote`, breaking the already-working ESP-NOW link to
+  `mid_coach` with no error on either side (a wrong/placeholder peer MAC
+  just means the other board never receives anything). If you must
+  regenerate a panel's sdkconfig, re-apply every real MAC/key by hand
+  afterward (`idf.py -p COMx read-mac` to recover a board's own address if
+  it isn't recorded anywhere) — don't assume Kconfig values survive.
+- **`esp_ble_gattc_open()` requires `BT_BLE_42_FEATURES_SUPPORTED`, which is
+  off by default on ESP32-S3** (`BT_BLE_50_FEATURES_SUPPORTED` is the
+  default host-stack choice instead) — linking against it fails with
+  `undefined reference to esp_ble_gattc_open`. Use
+  `esp_ble_gattc_enh_open()` with an `esp_ble_gatt_creat_conn_params_t`
+  instead (see `jbd_bms_client.c`'s `try_connect()`), the BLE 5.0-
+  compatible direct-connect path.
+- **Bluedroid delivers `ESP_GATTC_CONNECT_EVT`/`OPEN_EVT`/`DISCONNECT_EVT`
+  to every registered GATTC app, not just the one that initiated the
+  connection** ("virtual connection" — documented Bluedroid behavior, hit
+  here with 3 independent battery apps). Without checking
+  `p->connect.remote_bda` (etc.) against the specific slot's own intended
+  address, batteries 2 and 3 silently "accepted" battery 1's connection
+  the moment it came up, got stuck in `SLOT_CONNECTING` forever (no real
+  connection behind it, so discovery never progressed), and — combined
+  with the one-connect-attempt-at-a-time serialization
+  `jbd_bms_client.c`'s `jbd_bms_task` needs (the BLE controller can only
+  have one LE connection attempt in flight; starting a second before the
+  first resolves fails outright with `L2CAP - LE - cannot start new
+  connection`) — permanently starved every battery after the first from
+  ever getting a real connection attempt. Fix: every GATTC event handler
+  in `on_gattc_event()` first checks the event's `remote_bda` against
+  `slot->bda` and ignores the event entirely if they don't match.

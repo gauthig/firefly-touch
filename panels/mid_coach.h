@@ -13,7 +13,7 @@
  * Screen 2 — tank levels (SeeLevel II 709-RVC, GitHub issue #5), reworked
  * to an animated wave-gauge row + small pinned BACK button (issues #9-#11):
  * FRESH/GREY/BLACK lay out as a centered row of gauges (main/ui/ui.c's
- * build_screen2_tanks()), BACK as a small button pinned bottom-center. No
+ * build_screen2_row()), BACK as a small button pinned bottom-center. No
  * manual grid/spacer positioning needed for this layout, unlike screen 1.
  * The status bar also reads the GREY/BLACK buttons here by label to drive
  * the header's "Grey-Black OK/Warn/FULL" readout (issue #9).

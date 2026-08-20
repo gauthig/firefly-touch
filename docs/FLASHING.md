@@ -175,6 +175,16 @@ defaults before deploying** — these frames actuate real loads and ESP-NOW's
 encryption is only as good as the key. Both are truncated/zero-padded to 16
 bytes; keep them at 16 ASCII characters.
 
+2b. `bedroom_remote` also runs the battery-status BLE client (see
+`CLAUDE.md` → *Battery monitor*). While still in that same menuconfig
+session, navigate to *Firefly Touch Panel* → *JBD-BMS battery monitor* and
+set `FIREFLY_BATTERY_1_MAC`/`_2_MAC`/`_3_MAC` to each Vatrer battery's BLE
+MAC (find it with a phone BLE scanner app, e.g. nRF Connect — look for the
+Xiaoxiang/JBD module's advertised name). Leave a slot at the placeholder
+`00:00:00:00:00:00` to skip it (no connection attempted, gauge shows
+"--"). Only `bedroom_remote` has this menu; `mid_coach`'s build never
+starts the BLE stack at all (`PANEL_HAS_BLE_BATTERY 0`).
+
 3. Build and flash both boards, keeping the same `-D SDKCONFIG=` flag used in
    step 2 (CMake caches it per build dir, so it's optional on later commands
    in the same dir, but pass it explicitly to be safe — same reasoning as
@@ -185,19 +195,21 @@ idf.py -B build_mid_coach -DPANEL=mid_coach -D SDKCONFIG=build_mid_coach/sdkconf
 idf.py -B build_bedroom_remote -DPANEL=bedroom_remote -D SDKCONFIG=build_bedroom_remote/sdkconfig -p COM5 flash
 ```
 
-A link-health dot appears in `bedroom_remote`'s status bar, same place
-and colors as the CAN-health dot on a normal panel — green once
-`mid_coach` is up and frames have been exchanged within the last 5 s, red
-otherwise.
-
 4. Bench-verify before trusting it on the coach: tap a button on
    `bedroom_remote` and confirm the corresponding real load actuates and
    the remote panel's own button visually confirms (round-trip status echo);
    then toggle the same load from `mid_coach`'s hardware button or the
-   factory switch and confirm the remote panel's display updates.
+   factory switch and confirm the remote panel's display updates. If any
+   battery MACs are configured, also open the **BATTERY STATUS** screen
+   and confirm each connects and shows a live SOC/rate reading — watch
+   `bedroom_remote`'s serial log (UART0) for connect/discover/subscribe
+   messages from `jbd_bms_client` if a battery never lights up; see
+   `CLAUDE.md` → *Battery monitor* for the address-type/UUID bench-TODO
+   knobs to try if connections never establish at all.
 
-The simulator can preview `bedroom_remote`'s layout (`cd sim; .\build.ps1
--Panel bedroom_remote -Run`) but cannot exercise the ESP-NOW link itself —
+The simulator can preview `bedroom_remote`'s layout, including the fake
+battery-status screen (`cd sim; .\build.ps1 -Panel bedroom_remote -Run`),
+but cannot exercise the real ESP-NOW link or BLE connections themselves —
 no radio in a PC build.
 
 ## If the board will not enter download mode

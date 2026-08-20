@@ -25,6 +25,8 @@ typedef enum {
     PANEL_BTN_SWITCH,         /* tap = on/off only */
     PANEL_BTN_SCREEN_SWITCH,  /* local UI nav only -- flips to the panel's screen 2 */
     PANEL_BTN_TANK_LEVEL,     /* read-only tank %, fed by TANK_STATUS, no tap action */
+    PANEL_BTN_BATTERY_STATUS, /* read-only battery gauge, fed by jbd_bms_get_status(),
+                                  instances[0] is the 0..2 battery index, not an RV-C instance */
     PANEL_BTN_SPACER,         /* empty grid cell -- no widget, just holds the layout */
 } panel_btn_type_t;
 

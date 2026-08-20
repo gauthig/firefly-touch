@@ -36,6 +36,10 @@
 #include "espnow_link.h"
 #endif
 
+#if PANEL_HAS_BLE_BATTERY
+#include "jbd_bms_client.h"
+#endif
+
 static const char *TAG = "main";
 
 #if !PANEL_HAS_CAN
@@ -114,6 +118,10 @@ void app_main(void)
 #elif !PANEL_HAS_CAN
     ESP_ERROR_CHECK(espnow_link_init(false));
     espnow_link_set_status_rx_cb(remote_status_rx, NULL);
+#endif
+
+#if PANEL_HAS_BLE_BATTERY
+    ESP_ERROR_CHECK(jbd_bms_client_start());
 #endif
 
     ESP_LOGI(TAG, "up");

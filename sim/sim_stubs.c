@@ -11,6 +11,7 @@
 
 #include "board_4_3b.h"
 #include "bridge_tx.h"
+#include "jbd_bms_protocol.h"
 #include "lvgl.h"
 #include "rvc_protocol.h"
 #include "state_manager.h"
@@ -48,6 +49,28 @@ bool state_manager_get_tank(uint8_t instance, uint8_t *percent)
     }
     *percent = s_tank_pct[instance];
     return true;
+}
+
+/* Fake battery table backing jbd_bms_get_status()/jbd_bms_healthy() -- the
+ * sim has no real BLE stack (see sim/stubs/jbd_bms_client.h), so
+ * battery_sweep_timer_cb() below drives 3 synthetic batteries through
+ * charging/discharging/idle phases to exercise the gauge widget, SOC color
+ * bands, and rate/ETA text without touching real hardware. */
+static jbd_bms_status_t s_battery_status[3];
+static bool              s_battery_valid[3];
+
+bool jbd_bms_get_status(uint8_t index, jbd_bms_status_t *out)
+{
+    if (index >= 3 || !s_battery_valid[index]) {
+        return false;
+    }
+    *out = s_battery_status[index];
+    return true;
+}
+
+bool jbd_bms_healthy(uint8_t index)
+{
+    return index < 3 && s_battery_valid[index];
 }
 
 int board_backlight_set_percent(uint8_t percent)
@@ -157,6 +180,51 @@ static void tank_sweep_timer_cb(lv_timer_t *t)
     ui_on_tank_status(1, gb_pct, true);
 }
 
+/* Sweeps 3 synthetic battery readings: battery 0 slowly charges 0->100->0
+ * (positive current while below full), battery 1 slowly discharges the
+ * opposite phase (negative current while above empty), battery 2 sits
+ * idle at a fixed low SOC to exercise the red "err" color band. */
+static void battery_sweep_timer_cb(lv_timer_t *t)
+{
+    (void)t;
+    static uint32_t tick;
+    tick++;
+
+    const uint32_t phase0 = (tick / 3) % 200;
+    const uint8_t pct0 = (uint8_t)(phase0 <= 100 ? phase0 : 200 - phase0);
+    s_battery_status[0] = (jbd_bms_status_t){
+        .voltage_v = 13.2f,
+        .current_a = pct0 < 100 ? 15.0f : 0.0f,
+        .residual_ah = 300.0f * (float)pct0 / 100.0f,
+        .full_capacity_ah = 300.0f,
+        .cycles = 42,
+        .soc_percent = pct0,
+    };
+    s_battery_valid[0] = true;
+
+    const uint32_t phase1 = (tick / 3 + 100) % 200;
+    const uint8_t pct1 = (uint8_t)(phase1 <= 100 ? phase1 : 200 - phase1);
+    s_battery_status[1] = (jbd_bms_status_t){
+        .voltage_v = 12.6f,
+        .current_a = pct1 > 0 ? -8.0f : 0.0f,
+        .residual_ah = 300.0f * (float)pct1 / 100.0f,
+        .full_capacity_ah = 300.0f,
+        .cycles = 88,
+        .soc_percent = pct1,
+    };
+    s_battery_valid[1] = true;
+
+    s_battery_status[2] = (jbd_bms_status_t){
+        .voltage_v = 12.1f,
+        .current_a = 0.0f,
+        .residual_ah = 45.0f,
+        .full_capacity_ah = 300.0f,
+        .cycles = 15,
+        .soc_percent = 15,
+    };
+    s_battery_valid[2] = true;
+}
+
 /* Called from main_sim to make the screen look alive at startup. */
 void sim_seed_demo_state(void)
 {
@@ -171,4 +239,5 @@ void sim_seed_demo_state(void)
     }
 
     lv_timer_create(tank_sweep_timer_cb, 500, NULL);
+    lv_timer_create(battery_sweep_timer_cb, 500, NULL);
 }

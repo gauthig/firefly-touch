@@ -25,6 +25,14 @@ CONFIG_LCD_RGB_RESTART_IN_VSYNC=n
 # TWAI
 CONFIG_TWAI_ISR_IN_IRAM=y
 
+# Bluetooth (Bluedroid) -- battery-monitor BLE client on bedroom_remote,
+# WiFi (ESP-NOW) coexistence handled by IDF's software coexistence manager
+# (default on when both esp_wifi and bt are enabled). Bluedroid rather than
+# NimBLE per explicit project decision -- BT_BLE_ENABLED/BT_GATTC_ENABLE
+# default to y once Bluedroid is on.
+CONFIG_BT_ENABLED=y
+CONFIG_BT_BLUEDROID_ENABLED=y
+
 CONFIG_FREERTOS_HZ=1000
 CONFIG_ESP_MAIN_TASK_STACK_SIZE=8192
 CONFIG_COMPILER_OPTIMIZATION_PERF=y
