@@ -165,6 +165,39 @@ static void handle_tap(btn_ctx_t *ctx)
     lv_timer_set_repeat_count(ctx->confirm_timer, 1);
 }
 
+/*
+ * Which release event this widget acts on.
+ *
+ * LVGL sends LV_EVENT_SHORT_CLICKED only when a press is released BEFORE
+ * the long-press threshold (400 ms by default); a slower press produces
+ * LONG_PRESSED and then CLICKED, with no SHORT_CLICKED at all. Widgets that
+ * listen solely for SHORT_CLICKED therefore ignore a deliberate finger
+ * press outright -- which is exactly how the battery detail popup and the
+ * screen-nav buttons came to feel broken on real hardware: a quick tap
+ * worked, a considered one did nothing but flash the pressed background.
+ *
+ * Dimmers and switches must keep SHORT_CLICKED, because for them a long
+ * press has its own meaning (hold-to-ramp) and must not also toggle the
+ * load. Everything else has no long-press behaviour, so it acts on
+ * CLICKED and accepts a press of any duration.
+ *
+ * Exactly one of the two is handled per widget: a quick tap raises BOTH
+ * SHORT_CLICKED and CLICKED, so reacting to both would fire twice -- which
+ * on a toggle reads as the popup opening and instantly closing again.
+ */
+static bool acts_on_click(const btn_ctx_t *ctx)
+{
+    switch (ctx->def->type) {
+    case PANEL_BTN_SCREEN_SWITCH:
+    case PANEL_BTN_BATTERY_SUMMARY:
+    case PANEL_BTN_SHORE_POWER:
+    case PANEL_BTN_TANK_LEVEL:
+        return true;
+    default:
+        return false;
+    }
+}
+
 static void event_cb(lv_event_t *e)
 {
     btn_ctx_t *ctx = lv_event_get_user_data(e);
@@ -172,7 +205,15 @@ static void event_cb(lv_event_t *e)
 
     switch (code) {
     case LV_EVENT_SHORT_CLICKED:
-        handle_tap(ctx);
+        if (!acts_on_click(ctx)) {
+            handle_tap(ctx);
+        }
+        break;
+
+    case LV_EVENT_CLICKED:
+        if (acts_on_click(ctx)) {
+            handle_tap(ctx);
+        }
         break;
 
     case LV_EVENT_LONG_PRESSED:

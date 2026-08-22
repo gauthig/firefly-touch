@@ -115,9 +115,35 @@ static lv_obj_t *make_cell(lv_obj_t *parent, uint8_t col, uint8_t row,
 
 /* ------------------------------------------------------------- popup ---- */
 
+/*
+ * Closing is deferred out of the event callback with lv_async_call().
+ *
+ * Hiding or deleting an object from inside its own input callback leaves the
+ * input device still holding a pointer to it, and the NEXT press then lands
+ * but never completes into a click. On hardware that showed up as: the
+ * popup opens once, and after dismissing it every later tap only flashes
+ * the card's pressed background. The simulator missed it entirely because
+ * its scripted taps send LV_EVENT_SHORT_CLICKED directly and never go
+ * through an input device.
+ *
+ * The popup is destroyed rather than hidden, so there is no lingering
+ * visibility flag to get out of step with reality -- it either exists and
+ * is showing, or it does not exist.
+ */
+static void popup_close_async(void *arg)
+{
+    summary_ctx_t *ctx = arg;
+    if (ctx->popup == NULL) {
+        return;
+    }
+    lv_obj_delete(ctx->popup);      /* takes the rows with it */
+    ctx->popup = NULL;
+    memset(ctx->popup_rows, 0, sizeof(ctx->popup_rows));
+}
+
 static void popup_click_cb(lv_event_t *e)
 {
-    lv_obj_add_flag(lv_event_get_target(e), LV_OBJ_FLAG_HIDDEN);
+    lv_async_call(popup_close_async, lv_event_get_user_data(e));
 }
 
 static void refresh_popup_rows(summary_ctx_t *ctx)
@@ -163,7 +189,26 @@ static void refresh_popup_rows(summary_ctx_t *ctx)
 
 static void build_popup(summary_ctx_t *ctx)
 {
-    lv_obj_t *popup = lv_obj_create(lv_layer_top());
+    /*
+     * Full-screen modal backdrop rather than a floating card: it gives the
+     * popup exactly ONE dismiss path (tap anywhere) instead of leaving taps
+     * that miss the card to fall through and re-toggle the widget
+     * underneath, which is ambiguous and was part of why the old version
+     * behaved unpredictably.
+     */
+    lv_obj_t *backdrop = lv_obj_create(lv_layer_top());
+    lv_obj_set_size(backdrop, LV_PCT(100), LV_PCT(100));
+    lv_obj_set_style_bg_color(backdrop, lv_color_black(), 0);
+    lv_obj_set_style_bg_opa(backdrop, LV_OPA_50, 0);
+    lv_obj_set_style_border_width(backdrop, 0, 0);
+    lv_obj_set_style_radius(backdrop, 0, 0);
+    lv_obj_set_style_pad_all(backdrop, 0, 0);
+    lv_obj_remove_flag(backdrop, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_add_flag(backdrop, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_event_cb(backdrop, popup_click_cb, LV_EVENT_CLICKED, ctx);
+    ctx->popup = backdrop;
+
+    lv_obj_t *popup = lv_obj_create(backdrop);
     lv_obj_set_style_bg_color(popup, UI_COLOR_CARD, 0);
     lv_obj_set_style_bg_opa(popup, LV_OPA_COVER, 0);
     lv_obj_set_style_border_width(popup, 2, 0);
@@ -175,7 +220,10 @@ static void build_popup(summary_ctx_t *ctx)
     lv_obj_remove_flag(popup, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_set_flex_flow(popup, LV_FLEX_FLOW_COLUMN);
     lv_obj_center(popup);
-    lv_obj_add_event_cb(popup, popup_click_cb, LV_EVENT_CLICKED, NULL);
+    /* Taps on the card itself dismiss too, so the whole screen is one
+     * target -- no dead zone where a tap appears to do nothing. */
+    lv_obj_add_flag(popup, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_event_cb(popup, popup_click_cb, LV_EVENT_CLICKED, ctx);
 
     lv_obj_t *title = lv_label_create(popup);
     lv_label_set_text(title, "PACK DETAIL");
@@ -195,7 +243,6 @@ static void build_popup(summary_ctx_t *ctx)
     lv_obj_set_style_text_font(hint, &lv_font_montserrat_14, 0);
     lv_obj_set_style_text_color(hint, UI_COLOR_TEXT_DIM, 0);
 
-    ctx->popup = popup;
     refresh_popup_rows(ctx);
 }
 
@@ -204,6 +251,8 @@ static void build_popup(summary_ctx_t *ctx)
 static void summary_delete_cb(lv_event_t *e)
 {
     summary_ctx_t *ctx = lv_event_get_user_data(e);
+    /* Drop any close still queued, or it would run against freed context. */
+    lv_async_call_cancel(popup_close_async, ctx);
     if (ctx->popup != NULL) {
         lv_obj_delete(ctx->popup);
     }
@@ -415,13 +464,10 @@ void ui_battery_summary_toggle_detail(lv_obj_t *summary)
     if (ctx == NULL) {
         return;
     }
+    /* Exists or it doesn't -- no hidden-flag state to fall out of sync. */
     if (ctx->popup == NULL) {
         build_popup(ctx);
-        return;   /* created visible */
-    }
-    if (lv_obj_has_flag(ctx->popup, LV_OBJ_FLAG_HIDDEN)) {
-        lv_obj_remove_flag(ctx->popup, LV_OBJ_FLAG_HIDDEN);
     } else {
-        lv_obj_add_flag(ctx->popup, LV_OBJ_FLAG_HIDDEN);
+        lv_async_call(popup_close_async, ctx);
     }
 }

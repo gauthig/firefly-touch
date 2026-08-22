@@ -23,6 +23,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include <SDL2/SDL.h>
@@ -97,34 +98,106 @@ static int write_bmp24(const char *path, const uint8_t *data,
     return 0;
 }
 
-/* Recursively finds a button whose direct child label matches `text` and
- * fires a tap on it -- used to reach screen 2 in headless --shot mode
- * (switch_screen() is internal to ui.c, so this drives the same tap path a
- * real touch would). Returns true if found. */
-static bool click_button_labeled(lv_obj_t *obj, const char *text)
+/*
+ * Scripted pointer input device.
+ *
+ * Sending LV_EVENT_SHORT_CLICKED straight to a widget (which this harness
+ * used to do) exercises the handler but NOT LVGL's input plumbing -- no
+ * hit-testing, no indev state machine, no press/release lifecycle. A whole
+ * class of bug lives in exactly that gap: the battery pack-detail popup
+ * opened once and then refused to reopen on real hardware, while scripted
+ * events toggled it perfectly. Driving a real indev reproduces it.
+ */
+static lv_point_t s_ptr;
+static bool       s_ptr_pressed;
+
+static void scripted_read_cb(lv_indev_t *indev, lv_indev_data_t *data)
+{
+    (void)indev;
+    data->point = s_ptr;
+    data->state = s_ptr_pressed ? LV_INDEV_STATE_PRESSED : LV_INDEV_STATE_RELEASED;
+}
+
+static void pump(int iterations)
+{
+    for (int i = 0; i < iterations; i++) {
+        lv_timer_handler();
+        SDL_Delay(20);
+    }
+}
+
+/*
+ * A real press-and-release at (x, y). Default hold is well under LVGL's
+ * 400 ms long-press threshold, so it registers as a short click.
+ *
+ * SIM_TAP_HOLD_MS overrides the hold time -- set it above 400 to emulate a
+ * deliberate finger press, which is a genuinely different code path:
+ * LV_EVENT_SHORT_CLICKED is NOT sent once a press crosses the long-press
+ * threshold, only LV_EVENT_CLICKED. Any widget that listens solely for
+ * SHORT_CLICKED silently ignores a slow tap.
+ */
+static void tap_at(int32_t x, int32_t y)
+{
+    static int hold_ms = -1;
+    if (hold_ms < 0) {
+        const char *env = getenv("SIM_TAP_HOLD_MS");
+        hold_ms = (env != NULL) ? atoi(env) : 80;
+    }
+
+    s_ptr.x = x;
+    s_ptr.y = y;
+    s_ptr_pressed = true;
+    pump((hold_ms / 20) + 1);
+    s_ptr_pressed = false;
+    pump(6);
+}
+
+/* Recursively finds the widget whose direct child label matches `text`. */
+static lv_obj_t *find_button_labeled(lv_obj_t *obj, const char *text)
 {
     uint32_t n = lv_obj_get_child_count(obj);
     for (uint32_t i = 0; i < n; i++) {
         lv_obj_t *child = lv_obj_get_child(obj, i);
         if (lv_obj_check_type(child, &lv_label_class) &&
             strcmp(lv_label_get_text(child), text) == 0) {
-            lv_obj_send_event(obj, LV_EVENT_SHORT_CLICKED, NULL);
-            return true;
+            return obj;
         }
-        if (click_button_labeled(child, text)) {
-            return true;
+        lv_obj_t *found = find_button_labeled(child, text);
+        if (found != NULL) {
+            return found;
         }
     }
-    return false;
+    return NULL;
 }
 
-static int run_screenshot(const char *path, bool screen2, bool popup, bool screen3)
+/* Taps the centre of the widget carrying `text`, through the real indev. */
+static bool click_button_labeled(lv_obj_t *root, const char *text)
+{
+    lv_obj_t *target = find_button_labeled(root, text);
+    if (target == NULL) {
+        return false;
+    }
+    lv_obj_update_layout(target);
+    lv_area_t a;
+    lv_obj_get_coords(target, &a);
+    tap_at((a.x1 + a.x2) / 2, (a.y1 + a.y2) / 2);
+    return true;
+}
+
+static int run_screenshot(const char *path, bool screen2, int popup_taps, bool screen3)
 {
     lv_display_t *disp = lv_display_create(HEADLESS_W, HEADLESS_H);
     lv_display_set_color_format(disp, LV_COLOR_FORMAT_XRGB8888);
     lv_display_set_buffers(disp, s_headless_fb, NULL, sizeof(s_headless_fb),
                            LV_DISPLAY_RENDER_MODE_FULL);
     lv_display_set_flush_cb(disp, headless_flush_cb);
+
+    /* Real input device, so scripted taps go through hit-testing and the
+     * indev state machine exactly as a finger would. */
+    lv_indev_t *indev = lv_indev_create();
+    lv_indev_set_type(indev, LV_INDEV_TYPE_POINTER);
+    lv_indev_set_read_cb(indev, scripted_read_cb);
+    lv_indev_set_display(indev, disp);
 
     ui_init();
     sim_seed_demo_state();
@@ -136,14 +209,21 @@ static int run_screenshot(const char *path, bool screen2, bool popup, bool scree
             !click_button_labeled(lv_screen_active(), "BATTERY")) {
             fprintf(stderr, "[sim] no screen-switch button found (no screen 2 on this panel?)\n");
         }
-        if (popup) {
+        if (popup_taps > 0) {
             /* Battery bank readout only: tapping it reveals the per-pack
              * detail popup. The BANK label is hidden on screen (the widget
              * carries its own labels), but it still exists, so the same
-             * label-driven tap helper reaches it. */
-            lv_timer_handler();
-            if (!click_button_labeled(lv_screen_active(), "BANK")) {
-                fprintf(stderr, "[sim] no BANK widget on this panel's screen 2\n");
+             * label-driven tap helper reaches it.
+             *
+             * Repeating the tap is how the show/hide TOGGLE gets tested --
+             * an odd count should leave the popup visible, an even count
+             * hidden. */
+            for (int tap = 0; tap < popup_taps; tap++) {
+                lv_timer_handler();
+                if (!click_button_labeled(lv_screen_active(), "BANK")) {
+                    fprintf(stderr, "[sim] no BANK widget on this panel's screen 2\n");
+                    break;
+                }
             }
         }
     }
@@ -199,11 +279,16 @@ int main(int argc, char **argv)
     if (argc >= 3 && strcmp(argv[1], "--shot") == 0) {
         const bool screen2 = argc >= 4 && strcmp(argv[3], "screen2") == 0;
         const bool screen3 = argc >= 4 && strcmp(argv[3], "screen3") == 0;
-        const bool popup = argc >= 5 && strcmp(argv[4], "popup") == 0;
-        if (screen3) {
-            return run_screenshot(argv[2], false, false, true);
+        /* `popup [n]` taps the bank readout n times (default 1) so the
+         * show/hide toggle can be exercised, not just the first reveal. */
+        int popup_taps = 0;
+        if (argc >= 5 && strcmp(argv[4], "popup") == 0) {
+            popup_taps = (argc >= 6) ? atoi(argv[5]) : 1;
         }
-        return run_screenshot(argv[2], screen2, popup, false);
+        if (screen3) {
+            return run_screenshot(argv[2], false, 0, true);
+        }
+        return run_screenshot(argv[2], screen2, popup_taps, false);
     }
     return run_window();
 }
