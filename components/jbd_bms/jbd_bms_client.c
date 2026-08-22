@@ -53,7 +53,13 @@ static const char *TAG = "jbd_bms_client";
 #define JBD_TASK_PRIO         9
 #define JBD_TASK_PERIOD_MS    1000
 #define JBD_RECONNECT_MS      5000
-#define JBD_HEALTHY_WINDOW_MS 15000
+/* Staleness window for jbd_bms_healthy(), derived from the poll interval
+ * rather than fixed: it must always exceed the interval, or every pack
+ * reads "unhealthy" in the gap between polls. 3x tolerates a missed poll
+ * or two before a pack is declared offline. (This was a hardcoded 15000,
+ * which silently became shorter than the poll interval when the default
+ * moved to 30 s -- see the Kconfig help text.) */
+#define JBD_HEALTHY_WINDOW_MS (3 * CONFIG_FIREFLY_BATTERY_POLL_INTERVAL_MS)
 #define JBD_REASSEMBLE_BUF_LEN 136
 #define JBD_ATTR_RESULT_MAX    2   /* JBD peripherals expose exactly one of each -- small margin */
 

@@ -1,0 +1,10 @@
+# Single factory app, sized for a Bluedroid + WiFi build on 4 MB flash.
+# The IDF default single-app table gives the app only 1 MB, and Bluedroid
+# plus the WiFi stack lands just over that (~1.06 MB) — hence a custom table
+# rather than a mystery "app partition is too small" at link time.
+# No OTA partitions: firmware is USB-flashed only, same decision as the
+# panels (see CLAUDE.md).
+# Name,     Type, SubType, Offset,   Size
+nvs,        data, nvs,     0x9000,   0x6000
+phy_init,   data, phy,     0xf000,   0x1000
+factory,    app,  factory, 0x10000,  0x300000

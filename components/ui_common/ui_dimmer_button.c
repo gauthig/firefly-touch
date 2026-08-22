@@ -4,7 +4,7 @@
 
 #include "esp_log.h"
 
-#include "ui_battery_gauge.h"
+#include "ui_battery_summary.h"
 #include "ui_tank_wave.h"
 #include "ui_theme.h"
 
@@ -41,7 +41,7 @@ typedef struct {
     lv_obj_t *name;
     lv_obj_t *bar;            /* PANEL_BTN_DIMMER only: brightness bar */
     lv_obj_t *tank_wave;      /* PANEL_BTN_TANK_LEVEL only: animated gauge */
-    lv_obj_t *battery_gauge;  /* PANEL_BTN_BATTERY_STATUS only: animated gauge */
+    lv_obj_t *battery_summary;/* PANEL_BTN_BATTERY_SUMMARY only: bank readout */
 } btn_ctx_t;
 
 static bool any_on(const btn_ctx_t *ctx)
@@ -126,11 +126,12 @@ static void handle_tap(btn_ctx_t *ctx)
         /* Read-only display, no command, no confirm timer. */
         return;
     }
-    if (ctx->def->type == PANEL_BTN_BATTERY_STATUS) {
+    if (ctx->def->type == PANEL_BTN_BATTERY_SUMMARY) {
         /* Read-only display -- the only "action" a tap has is toggling the
-         * BLE-MAC troubleshooting popup, local UI only, never an RV-C/
-         * ESP-NOW command. */
-        ui_battery_gauge_toggle_mac_popup(ctx->battery_gauge);
+         * per-pack detail popup (MAC/SOC/volts/amps/temp per slot, for
+         * telling which physical pack is which), local UI only, never an
+         * RV-C/ESP-NOW command. */
+        ui_battery_summary_toggle_detail(ctx->battery_summary);
         return;
     }
 
@@ -260,8 +261,11 @@ lv_obj_t *ui_dimmer_button_create(lv_obj_t *parent,
         ctx->tank_wave = ui_tank_wave_create(btn);
     }
 
-    if (def->type == PANEL_BTN_BATTERY_STATUS) {
-        ctx->battery_gauge = ui_battery_gauge_create(btn);
+    if (def->type == PANEL_BTN_BATTERY_SUMMARY) {
+        /* The bank readout fills the whole card and carries its own labels,
+         * so the button's own name label would just steal vertical space. */
+        lv_obj_add_flag(ctx->name, LV_OBJ_FLAG_HIDDEN);
+        ctx->battery_summary = ui_battery_summary_create(btn);
     }
 
     lv_obj_add_event_cb(btn, event_cb, LV_EVENT_ALL, ctx);
@@ -278,7 +282,7 @@ void ui_dimmer_button_update(lv_obj_t *btn, uint8_t instance,
      * must not cross-contaminate their state. See
      * ui_dimmer_button_update_tank()/_update_battery() for those. */
     if (ctx == NULL || ctx->def->type == PANEL_BTN_TANK_LEVEL ||
-        ctx->def->type == PANEL_BTN_BATTERY_STATUS) {
+        ctx->def->type == PANEL_BTN_BATTERY_SUMMARY) {
         return;
     }
 
@@ -320,32 +324,19 @@ void ui_dimmer_button_update_tank(lv_obj_t *btn, uint8_t instance,
     ui_tank_wave_set_percent(ctx->tank_wave, percent, valid);
 }
 
-void ui_dimmer_button_update_battery(lv_obj_t *btn, uint8_t index, uint8_t percent,
-                                     float rate_amps, float hours, bool valid)
+void ui_dimmer_button_update_bank(lv_obj_t *btn, const jbd_bms_bank_t *bank,
+                                  const ui_battery_pack_info_t *packs,
+                                  uint8_t packs_len, uint8_t configured_packs)
 {
     btn_ctx_t *ctx = lv_obj_get_user_data(btn);
-    if (ctx == NULL || ctx->def->type != PANEL_BTN_BATTERY_STATUS) {
+    if (ctx == NULL || ctx->def->type != PANEL_BTN_BATTERY_SUMMARY) {
         return;
     }
-
-    bool hit = false;
-    for (uint8_t i = 0; i < ctx->def->instance_count; i++) {
-        if (ctx->def->instances[i] == index) {
-            hit = true;
-        }
+    /* No instance matching here, unlike the dimmer/tank paths: there is one
+     * bank, and it is assembled from BLE slots rather than addressed by an
+     * RV-C instance. */
+    ui_battery_summary_set_bank(ctx->battery_summary, bank, configured_packs);
+    if (packs != NULL) {
+        ui_battery_summary_set_packs(ctx->battery_summary, packs, packs_len);
     }
-    if (!hit) {
-        return;
-    }
-
-    ui_battery_gauge_set_status(ctx->battery_gauge, percent, rate_amps, hours, valid);
-}
-
-void ui_dimmer_button_set_battery_mac(lv_obj_t *btn, const char *mac)
-{
-    btn_ctx_t *ctx = lv_obj_get_user_data(btn);
-    if (ctx == NULL || ctx->def->type != PANEL_BTN_BATTERY_STATUS) {
-        return;
-    }
-    ui_battery_gauge_set_mac(ctx->battery_gauge, mac);
 }

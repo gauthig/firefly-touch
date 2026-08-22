@@ -13,8 +13,10 @@
  * ui_on_status().
  *
  * Screen 2 (PANEL_HAS_SCREEN_2) is either a tank readout (mid_coach's
- * SeeLevel FRESH/GREY/BLACK gauges) or a battery-status readout
- * (bedroom_remote's 3 JBD-BMS gauges) — both use the same generic
+ * SeeLevel FRESH/GREY/BLACK gauges, three genuinely separate tanks side by
+ * side) or a battery-bank readout (bedroom_remote's single combined
+ * JBD-BMS summary — the three packs are wired in parallel, so they are one
+ * bank, not three batteries). Both use the same generic
  * build_screen2_row() layout since ui_dimmer_button_create() already
  * dispatches to the right gauge widget by button type, so ui.c stays
  * panel-agnostic rather than hardcoding which panel gets which screen.
@@ -25,6 +27,7 @@
 #include "ui.h"
 
 #include <math.h>
+#include <stdio.h>
 #include <string.h>
 
 #include "esp_log.h"
@@ -56,6 +59,19 @@ static const char *TAG = "ui";
 
 #define BATTERY_STATUS_TIMER_MS 1000
 
+/*
+ * Shore power (Hughes Power Watchdog, relayed from the basement BLE proxy).
+ * Shown in the status bar rather than on a screen of its own: volts and amps
+ * per line is a glanceable pair of numbers, and it means any remote panel
+ * gets it for free without needing a screen-2 layout.
+ *
+ * The proxy re-broadcasts every few seconds, so silence longer than this
+ * means the proxy is down, out of range, or lost its BLE link -- show "--"
+ * rather than a frozen reading that looks live.
+ */
+#define SHORE_POWER_STALE_MS  20000
+#define SHORE_POWER_TIMER_MS  1000
+
 typedef enum {
     BACKLIGHT_NORMAL,
     BACKLIGHT_DIMMED,
@@ -66,6 +82,13 @@ static lv_obj_t *s_buttons[PANEL_BUTTON_COUNT];
 static lv_obj_t *s_dim_overlay;
 static backlight_state_t s_backlight_state;
 static bool s_ui_ready;
+
+#if !PANEL_HAS_CAN
+static lv_obj_t       *s_shore_label;
+static ui_shore_power_t s_shore;
+static bool             s_shore_seen;
+static uint32_t         s_shore_last_ms;
+#endif
 
 #if PANEL_HAS_SCREEN_2
 static lv_obj_t *s_buttons_2[PANEL_BUTTON_COUNT_2];
@@ -208,23 +231,103 @@ static void tank_status_timer_cb(lv_timer_t *t)
 
 /* ----------------------------------------------------- battery status --- */
 
+/* Kconfig MAC per battery slot. The all-zero placeholder means "slot not
+ * configured" -- it is never connected to and never counted toward the
+ * bank's "N of M" indicator. */
+static const char *const k_battery_macs[JBD_BMS_MAX_BATTERIES] = {
+    CONFIG_FIREFLY_BATTERY_1_MAC,
+    CONFIG_FIREFLY_BATTERY_2_MAC,
+    CONFIG_FIREFLY_BATTERY_3_MAC,
+};
+
+static bool battery_slot_configured(uint8_t index)
+{
+    return strcmp(k_battery_macs[index], "00:00:00:00:00:00") != 0;
+}
+
+/*
+ * Polls every configured pack, combines the live ones into a single bank
+ * reading, and pushes that plus the per-pack detail to the summary widget.
+ *
+ * The packs are wired in parallel, so this is deliberately one reading, not
+ * three: jbd_bms_combine() does the aggregation (pure C, host-tested), and
+ * only packs that answered are handed to it, so a pack dropping off BLE
+ * shrinks the bank rather than dragging the averages toward zero.
+ */
 static void battery_status_timer_cb(lv_timer_t *t)
 {
     (void)t;
-    for (uint8_t i = 0; i < JBD_BMS_MAX_BATTERIES; i++) {
-        jbd_bms_status_t status;
-        const bool valid = jbd_bms_get_status(i, &status);
-        const float hours = valid ? jbd_bms_estimate_hours(&status) : NAN;
-        const uint8_t percent = valid ? status.soc_percent : 0;
-        const float current = valid ? status.current_a : 0.0f;
 
-        for (uint32_t j = 0; j < PANEL_BUTTON_COUNT_2; j++) {
-            if (s_buttons_2[j] != NULL) {
-                ui_dimmer_button_update_battery(s_buttons_2[j], i, percent, current,
-                                                hours, valid);
-            }
+    jbd_bms_status_t       live[JBD_BMS_MAX_BATTERIES];
+    ui_battery_pack_info_t detail[JBD_BMS_MAX_BATTERIES];
+    uint8_t live_count = 0;
+    uint8_t configured_count = 0;
+
+    memset(detail, 0, sizeof(detail));
+
+    for (uint8_t i = 0; i < JBD_BMS_MAX_BATTERIES; i++) {
+        detail[i].configured = battery_slot_configured(i);
+        snprintf(detail[i].mac, sizeof(detail[i].mac), "%s", k_battery_macs[i]);
+        if (!detail[i].configured) {
+            continue;
+        }
+        configured_count++;
+
+        jbd_bms_status_t status;
+        if (jbd_bms_get_status(i, &status) && jbd_bms_healthy(i)) {
+            detail[i].online = true;
+            detail[i].status = status;
+            live[live_count++] = status;
         }
     }
+
+    jbd_bms_bank_t bank;
+    const bool have_bank = jbd_bms_combine(live, live_count, &bank);
+
+    for (uint32_t j = 0; j < PANEL_BUTTON_COUNT_2; j++) {
+        if (s_buttons_2[j] != NULL) {
+            ui_dimmer_button_update_bank(s_buttons_2[j],
+                                         have_bank ? &bank : NULL,
+                                         detail, JBD_BMS_MAX_BATTERIES,
+                                         configured_count);
+        }
+    }
+}
+#endif
+
+#if !PANEL_HAS_CAN
+/* ------------------------------------------------------- shore power ---- */
+
+static void shore_power_timer_cb(lv_timer_t *t)
+{
+    (void)t;
+    if (s_shore_label == NULL) {
+        return;
+    }
+
+    const bool stale = !s_shore_seen ||
+                       (lv_tick_get() - s_shore_last_ms) > SHORE_POWER_STALE_MS;
+    if (stale) {
+        lv_label_set_text(s_shore_label, "Shore --");
+        lv_obj_set_style_text_color(s_shore_label, UI_COLOR_TEXT_DIM, 0);
+        return;
+    }
+
+    char buf[48];
+    if (s_shore.line_count >= 2) {
+        snprintf(buf, sizeof(buf), "%.0fV %.0fA  %.0fV %.0fA",
+                 (double)s_shore.volts[0], (double)s_shore.amps[0],
+                 (double)s_shore.volts[1], (double)s_shore.amps[1]);
+    } else {
+        snprintf(buf, sizeof(buf), "%.0fV %.0fA",
+                 (double)s_shore.volts[0], (double)s_shore.amps[0]);
+    }
+    lv_label_set_text(s_shore_label, buf);
+    /* The Watchdog's own error code is the authoritative "something is
+     * wrong with the pedestal" signal -- surface it as color rather than
+     * trying to re-derive limits from the raw volts here. */
+    lv_obj_set_style_text_color(s_shore_label,
+                                s_shore.error_code != 0 ? UI_COLOR_ERR : UI_COLOR_TEXT, 0);
 }
 #endif
 
@@ -329,9 +432,22 @@ static void build_button_grid(lv_obj_t *parent, const panel_btn_def_t *buttons,
 static void build_screen2_row(lv_obj_t *parent, const panel_btn_def_t *buttons,
                               uint32_t count, lv_obj_t **out_buttons)
 {
+    /* The tank gauges are tall thin columns that look right in a 75%-height
+     * row, but the battery bank readout is one full-width card with four
+     * stacked sections -- at 75% it leaves an obvious dead band above the
+     * BACK button. Give it the extra height instead of padding the widget
+     * out internally. */
+    bool has_summary = false;
+    for (uint32_t i = 0; i < count; i++) {
+        if (buttons[i].type == PANEL_BTN_BATTERY_SUMMARY) {
+            has_summary = true;
+            break;
+        }
+    }
+
     lv_obj_t *row = lv_obj_create(parent);
     lv_obj_add_style(row, &ui_style_screen, 0);
-    lv_obj_set_size(row, LV_PCT(100), LV_PCT(75));
+    lv_obj_set_size(row, LV_PCT(100), has_summary ? LV_PCT(89) : LV_PCT(75));
     lv_obj_align(row, LV_ALIGN_TOP_MID, 0, 8);
     lv_obj_remove_flag(row, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_set_flex_flow(row, LV_FLEX_FLOW_ROW);
@@ -353,21 +469,11 @@ static void build_screen2_row(lv_obj_t *parent, const panel_btn_def_t *buttons,
         }
         lv_obj_t *btn = ui_dimmer_button_create(row, &buttons[i],
                                                 panel_send_cb, NULL);
-        if (buttons[i].type == PANEL_BTN_BATTERY_STATUS) {
-            /* Plain box, roughly half the screen tall (per the user's
-             * request -- no animated graphic, just a bigger version of the
-             * light-switch button card), centered in the row by its own
-             * flex-align. */
-            lv_obj_set_size(btn, 190, LV_PCT(50));
-            static const char *const k_battery_macs[JBD_BMS_MAX_BATTERIES] = {
-                CONFIG_FIREFLY_BATTERY_1_MAC,
-                CONFIG_FIREFLY_BATTERY_2_MAC,
-                CONFIG_FIREFLY_BATTERY_3_MAC,
-            };
-            if (buttons[i].instance_count > 0 &&
-                buttons[i].instances[0] < JBD_BMS_MAX_BATTERIES) {
-                ui_dimmer_button_set_battery_mac(btn, k_battery_macs[buttons[i].instances[0]]);
-            }
+        if (buttons[i].type == PANEL_BTN_BATTERY_SUMMARY) {
+            /* One combined readout for the whole bank, so it owns the full
+             * area rather than sharing the row -- unlike the tank gauges,
+             * which really are three separate things side by side. */
+            lv_obj_set_size(btn, LV_PCT(100), LV_PCT(100));
         } else {
             lv_obj_set_size(btn, 140, LV_PCT(100));
         }
@@ -395,6 +501,16 @@ static void build_screen(void)
     lv_label_set_text(title, PANEL_NAME);
     lv_obj_align(title, LV_ALIGN_LEFT_MID, 0, 0);
 
+#if !PANEL_HAS_CAN
+    /* Remote panels have no tank-status readout competing for the right
+     * side of the status bar (that only exists on a panel with GREY/BLACK
+     * tank buttons, i.e. a CAN panel), so shore power lives there. */
+    s_shore_label = lv_label_create(bar);
+    lv_label_set_text(s_shore_label, "Shore --");
+    lv_obj_set_style_text_color(s_shore_label, UI_COLOR_TEXT_DIM, 0);
+    lv_obj_align(s_shore_label, LV_ALIGN_RIGHT_MID, 0, 0);
+#endif
+
 #if PANEL_HAS_SCREEN_2
     /* Find the GREY/BLACK tank buttons by label rather than hardcoding
      * instance numbers here -- keeps ui.c panel-agnostic, consistent with
@@ -421,7 +537,7 @@ static void build_screen(void)
     }
 
     for (uint32_t i = 0; i < PANEL_BUTTON_COUNT_2; i++) {
-        if (PANEL_BUTTONS_2[i].type == PANEL_BTN_BATTERY_STATUS) {
+        if (PANEL_BUTTONS_2[i].type == PANEL_BTN_BATTERY_SUMMARY) {
             s_screen2_is_battery = true;
             break;
         }
@@ -469,6 +585,9 @@ static void build_screen(void)
     lv_obj_add_event_cb(s_dim_overlay, dim_overlay_event_cb, LV_EVENT_PRESSED, NULL);
 
     lv_timer_create(idle_timer_cb, 1000, NULL);
+#if !PANEL_HAS_CAN
+    lv_timer_create(shore_power_timer_cb, SHORE_POWER_TIMER_MS, NULL);
+#endif
 #if PANEL_HAS_SCREEN_2
     if (s_tank_status_label != NULL) {
         lv_timer_create(tank_status_timer_cb, TANK_STATUS_TIMER_MS, NULL);
@@ -515,6 +634,25 @@ void ui_on_status(uint8_t instance, uint8_t level, bool on)
     }
 #endif
     lvgl_port_unlock();
+}
+
+void ui_on_shore_power(const ui_shore_power_t *sp)
+{
+#if !PANEL_HAS_CAN
+    if (!s_ui_ready || sp == NULL) {
+        return;
+    }
+    /* Only the cached values and timestamp are touched here; the label is
+     * repainted by shore_power_timer_cb, which also owns the staleness
+     * decision. One place decides what the readout says. */
+    lvgl_port_lock(0);
+    s_shore = *sp;
+    s_shore_seen = true;
+    s_shore_last_ms = lv_tick_get();
+    lvgl_port_unlock();
+#else
+    (void)sp;
+#endif
 }
 
 void ui_on_tank_status(uint8_t instance, uint8_t percent, bool valid)

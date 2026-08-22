@@ -44,11 +44,17 @@ static const panel_btn_def_t PANEL_BUTTONS[] = {
 
 #define PANEL_BUTTON_COUNT (sizeof(PANEL_BUTTONS) / sizeof(PANEL_BUTTONS[0]))
 
+/*
+ * The three packs are wired in PARALLEL, so screen 2 is one combined bank
+ * readout rather than three per-pack gauges — one voltage, one current, one
+ * power, one SOC, one time-remaining, the way the coach's own Vatrer display
+ * presents it. Tapping the readout reveals per-pack detail (MAC, SOC, volts,
+ * amps, temp) for telling which physical pack is which. The summary takes no
+ * instances: it aggregates every configured battery slot itself.
+ */
 static const panel_btn_def_t PANEL_BUTTONS_2[] = {
-    { "BATTERY 1", PANEL_BTN_BATTERY_STATUS, {0}, 1 },
-    { "BATTERY 2", PANEL_BTN_BATTERY_STATUS, {1}, 1 },
-    { "BATTERY 3", PANEL_BTN_BATTERY_STATUS, {2}, 1 },
-    { "BACK",      PANEL_BTN_SCREEN_SWITCH,  {0}, 0 },
+    { "BANK", PANEL_BTN_BATTERY_SUMMARY, {0}, 0 },
+    { "BACK", PANEL_BTN_SCREEN_SWITCH,   {0}, 0 },
 };
 
 #define PANEL_BUTTON_COUNT_2 (sizeof(PANEL_BUTTONS_2) / sizeof(PANEL_BUTTONS_2[0]))

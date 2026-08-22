@@ -180,14 +180,32 @@ static void tank_sweep_timer_cb(lv_timer_t *t)
     ui_on_tank_status(1, gb_pct, true);
 }
 
-/* Sweeps 3 synthetic battery readings: battery 0 slowly charges 0->100->0
- * (positive current while below full), battery 1 slowly discharges the
- * opposite phase (negative current while above empty), battery 2 sits
- * idle at a fixed low SOC to exercise the red "err" color band. */
+/* Sweeps 3 synthetic battery readings so the combined bank readout, its SOC
+ * color bands, the direction-aware ETA caption, the F temperature high/low
+ * and the "N of M" pack indicator are all exercisable without real BLE.
+ *
+ * The three packs are treated as a parallel bank by ui.c (via
+ * jbd_bms_combine()), so these deliberately differ from each other: pack 0
+ * charges, pack 1 discharges on the opposite phase, and pack 2 drops OFFLINE
+ * for part of the cycle -- that last one is what exercises the shrinking-bank
+ * path and the amber "2 of 3" indicator, which is otherwise only reachable by
+ * physically powering down a battery on the bench. */
 static void battery_sweep_timer_cb(lv_timer_t *t)
 {
     (void)t;
+    /* SIM_BATTERY_START_TICK jumps the sweep to a chosen point, same trick
+     * (and same reason) as SIM_TANK_START_TICK above: a --shot capture only
+     * runs ~2 s of real time, which is far too short to reach the offline
+     * window naturally. Unset in normal interactive use. */
     static uint32_t tick;
+    static bool inited;
+    if (!inited) {
+        inited = true;
+        const char *start = getenv("SIM_BATTERY_START_TICK");
+        if (start != NULL) {
+            tick = (uint32_t)atoi(start);
+        }
+    }
     tick++;
 
     const uint32_t phase0 = (tick / 3) % 200;
@@ -199,6 +217,8 @@ static void battery_sweep_timer_cb(lv_timer_t *t)
         .full_capacity_ah = 300.0f,
         .cycles = 42,
         .soc_percent = pct0,
+        .temp_count = 2,
+        .temp_c = { 24.5f, 25.5f },
     };
     s_battery_valid[0] = true;
 
@@ -211,6 +231,8 @@ static void battery_sweep_timer_cb(lv_timer_t *t)
         .full_capacity_ah = 300.0f,
         .cycles = 88,
         .soc_percent = pct1,
+        .temp_count = 2,
+        .temp_c = { 21.0f, 22.0f },
     };
     s_battery_valid[1] = true;
 
@@ -221,8 +243,11 @@ static void battery_sweep_timer_cb(lv_timer_t *t)
         .full_capacity_ah = 300.0f,
         .cycles = 15,
         .soc_percent = 15,
+        .temp_count = 2,
+        .temp_c = { 30.0f, 31.5f },
     };
-    s_battery_valid[2] = true;
+    /* Offline for roughly a quarter of the sweep. */
+    s_battery_valid[2] = ((tick / 20) % 4) != 3;
 }
 
 /* Called from main_sim to make the screen look alive at startup. */

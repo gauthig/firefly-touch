@@ -74,12 +74,24 @@ menu "Firefly Touch Panel"
 
         config FIREFLY_BATTERY_POLL_INTERVAL_MS
             int "Battery status poll interval (ms)"
-            default 5000
-            range 1000 60000
+            default 30000
+            range 20000 600000
             help
                 How often each connected battery is asked for a fresh
-                basic-info reading. SOC/current are slow-moving values --
-                no need to poll faster than the UI refresh cadence.
+                basic-info reading. SOC, current and time-remaining are all
+                slow-moving values, so there is nothing to gain from polling
+                hard.
+
+                The 20 s lower bound is deliberate, not arbitrary: JBD BMS
+                units are widely reported to misbehave when polled more
+                often than roughly every 20 seconds, so the floor is
+                enforced here rather than merely documented. The 30 s
+                default leaves margin over that threshold.
+
+                Note jbd_bms_client.c derives its "battery is healthy"
+                staleness window from this value (3x), so raising the
+                interval automatically widens the window instead of making
+                every pack look permanently offline.
 
     endmenu
 

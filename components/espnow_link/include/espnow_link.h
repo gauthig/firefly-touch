@@ -43,21 +43,90 @@ typedef struct {
     bool    on;
 } espnow_status_msg_t;
 
+/* ------------------------------------------------------- telemetry ------ *
+ *
+ * Read-only measurements BROADCAST to every node on the channel, so any
+ * panel can display them without being anybody's configured peer. This is a
+ * separate traffic class from the command/status link above, in two ways
+ * that matter:
+ *
+ *  - It is UNENCRYPTED, and unavoidably so: ESP-NOW cannot encrypt
+ *    broadcast frames at all. That is acceptable here only because these
+ *    frames are read-only telemetry. Command/status frames actuate real
+ *    loads and stay encrypted unicast -- do not "simplify" by moving them
+ *    onto the broadcast channel.
+ *  - It is a SEPARATE FRAME STRUCT, deliberately. Adding telemetry to
+ *    espnow_frame_t's union would change that struct's size, and the RX
+ *    path validates length -- so a node flashed with the new firmware would
+ *    silently drop command frames from a node still running the old one.
+ *    Keeping the control frame byte-identical means panels can be updated
+ *    one at a time.
+ *
+ * Values are scaled integers rather than floats: smaller frames, and no
+ * dependence on float layout matching across two different chip families
+ * (the basement proxy is a classic ESP32, the panels are ESP32-S3).
+ */
+
+typedef enum {
+    ESPNOW_TELEM_SHORE_POWER = 1,   /* Hughes Power Watchdog, from the proxy */
+    ESPNOW_TELEM_TANK        = 2,   /* RV-C TANK_STATUS, relayed by the bridge */
+} espnow_telem_kind_t;
+
+typedef struct {
+    uint8_t  line_count;        /* 1 = 30 A service, 2 = 50 A */
+    uint8_t  error_code;        /* 0 = OK, 1..9 = E1..E9, 11/12 = F1/F2 */
+    uint16_t frequency_chz;     /* Hz * 100 */
+    uint16_t volts_dv[2];       /* V * 10, index 0 = L1 */
+    uint16_t amps_da[2];        /* A * 10 */
+    uint16_t watts[2];          /* W */
+} espnow_shore_power_t;
+
+typedef struct {
+    uint8_t instance;           /* RV-C TANK_STATUS instance */
+    uint8_t percent;
+    uint8_t valid;              /* 0 = no reading; show "--", not 0 % */
+} espnow_tank_msg_t;
+
+typedef struct {
+    uint8_t kind;               /* espnow_telem_kind_t */
+    union {
+        espnow_shore_power_t shore;
+        espnow_tank_msg_t    tank;
+    };
+} espnow_telem_msg_t;
+
 typedef void (*espnow_cmd_rx_cb_t)(const espnow_cmd_msg_t *msg, void *ctx);
 typedef void (*espnow_status_rx_cb_t)(const espnow_status_msg_t *msg, void *ctx);
+typedef void (*espnow_telem_rx_cb_t)(const espnow_telem_msg_t *msg, void *ctx);
+
+typedef enum {
+    /* CAN panel: relays remote commands onto the bus, sends status back,
+     * and may also broadcast tank telemetry. */
+    ESPNOW_ROLE_BRIDGE = 0,
+    /* Display panel with no CAN: sends commands, receives status, and
+     * receives telemetry broadcasts. */
+    ESPNOW_ROLE_REMOTE,
+    /* Headless producer (the basement BLE proxy): broadcasts telemetry
+     * only. Has no unicast peer at all, so CONFIG_FIREFLY_ESPNOW_PEER_MAC
+     * is not consulted and may stay at its placeholder. */
+    ESPNOW_ROLE_TELEMETRY,
+} espnow_role_t;
 
 /*
- * Brings up WiFi in STA-no-connect mode + ESP-NOW, adds the single peer
- * from CONFIG_FIREFLY_ESPNOW_PEER_MAC, and starts espnow_rx_task. Must be
- * called after nvs/board init; safe to call once per boot.
+ * Brings up WiFi in STA-no-connect mode + ESP-NOW, adds the peers this role
+ * needs, and starts espnow_rx_task. Must be called after nvs/board init;
+ * safe to call once per boot.
  */
-esp_err_t espnow_link_init(bool is_bridge);
+esp_err_t espnow_link_init(espnow_role_t role);
 
 /* Remote panel -> bridge: send a dimmer command to be relayed onto CAN. */
 bool espnow_link_send_cmd(const espnow_cmd_msg_t *msg);
 
 /* Bridge -> remote panel: relay a real DC_DIMMER_STATUS_3 change. */
 bool espnow_link_send_status(const espnow_status_msg_t *msg);
+
+/* Broadcast one telemetry measurement to every node on the channel. */
+bool espnow_link_send_telemetry(const espnow_telem_msg_t *msg);
 
 /* True if any frame was received from the peer within the last 5 s. */
 bool espnow_link_healthy(void);
@@ -67,6 +136,9 @@ void espnow_link_set_cmd_rx_cb(espnow_cmd_rx_cb_t cb, void *ctx);
 
 /* Remote role: called from espnow_rx_task when a status update arrives. */
 void espnow_link_set_status_rx_cb(espnow_status_rx_cb_t cb, void *ctx);
+
+/* Any receiving role: called when a telemetry broadcast arrives. */
+void espnow_link_set_telem_rx_cb(espnow_telem_rx_cb_t cb, void *ctx);
 
 #ifdef __cplusplus
 }
