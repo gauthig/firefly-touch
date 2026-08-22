@@ -250,6 +250,29 @@ static void battery_sweep_timer_cb(lv_timer_t *t)
     s_battery_valid[2] = ((tick / 20) % 4) != 3;
 }
 
+/* Fakes the shore-power telemetry that the basement BLE proxy would
+ * broadcast, so the Line 1 / Line 2 screen is reviewable without a Power
+ * Watchdog (or the proxy) present. Values drift slightly so a capture shows
+ * plausible live numbers rather than suspiciously round ones. */
+static void shore_power_timer_cb(lv_timer_t *t)
+{
+    (void)t;
+    static uint32_t tick;
+    tick++;
+
+    const float wobble = (float)(tick % 7) * 0.5f;
+    ui_shore_power_t sp = {
+        .line_count   = 2,
+        .error_code   = 0,
+        .frequency_hz = 60.0f,
+        .volts = { 118.0f + wobble * 0.2f, 119.0f - wobble * 0.2f },
+        .amps  = { 35.0f - wobble,         27.0f + wobble },
+    };
+    sp.watts[0] = sp.volts[0] * sp.amps[0];
+    sp.watts[1] = sp.volts[1] * sp.amps[1];
+    ui_on_shore_power(&sp);
+}
+
 /* Called from main_sim to make the screen look alive at startup. */
 void sim_seed_demo_state(void)
 {
@@ -265,4 +288,5 @@ void sim_seed_demo_state(void)
 
     lv_timer_create(tank_sweep_timer_cb, 500, NULL);
     lv_timer_create(battery_sweep_timer_cb, 500, NULL);
+    lv_timer_create(shore_power_timer_cb, 500, NULL);
 }

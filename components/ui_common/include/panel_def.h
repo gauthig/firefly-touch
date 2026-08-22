@@ -23,13 +23,24 @@ extern "C" {
 typedef enum {
     PANEL_BTN_DIMMER,         /* tap = toggle, hold = ramp, shows brightness bar */
     PANEL_BTN_SWITCH,         /* tap = on/off only */
-    PANEL_BTN_SCREEN_SWITCH,  /* local UI nav only -- flips to the panel's screen 2 */
+    /*
+     * Local UI nav only, never sent to the bus. instances[0] is reused as
+     * the TARGET SCREEN INDEX (0 = the main button grid), the same way
+     * PANEL_BTN_BATTERY_SUMMARY-era buttons reused it as a non-RV-C index.
+     * instance_count == 0 keeps the original two-screen behaviour: toggle
+     * between screen 0 and screen 1. That is what lets a panel with only
+     * one secondary screen stay unchanged.
+     */
+    PANEL_BTN_SCREEN_SWITCH,
     PANEL_BTN_TANK_LEVEL,     /* read-only tank %, fed by TANK_STATUS, no tap action */
     PANEL_BTN_BATTERY_SUMMARY,/* read-only combined readout for the whole battery
                                   bank, fed by jbd_bms_combine() over every
                                   configured pack. Takes no instances -- the packs
                                   are BLE slots, not RV-C instances. Tap toggles a
                                   per-pack detail popup. */
+    PANEL_BTN_SHORE_POWER,    /* read-only shore-power readout (Hughes Power Watchdog,
+                                  relayed from the basement proxy): Line 1 / Line 2
+                                  volts, amps, frequency and watts. Takes no instances */
     PANEL_BTN_SPACER,         /* empty grid cell -- no widget, just holds the layout */
 } panel_btn_type_t;
 

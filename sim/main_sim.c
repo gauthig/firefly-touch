@@ -118,7 +118,7 @@ static bool click_button_labeled(lv_obj_t *obj, const char *text)
     return false;
 }
 
-static int run_screenshot(const char *path, bool screen2, bool popup)
+static int run_screenshot(const char *path, bool screen2, bool popup, bool screen3)
 {
     lv_display_t *disp = lv_display_create(HEADLESS_W, HEADLESS_H);
     lv_display_set_color_format(disp, LV_COLOR_FORMAT_XRGB8888);
@@ -130,8 +130,10 @@ static int run_screenshot(const char *path, bool screen2, bool popup)
     sim_seed_demo_state();
 
     if (screen2) {
+        /* Whichever secondary-screen button this panel actually has. */
         if (!click_button_labeled(lv_screen_active(), "TANK LEVELS") &&
-            !click_button_labeled(lv_screen_active(), "BATTERY STATUS")) {
+            !click_button_labeled(lv_screen_active(), "BATTERY STATUS") &&
+            !click_button_labeled(lv_screen_active(), "BATTERY")) {
             fprintf(stderr, "[sim] no screen-switch button found (no screen 2 on this panel?)\n");
         }
         if (popup) {
@@ -144,6 +146,10 @@ static int run_screenshot(const char *path, bool screen2, bool popup)
                 fprintf(stderr, "[sim] no BANK widget on this panel's screen 2\n");
             }
         }
+    }
+
+    if (screen3 && !click_button_labeled(lv_screen_active(), "SHORE POWER")) {
+        fprintf(stderr, "[sim] no SHORE POWER button on this panel\n");
     }
 
     /* Run real time forward so the tank/battery-status timers (500 ms /
@@ -192,8 +198,12 @@ int main(int argc, char **argv)
 
     if (argc >= 3 && strcmp(argv[1], "--shot") == 0) {
         const bool screen2 = argc >= 4 && strcmp(argv[3], "screen2") == 0;
+        const bool screen3 = argc >= 4 && strcmp(argv[3], "screen3") == 0;
         const bool popup = argc >= 5 && strcmp(argv[4], "popup") == 0;
-        return run_screenshot(argv[2], screen2, popup);
+        if (screen3) {
+            return run_screenshot(argv[2], false, false, true);
+        }
+        return run_screenshot(argv[2], screen2, popup, false);
     }
     return run_window();
 }

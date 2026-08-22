@@ -5,6 +5,7 @@
 #include "esp_log.h"
 
 #include "ui_battery_summary.h"
+#include "ui_shore_panel.h"
 #include "ui_tank_wave.h"
 #include "ui_theme.h"
 
@@ -42,6 +43,7 @@ typedef struct {
     lv_obj_t *bar;            /* PANEL_BTN_DIMMER only: brightness bar */
     lv_obj_t *tank_wave;      /* PANEL_BTN_TANK_LEVEL only: animated gauge */
     lv_obj_t *battery_summary;/* PANEL_BTN_BATTERY_SUMMARY only: bank readout */
+    lv_obj_t *shore_panel;    /* PANEL_BTN_SHORE_POWER only: L1/L2 readout */
 } btn_ctx_t;
 
 static bool any_on(const btn_ctx_t *ctx)
@@ -122,7 +124,8 @@ static void handle_tap(btn_ctx_t *ctx)
         send(ctx, RVC_DIMMER_CMD_TOGGLE);
         return;
     }
-    if (ctx->def->type == PANEL_BTN_TANK_LEVEL) {
+    if (ctx->def->type == PANEL_BTN_TANK_LEVEL ||
+        ctx->def->type == PANEL_BTN_SHORE_POWER) {
         /* Read-only display, no command, no confirm timer. */
         return;
     }
@@ -268,6 +271,15 @@ lv_obj_t *ui_dimmer_button_create(lv_obj_t *parent,
         ctx->battery_summary = ui_battery_summary_create(btn);
     }
 
+    if (def->type == PANEL_BTN_SHORE_POWER) {
+        lv_obj_add_flag(ctx->name, LV_OBJ_FLAG_HIDDEN);
+        /* Transparent: the two Line columns carry their own tile
+         * backgrounds, so a card behind them would just be visual noise. */
+        lv_obj_set_style_bg_opa(btn, LV_OPA_TRANSP, LV_PART_MAIN);
+        lv_obj_set_style_pad_all(btn, 0, 0);
+        ctx->shore_panel = ui_shore_panel_create(btn);
+    }
+
     lv_obj_add_event_cb(btn, event_cb, LV_EVENT_ALL, ctx);
     refresh_visuals(ctx);
     return btn;
@@ -282,7 +294,8 @@ void ui_dimmer_button_update(lv_obj_t *btn, uint8_t instance,
      * must not cross-contaminate their state. See
      * ui_dimmer_button_update_tank()/_update_battery() for those. */
     if (ctx == NULL || ctx->def->type == PANEL_BTN_TANK_LEVEL ||
-        ctx->def->type == PANEL_BTN_BATTERY_SUMMARY) {
+        ctx->def->type == PANEL_BTN_BATTERY_SUMMARY ||
+        ctx->def->type == PANEL_BTN_SHORE_POWER) {
         return;
     }
 
@@ -339,4 +352,14 @@ void ui_dimmer_button_update_bank(lv_obj_t *btn, const jbd_bms_bank_t *bank,
     if (packs != NULL) {
         ui_battery_summary_set_packs(ctx->battery_summary, packs, packs_len);
     }
+}
+
+void ui_dimmer_button_update_shore(lv_obj_t *btn, const ui_shore_reading_t *r,
+                                   bool valid)
+{
+    btn_ctx_t *ctx = lv_obj_get_user_data(btn);
+    if (ctx == NULL || ctx->def->type != PANEL_BTN_SHORE_POWER) {
+        return;
+    }
+    ui_shore_panel_set(ctx->shore_panel, r, valid);
 }

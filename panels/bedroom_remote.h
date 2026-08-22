@@ -29,8 +29,15 @@
 #define PANEL_INDEX 2
 #define PANEL_HAS_CAN 0
 #define PANEL_HAS_SCREEN_2 1
+#define PANEL_HAS_SCREEN_3 1
 #define PANEL_HAS_BLE_BATTERY 1
 
+/*
+ * Screen-switch buttons name their target screen in instances[0]:
+ * 0 = this button grid, 1 = battery bank, 2 = shore power. The trailing
+ * spacer keeps the two nav buttons together on the bottom row instead of
+ * leaving one stranded beside MOTION.
+ */
 static const panel_btn_def_t PANEL_BUTTONS[] = {
     { "BEDROOM CEILING", PANEL_BTN_DIMMER, {17},     1 },
     { "BED O/H",         PANEL_BTN_DIMMER, {18},     1 },
@@ -39,7 +46,9 @@ static const panel_btn_def_t PANEL_BUTTONS[] = {
     { "MIDSHIP",         PANEL_BTN_DIMMER, {35},     1 },
     { "COURTESY",        PANEL_BTN_DIMMER, {21},     1 },
     { "MOTION",          PANEL_BTN_SWITCH, {46},     1 },
-    { "BATTERY STATUS",  PANEL_BTN_SCREEN_SWITCH, {0}, 0 },
+    { "",                PANEL_BTN_SPACER, {0},      0 },
+    { "BATTERY",         PANEL_BTN_SCREEN_SWITCH, {1}, 1 },
+    { "SHORE POWER",     PANEL_BTN_SCREEN_SWITCH, {2}, 1 },
 };
 
 #define PANEL_BUTTON_COUNT (sizeof(PANEL_BUTTONS) / sizeof(PANEL_BUTTONS[0]))
@@ -54,7 +63,20 @@ static const panel_btn_def_t PANEL_BUTTONS[] = {
  */
 static const panel_btn_def_t PANEL_BUTTONS_2[] = {
     { "BANK", PANEL_BTN_BATTERY_SUMMARY, {0}, 0 },
-    { "BACK", PANEL_BTN_SCREEN_SWITCH,   {0}, 0 },
+    { "BACK", PANEL_BTN_SCREEN_SWITCH,   {0}, 1 },
 };
 
 #define PANEL_BUTTON_COUNT_2 (sizeof(PANEL_BUTTONS_2) / sizeof(PANEL_BUTTONS_2[0]))
+
+/*
+ * Screen 3: shore power (Hughes Power Watchdog), Line 1 / Line 2 volts,
+ * amps, frequency and watts. The data arrives as an ESP-NOW telemetry
+ * broadcast from the basement BLE proxy — this panel has no BLE link to the
+ * Watchdog itself, and needs none.
+ */
+static const panel_btn_def_t PANEL_BUTTONS_3[] = {
+    { "SHORE", PANEL_BTN_SHORE_POWER,   {0}, 0 },
+    { "BACK",  PANEL_BTN_SCREEN_SWITCH, {0}, 1 },
+};
+
+#define PANEL_BUTTON_COUNT_3 (sizeof(PANEL_BUTTONS_3) / sizeof(PANEL_BUTTONS_3[0]))

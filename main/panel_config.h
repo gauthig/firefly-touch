@@ -59,6 +59,24 @@
 #endif
 
 /*
+ * PANEL_HAS_SCREEN_3 1 = a third screen (PANEL_BUTTONS_3[] /
+ * PANEL_BUTTON_COUNT_3). Requires PANEL_HAS_SCREEN_2 — screens are numbered
+ * consecutively, and ui.c walks them as a list.
+ *
+ * With more than two screens, a PANEL_BTN_SCREEN_SWITCH button must say
+ * WHICH screen it targets, via instances[0] (0 = the main button grid). A
+ * button with instance_count == 0 keeps the original toggle-between-0-and-1
+ * behaviour, so a two-screen panel needs no changes.
+ */
+#ifndef PANEL_HAS_SCREEN_3
+#define PANEL_HAS_SCREEN_3 0
+#endif
+
+#if PANEL_HAS_SCREEN_3 && !PANEL_HAS_SCREEN_2
+#error "PANEL_HAS_SCREEN_3 requires PANEL_HAS_SCREEN_2 (screens are consecutive)"
+#endif
+
+/*
  * PANEL_HAS_BLE_BATTERY 1 = this panel starts the jbd_bms BLE client
  * (components/jbd_bms) at boot and shows a battery-status screen fed by
  * it. The jbd_bms component is always compiled into main (see

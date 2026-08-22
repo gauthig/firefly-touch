@@ -28,6 +28,7 @@
 #include "panel_def.h"
 #include "rvc_protocol.h"
 #include "ui_battery_summary.h"
+#include "ui_shore_panel.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -80,6 +81,14 @@ void ui_dimmer_button_update_tank(lv_obj_t *btn, uint8_t instance,
 void ui_dimmer_button_update_bank(lv_obj_t *btn, const jbd_bms_bank_t *bank,
                                   const ui_battery_pack_info_t *packs,
                                   uint8_t packs_len, uint8_t configured_packs);
+
+/*
+ * Feed a shore-power reading to a PANEL_BTN_SHORE_POWER widget. No-op for
+ * any other button type. `valid` false shows "--" everywhere. Caller must
+ * hold the LVGL lock.
+ */
+void ui_dimmer_button_update_shore(lv_obj_t *btn, const ui_shore_reading_t *r,
+                                   bool valid);
 
 #ifdef __cplusplus
 }

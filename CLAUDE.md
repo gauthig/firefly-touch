@@ -494,10 +494,16 @@ show tanks — previously out of scope).
   readings are broadcast too, so a remote can distinguish "no reading" from
   "0 %". Remote tank telemetry re-enters via `ui_on_tank_status()`, the same
   entry point CAN-fed tanks use.
-- Shore power renders in a remote panel's **status bar** (volts + amps per
-  line), ageing out to "--" after 20 s of silence. Note a panel with GREY/
-  BLACK tank buttons already uses that spot for the tank readout — today no
-  panel has both.
+- Shore power renders two ways on a remote panel: a compact **status bar**
+  summary (volts + amps per line) for passive awareness, and a full
+  **Line 1 / Line 2 screen** (`PANEL_BTN_SHORE_POWER`,
+  `components/ui_common/ui_shore_panel.c`) laid out like the Hughes phone
+  app — Volts / Amps / Freq / Watts per column, green digits. Both age out
+  to "--" after 20 s of silence, and the staleness decision is made once in
+  `shore_power_timer_cb()` so the two can never disagree. A 30 A pedestal
+  reports one line, and the Line 2 column is hidden rather than shown as
+  zeroes. Note a panel with GREY/BLACK tank buttons already uses the status
+  bar's right side for the tank readout — today no panel has both.
 
 ⚠️ **All ESP-NOW nodes must share one WiFi channel** (`FIREFLY_ESPNOW_CHANNEL`,
 default 1) — there is no AP to negotiate one, and a mismatch is silently
@@ -683,15 +689,28 @@ flips (`UI_COLOR_TEXT_DIM` off, `UI_COLOR_TEXT_ON_LIT` — dark navy — on) for
 contrast against the light-blue on-state. The dimmer level bar keeps its own
 amber (`UI_COLOR_AMBER`) fill, independent of this background swap.
 
-**Dual screens (GitHub issue #4).** A panel opts in with
-`#define PANEL_HAS_SCREEN_2 1` (default 0, `main/panel_config.h`) plus a
-second `PANEL_BUTTONS_2[]`/`PANEL_BUTTON_COUNT_2` array. `build_screen()`
-in `main/ui/ui.c` builds both screens up front as sibling containers
-(screen 2 starts `LV_OBJ_FLAG_HIDDEN`) so status updates keep both correct
-even while one is hidden — switching back must never show stale state. One
-`PANEL_BTN_SCREEN_SWITCH` button per screen calls `switch_screen()` to
-toggle which one is visible; it's local UI nav only, never forwarded as an
-RV-C command.
+**Multiple screens (GitHub issue #4, extended for #37).** A panel opts in
+with `#define PANEL_HAS_SCREEN_2 1` (default 0, `main/panel_config.h`) plus
+a `PANEL_BUTTONS_2[]`/`PANEL_BUTTON_COUNT_2` array, and optionally
+`PANEL_HAS_SCREEN_3` + `PANEL_BUTTONS_3[]` (bedroom_remote: battery bank on
+2, shore power on 3). `build_screen()` in `main/ui/ui.c` builds **every**
+screen up front as sibling containers (all but screen 0 start
+`LV_OBJ_FLAG_HIDDEN`) so status updates keep them all correct even while
+hidden — switching must never show stale state. `ui.c` holds them as a
+`s_screens[]` list rather than named globals, and all the update paths
+(`ui_on_status`, `ui_on_tank_status`, shore power) walk that list.
+
+`PANEL_BTN_SCREEN_SWITCH` is local UI nav only, never forwarded as an RV-C
+command. **With more than two screens a nav button must say which screen it
+targets, via `instances[0]`** (0 = the main grid). A button with
+`instance_count == 0` keeps the original toggle-between-0-and-1 behaviour —
+that's what lets `mid_coach`'s TANK LEVELS/BACK pair stay untouched.
+
+`build_button_grid()` derives its row count from the button count
+(`ceil(count/2)`, capped at `GRID_MAX_ROWS`) rather than assuming 4 rows, so
+a panel can carry more than 8 entries — `bedroom_remote` has 10 once
+BATTERY and SHORE POWER are separate buttons, with a `PANEL_BTN_SPACER`
+keeping the two nav buttons together on the bottom row.
 
 Screen 1 stays the plain 2x4 button grid (`build_button_grid()`);
 `PANEL_BTN_SPACER` fills a grid cell with nothing, which is how it
