@@ -13,6 +13,76 @@ the full UI are verified on both the plain ESP32-S3-Touch-LCD-4.3 (bench,
 command-code/interlock bugs below. Hold-to-dim, the rest of the instance
 map, and the other items in *Unverified* below are still unconfirmed.
 
+### Added — MAIN CABINET panel on a Waveshare 7", side-nav UI (2026-08-23)
+
+Issues #44–#48. A fourth panel (`main_cabinet`, index 3, source `0x83`),
+and the first on a board other than the 4.3B.
+
+- **New board: Waveshare ESP32-S3-Touch-LCD-7** (non-B), run **landscape**
+  rather than rotated to portrait — which is what makes room for the rail.
+  Verified on the real board: 16 MB flash / 8 MB PSRAM, same as the 4.3B, so
+  `partitions.csv` and `sdkconfig.defaults` were unchanged despite the
+  Waveshare wiki listing 8 MB for the product line.
+- ⚠️ **CAN moves to GPIO20/19**, where the 4.3B has RS485, and those pins are
+  shared with native USB behind CH422G EXIO5 (low = USB, high = CAN). The
+  firmware raises it, so the board is flashed over UART. A board mismatch
+  fails silently, so `BOARD` is **derived from `PANEL`** in the root
+  `CMakeLists.txt` and validated by `tools/check_panels.py` against a new
+  Board column in `panels/REGISTRY.md`. There is no `-DBOARD=` to forget.
+- `components/board_4_3b` became **`components/board`** holding both boards
+  behind one `board.h`; the CH422G driver split out into
+  `components/ch422g`, shared by both.
+- ⚠️ **Only the SOURCE selection is conditional in the board component;
+  `REQUIRES` is constant.** IDF resolves the dependency graph in an early
+  expansion pass that runs before the project's variables exist. A first
+  attempt used two components that each registered empty unless selected;
+  every `REQUIRES` silently evaluated to nothing and the build failed with
+  "board.h: No such file" while the CMake looked correct.
+- **Side-nav rail** (`PANEL_HAS_NAV_RAIL`), plus `PANEL_DEFAULT_SCREEN` and
+  `PANEL_GRID_COLS`. Rail entries are ordinary `PANEL_BTN_SCREEN_SWITCH`
+  defs and are matched to sections by target screen, so rail order is
+  independent of screen index. `build_screen2_row()` was left untouched for
+  the three installed panels rather than generalised.
+- **`PANEL_BTN_LOCAL_TOGGLE`** — caption-flipping buttons that send
+  nothing, for the grey/black dump valves and the gravity/macerator
+  selector. Deliberately inert: the actuation isn't built, and they are
+  coloured like any other on-state rather than with the warn colour, since
+  an alarm colour would announce an open dump valve that doesn't exist.
+- **`PANEL_BTN_LIGHT_MASTER`** — off sweeps every instance the state
+  manager reports as on (reaching lights this panel has no button for); on
+  applies the header's `PANEL_MASTER_ON[]` scene, because RV-C has no all-on
+  command and **the G6's own LIGHT MASTER DGN has never been captured**.
+  Direction is read fresh at tap time and the visual is primed at build
+  time — without both, a tap in the first second after boot saw stale
+  state and turned everything on while lights were already on.
+- `panel_btn_def_t` gained `label_alt`; every panel header's button table
+  moved to **designated initializers**, which ends the
+  `-Wmissing-field-initializers` churn for any future field.
+- **Three latent bugs fixed**, all of which only bite a CAN panel showing
+  broadcast telemetry: the shore-power timer was created only
+  `#if !PANEL_HAS_CAN`; the grey/black and battery scans looked only at
+  `PANEL_BUTTONS_2`; and `idle_timer_cb` returned to screen 0 instead of
+  the panel's default screen.
+- `PANEL_WANTS_TELEMETRY` lets a CAN panel run ESP-NOW in the receive-only
+  TELEMETRY role. `main_cabinet` needs it: the battery packs and the Power
+  Watchdog are on the proxy's BLE links, which no CAN wiring reaches.
+- Simulator sizes its window from the panel's **logical** resolution
+  (landscape for a rail panel), and `--shot` gained
+  `section:<LABEL>[,<LABEL>...]` for tapping a sequence — the only way to
+  reach a control inside a section, since a hidden widget can't be
+  hit-tested.
+
+**Confirmed on the coach 2026-08-23.** RV-C CAN works on GPIO20/19, which
+also confirms the EXIO5 USB/CAN mux polarity; the battery bank and shore
+power arrive as ESP-NOW broadcasts from the proxy; Light Master on and off
+behave as designed against real loads; and the display geometry and colours
+are correct, confirming the RGB timings. Builds are clean for all four
+panels and the proxy and the host tests pass.
+
+Still open, by choice: whether the G6 has a real all-lights command on the
+bus. The factory LIGHT MASTER rocker has never been sniffed, so the panel's
+master stays synthesised until it is.
+
 ### Changed — battery BLE moved to the basement proxy (2026-08-23)
 
 Issues #40–#42. The three JBD/Xiaoxiang packs are in the same basement bay

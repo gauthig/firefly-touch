@@ -32,6 +32,17 @@ typedef struct {
     bool ramping;
     bool ramp_up_next;   /* direction for the next hold, alternates */
 
+    /* PANEL_BTN_LOCAL_TOGGLE: the whole state of the button. Nothing on the
+     * bus backs it, so unlike on[]/levels[] this IS written by the tap. */
+    bool local_on;
+    /* PANEL_BTN_LIGHT_MASTER: "is any light on", pushed in from ui.c's
+     * sweep of the state manager -- still status-driven, just from a
+     * different source than a single instance's STATUS_3. */
+    bool master_on;
+    /* PANEL_BTN_SCREEN_SWITCH used as a nav-rail entry: whether this is the
+     * section currently being shown. */
+    bool rail_active;
+
     /* Command confirmation (tap-to-toggle only). */
     lv_timer_t       *confirm_timer;
     rvc_dimmer_cmd_t   pending_cmd;
@@ -67,9 +78,43 @@ static uint8_t max_level(const btn_ctx_t *ctx)
     return max;
 }
 
+/*
+ * "Lit" state for the background swap. Most buttons take it from the
+ * instance status frames; the three exceptions each have their own source,
+ * and all of them are still a reflection of state rather than of the tap
+ * that caused it.
+ */
+static bool visual_on(const btn_ctx_t *ctx)
+{
+    switch (ctx->def->type) {
+    case PANEL_BTN_LOCAL_TOGGLE:
+        return ctx->local_on;
+    case PANEL_BTN_LIGHT_MASTER:
+        return ctx->master_on;
+    case PANEL_BTN_SCREEN_SWITCH:
+        return ctx->rail_active;
+    default:
+        return any_on(ctx);
+    }
+}
+
 static void refresh_visuals(btn_ctx_t *ctx)
 {
-    const bool on = any_on(ctx);
+    const bool on = visual_on(ctx);
+
+    if (ctx->def->type == PANEL_BTN_LOCAL_TOGGLE) {
+        /* The caption IS the state readout ("GREY CLOSED" / "GREY OPEN"),
+         * so there is no separate indicator to keep in sync.
+         *
+         * Colored like any other on-state, NOT with the warn color: these
+         * buttons actuate nothing yet, so an alarm color would announce a
+         * genuinely open dump valve that does not exist. Worth revisiting
+         * when they drive real valves -- but only then. */
+        lv_label_set_text(ctx->name,
+                          (on && ctx->def->label_alt != NULL) ? ctx->def->label_alt
+                                                              : ctx->def->label);
+    }
+
     lv_obj_set_style_bg_color(ctx->btn, on ? UI_COLOR_CARD_ON : UI_COLOR_CARD, LV_PART_MAIN);
     lv_obj_set_style_text_color(ctx->name, on ? UI_COLOR_TEXT_ON_LIT : UI_COLOR_TEXT_DIM, 0);
 
@@ -127,6 +172,23 @@ static void handle_tap(btn_ctx_t *ctx)
     if (ctx->def->type == PANEL_BTN_TANK_LEVEL ||
         ctx->def->type == PANEL_BTN_SHORE_POWER) {
         /* Read-only display, no command, no confirm timer. */
+        return;
+    }
+    if (ctx->def->type == PANEL_BTN_LOCAL_TOGGLE) {
+        /* Drives nothing yet -- flips its own caption and stops there. No
+         * frame is sent, so there is nothing to confirm and no retry. */
+        ctx->local_on = !ctx->local_on;
+        refresh_visuals(ctx);
+        return;
+    }
+    if (ctx->def->type == PANEL_BTN_LIGHT_MASTER) {
+        /* Signals the tap; ui.c owns both the direction and what "all off"
+         * and "all on" mean, since only it can see the state manager and
+         * the panel's PANEL_MASTER_ON[] list -- and it re-reads that state
+         * at tap time rather than trusting this widget's cached copy. As
+         * everywhere else, the visual state is NOT flipped here; it moves
+         * when the resulting STATUS_3 frames come back. */
+        send(ctx, RVC_DIMMER_CMD_TOGGLE);
         return;
     }
     if (ctx->def->type == PANEL_BTN_BATTERY_SUMMARY) {
@@ -192,6 +254,8 @@ static bool acts_on_click(const btn_ctx_t *ctx)
     case PANEL_BTN_BATTERY_SUMMARY:
     case PANEL_BTN_SHORE_POWER:
     case PANEL_BTN_TANK_LEVEL:
+    case PANEL_BTN_LOCAL_TOGGLE:
+    case PANEL_BTN_LIGHT_MASTER:
         return true;
     default:
         return false;
@@ -336,7 +400,14 @@ void ui_dimmer_button_update(lv_obj_t *btn, uint8_t instance,
      * ui_dimmer_button_update_tank()/_update_battery() for those. */
     if (ctx == NULL || ctx->def->type == PANEL_BTN_TANK_LEVEL ||
         ctx->def->type == PANEL_BTN_BATTERY_SUMMARY ||
-        ctx->def->type == PANEL_BTN_SHORE_POWER) {
+        ctx->def->type == PANEL_BTN_SHORE_POWER ||
+        ctx->def->type == PANEL_BTN_LOCAL_TOGGLE ||
+        ctx->def->type == PANEL_BTN_LIGHT_MASTER ||
+        ctx->def->type == PANEL_BTN_SCREEN_SWITCH) {
+        /* None of these track a dimmer instance. SCREEN_SWITCH is in the
+         * list because it reuses instances[0] as a TARGET SCREEN INDEX --
+         * without this guard, a real dimmer on instance 1 would light up a
+         * nav button pointing at screen 1. */
         return;
     }
 
@@ -403,4 +474,30 @@ void ui_dimmer_button_update_shore(lv_obj_t *btn, const ui_shore_reading_t *r,
         return;
     }
     ui_shore_panel_set(ctx->shore_panel, r, valid);
+}
+
+void ui_dimmer_button_update_master(lv_obj_t *btn, bool any_light_on)
+{
+    btn_ctx_t *ctx = lv_obj_get_user_data(btn);
+    if (ctx == NULL || ctx->def->type != PANEL_BTN_LIGHT_MASTER) {
+        return;
+    }
+    if (ctx->master_on == any_light_on) {
+        return;   /* called once a second -- don't repaint for nothing */
+    }
+    ctx->master_on = any_light_on;
+    refresh_visuals(ctx);
+}
+
+void ui_dimmer_button_set_active(lv_obj_t *btn, bool active)
+{
+    btn_ctx_t *ctx = lv_obj_get_user_data(btn);
+    if (ctx == NULL || ctx->def->type != PANEL_BTN_SCREEN_SWITCH) {
+        return;
+    }
+    if (ctx->rail_active == active) {
+        return;
+    }
+    ctx->rail_active = active;
+    refresh_visuals(ctx);
 }

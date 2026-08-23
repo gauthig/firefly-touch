@@ -40,23 +40,23 @@
 #define PANEL_HAS_SCREEN_2 1
 
 static const panel_btn_def_t PANEL_BUTTONS[] = {
-    { "CENTER CEILING",  PANEL_BTN_DIMMER, {25},     1 },
-    { "MIDSHIP",         PANEL_BTN_DIMMER, {35},     1 },
-    { "SIDE CEILING",    PANEL_BTN_DIMMER, {30, 31}, 2 },
-    { "SINK/COUNTER",    PANEL_BTN_DIMMER, {34},     1 },
-    { "SOFA SCONCE/SLIDE", PANEL_BTN_DIMMER, {32},   1 },
-    { "DINETTE",         PANEL_BTN_DIMMER, {33},     1 },
-    { "ACCENT",          PANEL_BTN_DIMMER, {26, 27}, 2 },
-    { "TANK LEVELS",     PANEL_BTN_SCREEN_SWITCH, {0}, 0 },
+    { .label = "CENTER CEILING", .type = PANEL_BTN_DIMMER, .instances = {25}, .instance_count = 1 },
+    { .label = "MIDSHIP", .type = PANEL_BTN_DIMMER, .instances = {35}, .instance_count = 1 },
+    { .label = "SIDE CEILING", .type = PANEL_BTN_DIMMER, .instances = {30, 31}, .instance_count = 2 },
+    { .label = "SINK/COUNTER", .type = PANEL_BTN_DIMMER, .instances = {34}, .instance_count = 1 },
+    { .label = "SOFA SCONCE/SLIDE", .type = PANEL_BTN_DIMMER, .instances = {32}, .instance_count = 1 },
+    { .label = "DINETTE", .type = PANEL_BTN_DIMMER, .instances = {33}, .instance_count = 1 },
+    { .label = "ACCENT", .type = PANEL_BTN_DIMMER, .instances = {26, 27}, .instance_count = 2 },
+    { .label = "TANK LEVELS", .type = PANEL_BTN_SCREEN_SWITCH, .instances = {0}, .instance_count = 0 },
 };
 
 #define PANEL_BUTTON_COUNT (sizeof(PANEL_BUTTONS) / sizeof(PANEL_BUTTONS[0]))
 
 static const panel_btn_def_t PANEL_BUTTONS_2[] = {
-    { "FRESH", PANEL_BTN_TANK_LEVEL,    {0}, 1 },
-    { "GREY",  PANEL_BTN_TANK_LEVEL,    {2}, 1 },
-    { "BLACK", PANEL_BTN_TANK_LEVEL,    {1}, 1 },
-    { "BACK",  PANEL_BTN_SCREEN_SWITCH, {0}, 0 },
+    { .label = "FRESH", .type = PANEL_BTN_TANK_LEVEL, .instances = {0}, .instance_count = 1 },
+    { .label = "GREY", .type = PANEL_BTN_TANK_LEVEL, .instances = {2}, .instance_count = 1 },
+    { .label = "BLACK", .type = PANEL_BTN_TANK_LEVEL, .instances = {1}, .instance_count = 1 },
+    { .label = "BACK", .type = PANEL_BTN_SCREEN_SWITCH, .instances = {0}, .instance_count = 0 },
 };
 
 #define PANEL_BUTTON_COUNT_2 (sizeof(PANEL_BUTTONS_2) / sizeof(PANEL_BUTTONS_2[0]))

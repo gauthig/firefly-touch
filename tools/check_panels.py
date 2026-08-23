@@ -13,6 +13,11 @@ Checks:
   3. Every panel header has a row in panels/REGISTRY.md with a matching index.
   4. Every registry row has a corresponding header (no stale rows).
   5. The registry's "Next free index" is actually free and correct.
+  6. Each row's Board column matches the PANEL_BOARD_<panel> mapping in the
+     root CMakeLists.txt (panels absent from that mapping default to 4_3b),
+     and that components/board/board_<board>.c actually exists. A wrong board is worse than a
+     wrong index: the Waveshare 7" puts CAN where the 4.3B puts RS485, so
+     the panel boots and looks fine with a permanently silent bus.
 
 Usage:
     python tools/check_panels.py            # human-readable report
@@ -27,6 +32,9 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parent.parent
 PANEL_DIR = REPO / "panels"
 REGISTRY = PANEL_DIR / "REGISTRY.md"
+ROOT_CMAKE = REPO / "CMakeLists.txt"
+
+DEFAULT_BOARD = "4_3b"
 
 # Not a real panel: it is the copy-me starting point and intentionally
 # contains a placeholder index plus an #error guard.
@@ -35,7 +43,15 @@ SKIP = {"TEMPLATE.h"}
 RE_NAME = re.compile(r'^\s*#define\s+PANEL_NAME\s+"([^"]*)"', re.MULTILINE)
 RE_INDEX = re.compile(r"^\s*#define\s+PANEL_INDEX\s+(\d+)", re.MULTILINE)
 RE_ROW = re.compile(r"^\|\s*`([A-Za-z0-9_]+)`\s*\|\s*(\d+)\s*\|", re.MULTILINE)
+# panel | index | source addr | board | ...
+RE_ROW_BOARD = re.compile(
+    r"^\|\s*`([A-Za-z0-9_]+)`\s*\|\s*\d+\s*\|[^|]*\|\s*`([A-Za-z0-9_.]+)`\s*\|",
+    re.MULTILINE,
+)
 RE_NEXT = re.compile(r"\*\*Next free index:\s*(\d+)\*\*")
+RE_CMAKE_BOARD = re.compile(
+    r'^\s*set\(PANEL_BOARD_([A-Za-z0-9_]+)\s+"([A-Za-z0-9_.]+)"\)', re.MULTILINE
+)
 
 
 def load_panels():
@@ -57,19 +73,33 @@ def load_panels():
 
 
 def load_registry():
-    """Return ({panel_name: index}, next_free_index)."""
+    """Return ({panel: index}, {panel: board}, next_free_index, errors)."""
     if not REGISTRY.exists():
-        return {}, None, [f"missing {REGISTRY.relative_to(REPO)}"]
+        return {}, {}, None, [f"missing {REGISTRY.relative_to(REPO)}"]
     text = REGISTRY.read_text(encoding="utf-8")
     rows = {m.group(1): int(m.group(2)) for m in RE_ROW.finditer(text)}
+    boards = {m.group(1): m.group(2) for m in RE_ROW_BOARD.finditer(text)}
     nxt = RE_NEXT.search(text)
-    return rows, (int(nxt.group(1)) if nxt else None), []
+    return rows, boards, (int(nxt.group(1)) if nxt else None), []
+
+
+def load_cmake_boards():
+    """Return {panel: board} from the root CMakeLists.txt PANEL_BOARD_* map."""
+    if not ROOT_CMAKE.exists():
+        return {}, [f"missing {ROOT_CMAKE.relative_to(REPO)}"]
+    text = ROOT_CMAKE.read_text(encoding="utf-8")
+    return {m.group(1): m.group(2) for m in RE_CMAKE_BOARD.finditer(text)}, []
 
 
 def main():
     panels, errors = load_panels()
-    registry, next_free, reg_errors = load_registry()
+    registry, reg_boards, next_free, reg_errors = load_registry()
     errors += reg_errors
+    cmake_boards, cmake_errors = load_cmake_boards()
+    errors += cmake_errors
+
+    def board_of(panel):
+        return cmake_boards.get(panel, DEFAULT_BOARD)
 
     # 2. duplicate indices among actual panel headers
     by_index = {}
@@ -100,6 +130,31 @@ def main():
                 f"REGISTRY.md lists '{panel}' but panels/{panel}.h does not exist"
             )
 
+    # 6. board agreement between the registry and the build's PANEL->BOARD map
+    for panel in sorted(panels):
+        want = board_of(panel)
+        if panel not in reg_boards:
+            errors.append(
+                f"'{panel}': REGISTRY.md row has no Board column "
+                f"(expected `{want}`)"
+            )
+        elif reg_boards[panel] != want:
+            errors.append(
+                f"'{panel}': REGISTRY.md says board `{reg_boards[panel]}`, "
+                f"CMakeLists.txt maps it to `{want}`"
+            )
+        if not (REPO / "components" / "board" / f"board_{want}.c").is_file():
+            errors.append(
+                f"'{panel}': board `{want}` has no "
+                f"components/board/board_{want}.c"
+            )
+    for panel in sorted(cmake_boards):
+        if panel not in panels:
+            errors.append(
+                f"CMakeLists.txt maps board for '{panel}', "
+                f"but panels/{panel}.h does not exist"
+            )
+
     # 5. next-free bookkeeping
     if next_free is None:
         errors.append("REGISTRY.md has no '**Next free index: N**' line")
@@ -126,7 +181,7 @@ def main():
     print(f"{len(panels)} panel(s) defined in panels/\n")
     for panel, (index, screen) in sorted(panels.items(), key=lambda kv: kv[1][0]):
         print(f"  {panel:<16} index {index:<3} source addr 0x{0x80 + index:02X}"
-              f"   \"{screen}\"")
+              f"   board {board_of(panel):<6} \"{screen}\"")
     if next_free is not None:
         print(f"\n  next free      index {next_free:<3} "
               f"source addr 0x{0x80 + next_free:02X}")
@@ -137,7 +192,7 @@ def main():
             print(f"  - {err}", file=sys.stderr)
         return 1
 
-    print("\nOK — indices unique and registry in sync.")
+    print("\nOK — indices unique, boards mapped, registry in sync.")
     return 0
 
 

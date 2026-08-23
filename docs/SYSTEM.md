@@ -22,6 +22,7 @@ graph TB
     MID["<b>mid_coach</b> · 0x80<br/>ESP32-S3 panel<br/><i>CAN + ESP-NOW bridge</i>"]
     ENT["<b>ent_center</b> · 0x81<br/>ESP32-S3 panel<br/><i>CAN only</i>"]
     BED["<b>bedroom_remote</b> · 0x82<br/>ESP32-S3 panel<br/><i>no CAN wiring</i>"]
+    MAIN["<b>main_cabinet</b> · 0x83<br/>ESP32-S3 7\" panel<br/><i>CAN + listens to broadcasts</i>"]
     PROXY["<b>Bluetooth proxy basement</b><br/>classic ESP32 · headless<br/><i>in the bay</i>"]
 
     subgraph bay["Basement bay"]
@@ -33,8 +34,10 @@ graph TB
 
     G6A === MID
     G6A === ENT
+    G6A === MAIN
     SEE === MID
     SEE === ENT
+    SEE === MAIN
     FSW === G6A
 
     MID <-->|"ESP-NOW unicast<br/>encrypted · ch 1"| BED
@@ -42,6 +45,7 @@ graph TB
     MID -.->|"ESP-NOW broadcast<br/>tank levels"| BED
     PROXY -.->|"ESP-NOW broadcast<br/>shore power + batteries"| BED
     PROXY -.->|"ESP-NOW broadcast"| MID
+    PROXY -.->|"ESP-NOW broadcast<br/>shore power + batteries"| MAIN
 
     PROXY -->|"BLE GATT<br/>4 links"| BAT1
     PROXY --> BAT2
@@ -53,7 +57,7 @@ graph TB
 
     classDef panel fill:#0D1B3A,stroke:#5DADE2,color:#EDE4D3
     classDef coach fill:#1A1F2E,stroke:#8A8375,color:#EDE4D3
-    class MID,ENT,BED,PROXY panel
+    class MID,ENT,BED,MAIN,PROXY panel
     class G6A,SEE,FSW,BAT1,BAT2,BAT3,WD coach
 ```
 
@@ -69,12 +73,22 @@ shared RV-C CAN bus, where every node is a peer.
 | **`mid_coach`** | Waveshare ESP32-S3-Touch-LCD-4.3B | Lights + tank levels. Also the ESP-NOW bridge and the tank-telemetry producer. | RV-C CAN, ESP-NOW (unicast + broadcast) |
 | **`ent_center`** | Waveshare ESP32-S3-Touch-LCD-4.3B | Lights only | RV-C CAN |
 | **`bedroom_remote`** | Waveshare ESP32-S3-Touch-LCD-4.3B | Lights, battery bank, shore power — the latter two entirely from broadcasts. **No CAN wiring, no BLE.** | ESP-NOW |
+| **`main_cabinet`** | Waveshare ESP32-S3-Touch-LCD-7 | Lights, tanks and power on a side-nav rail. Landscape. | RV-C CAN, ESP-NOW (broadcast, listen only) |
 | **Bluetooth proxy basement** | ESP32-D0WD-V3 (classic ESP32, 4 MB, no PSRAM) | Headless. Holds every BLE link in the coach and re-broadcasts what it reads. | BLE (4 links), ESP-NOW broadcast |
 
-Panel boards: ESP32-S3-WROOM-1-N16R8 (16 MB flash, 8 MB octal PSRAM), 4.3"
-800×480 RGB LCD run rotated to portrait, GT911 capacitive touch on I²C,
-CH422G IO expander, onboard TJA1051 CAN transceiver, 7–36 V input off the
-coach 12 V rail.
+Panel boards: ESP32-S3-WROOM-1, 16 MB flash / 8 MB octal PSRAM, 800×480 RGB
+LCD, GT911 capacitive touch on I²C, CH422G IO expander, onboard TJA1051 CAN
+transceiver, 7–36 V input off the coach 12 V rail. The three 4.3B panels run
+their LCD rotated to portrait; `main_cabinet`'s 7" runs landscape.
+
+⚠️ **The two board types are not pin-compatible for CAN.** The 4.3B uses
+GPIO15/16; the 7" uses GPIO20/19, which on the 4.3B are RS485 — and on the
+7" are shared with native USB, muxed by CH422G EXIO5 (low = USB, high = CAN).
+Raising it for CAN disables that board's native USB port, so the 7" is
+flashed and monitored over its UART port. A board/panel mismatch produces a
+panel that boots and looks healthy with a permanently silent bus, so `BOARD`
+is derived from `PANEL` in the root `CMakeLists.txt` rather than passed on
+the command line.
 
 RV-C source address is `0x80 + PANEL_INDEX`; allocations are tracked in
 [`panels/REGISTRY.md`](../panels/REGISTRY.md). `bedroom_remote` holds an
@@ -173,3 +187,8 @@ knows nothing of its siblings, so bank aggregation happens in our firmware
   and ignored. Only Gen 2 (EPOW models) has a working `SetOpen`.
 - **One remote per bridge.** ESP-NOW pairing is fixed at build time — no
   runtime pairing, no mesh.
+- **There is no all-lights command.** RV-C has none, and the coach's own
+  factory LIGHT MASTER rocker has never been sniffed, so its DGN is
+  unknown. `main_cabinet`'s MASTER button is synthesised: off sweeps every
+  instance the panel has seen reporting on, and on applies a declared
+  scene. Capturing the real rocker would replace both with one frame.

@@ -90,6 +90,22 @@ void ui_dimmer_button_update_bank(lv_obj_t *btn, const jbd_bms_bank_t *bank,
 void ui_dimmer_button_update_shore(lv_obj_t *btn, const ui_shore_reading_t *r,
                                    bool valid);
 
+/*
+ * Feed "is any light on" to a PANEL_BTN_LIGHT_MASTER widget. No-op for any
+ * other button type. ui.c computes this by walking the state manager, so the
+ * master button stays status-driven like every other button -- it is never
+ * flipped by its own tap. Caller must hold the LVGL lock.
+ */
+void ui_dimmer_button_update_master(lv_obj_t *btn, bool any_light_on);
+
+/*
+ * Mark a PANEL_BTN_SCREEN_SWITCH used as a nav-rail entry as the active
+ * section, which lights its background. No-op for any other button type,
+ * so the plain screen-switch buttons on the non-rail panels are unaffected.
+ * Caller must hold the LVGL lock.
+ */
+void ui_dimmer_button_set_active(lv_obj_t *btn, bool active);
+
 #ifdef __cplusplus
 }
 #endif

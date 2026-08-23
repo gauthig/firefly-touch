@@ -35,7 +35,7 @@
 #include "sdkconfig.h"
 #include "lvgl.h"
 
-#include "board_4_3b.h"
+#include "board.h"
 #include "bridge_tx.h"
 #include "panel_config.h"
 #include "state_manager.h"
@@ -85,8 +85,20 @@ static const char *TAG = "ui";
 #define SHORE_POWER_STALE_MS  20000
 #define SHORE_POWER_TIMER_MS  1000
 
-/* Upper bound on main-grid rows (2 columns each). */
+/* Upper bound on main-grid rows (PANEL_GRID_COLS columns each). */
 #define GRID_MAX_ROWS 6
+
+#if PANEL_HAS_NAV_RAIL
+/* Width of the persistent section rail. Wide enough for "SHORE POWER" at
+ * Montserrat 20 without wrapping, narrow enough to leave the content pane
+ * the bulk of an 800 px landscape panel. */
+#define NAV_RAIL_W 168
+#endif
+
+/* How often the master light button re-reads "is any light on" from the
+ * state manager. One second matches the other status timers here and is far
+ * below the rate at which anyone notices a light change. */
+#define MASTER_TIMER_MS 1000
 
 typedef enum {
     BACKLIGHT_NORMAL,
@@ -96,15 +108,26 @@ typedef enum {
 
 static lv_obj_t *s_buttons[PANEL_BUTTON_COUNT];
 static lv_obj_t *s_dim_overlay;
+
+/* The one PANEL_BTN_LIGHT_MASTER widget, if this panel has one. Held
+ * directly rather than re-scanned every tick: master_timer_cb runs once a
+ * second and there is at most one of these per panel. */
+static lv_obj_t *s_master_btn;
+
+#if PANEL_HAS_NAV_RAIL
+static lv_obj_t *s_rail_buttons[PANEL_NAV_RAIL_COUNT];
+#endif
 static backlight_state_t s_backlight_state;
 static bool s_ui_ready;
 
-#if !PANEL_HAS_CAN
+/* Shore-power cache. Not gated on panel role: the readings arrive as
+ * broadcasts that any panel can receive, and a CAN panel can show them just
+ * as well as a remote one. Panels without a shore section simply never
+ * create the timer that reads this. */
 static lv_obj_t       *s_shore_label;
 static ui_shore_power_t s_shore;
 static bool             s_shore_seen;
 static uint32_t         s_shore_last_ms;
-#endif
 
 #if PANEL_HAS_SCREEN_2
 static lv_obj_t *s_buttons_2[PANEL_BUTTON_COUNT_2];
@@ -207,11 +230,12 @@ static void idle_timer_cb(lv_timer_t *t)
         apply_backlight(0);
         ESP_LOGI(TAG, "idle %lu ms -> backlight off", (unsigned long)inactive_ms);
 #if PANEL_HAS_SCREEN_2
-        /* Screen actually going dark -- don't leave a secondary screen
-         * (tank / battery / shore power) showing for whoever glances at it
-         * next; fall back to the primary light-button grid. */
-        if (s_active_screen != 0) {
-            show_screen(0);
+        /* Screen actually going dark -- don't leave whichever section the
+         * last person opened showing for whoever glances at it next; fall
+         * back to this panel's home screen. On a rail panel that is not
+         * necessarily screen 0, which is just the button grid. */
+        if (s_active_screen != PANEL_DEFAULT_SCREEN) {
+            show_screen(PANEL_DEFAULT_SCREEN);
         }
 #endif
     }
@@ -355,7 +379,6 @@ static void battery_status_timer_cb(lv_timer_t *t)
 }
 #endif
 
-#if !PANEL_HAS_CAN
 /* ------------------------------------------------------- shore power ---- */
 
 static void shore_power_timer_cb(lv_timer_t *t)
@@ -411,8 +434,6 @@ static void shore_power_timer_cb(lv_timer_t *t)
     lv_obj_set_style_text_color(s_shore_label,
                                 s_shore.error_code != 0 ? UI_COLOR_ERR : UI_COLOR_TEXT, 0);
 }
-#endif
-
 /* --------------------------------------------------------- screen nav --- */
 
 #if PANEL_HAS_SCREEN_2
@@ -432,8 +453,103 @@ static void show_screen(uint8_t index)
         }
     }
     s_active_screen = index;
+
+#if PANEL_HAS_NAV_RAIL
+    /* Light the rail entry pointing at whatever is now showing. Compared by
+     * target screen rather than by rail position so the rail can list its
+     * sections in any order. */
+    for (uint32_t i = 0; i < PANEL_NAV_RAIL_COUNT; i++) {
+        if (s_rail_buttons[i] == NULL) {
+            continue;
+        }
+        const panel_btn_def_t *def = &PANEL_NAV_RAIL[i];
+        const uint8_t target = (def->instance_count > 0) ? def->instances[0] : 0;
+        ui_dimmer_button_set_active(s_rail_buttons[i], target == index);
+    }
+#endif
 }
 #endif
+
+/* --------------------------------------------------- light master ------- */
+
+/*
+ * RV-C has no all-lights command, and the G6's own factory LIGHT MASTER
+ * rocker has never been captured on the bus — docs/instance_map.yaml records
+ * it as having no instance number and an unidentified DGN. So "master" here
+ * is synthesised from what the panel can actually see and address:
+ *
+ *   OFF -> sweep every instance the state manager currently reports as on
+ *          and send each an explicit OFF. Idempotent, and it reaches lights
+ *          this panel has no button for.
+ *   ON  -> there is nothing to sweep (an unseen instance has no known
+ *          state), so fall back to the panel's declared scene list.
+ *
+ * If the real DGN is ever captured, this becomes one frame instead.
+ */
+
+#if defined(PANEL_MASTER_ON_COUNT) && !PANEL_HAS_CAN
+#error "PANEL_BTN_LIGHT_MASTER's off-sweep reads the local state manager, \
+which only a PANEL_HAS_CAN panel populates. A remote panel would sweep an \
+empty table and silently turn nothing off."
+#endif
+
+static void master_any_on_cb(uint8_t instance, uint8_t level, bool on, void *ctx)
+{
+    (void)instance;
+    (void)level;
+    if (on) {
+        *(bool *)ctx = true;
+    }
+}
+
+static bool master_any_light_on(void)
+{
+    bool any = false;
+    state_manager_for_each_known(master_any_on_cb, &any);
+    return any;
+}
+
+static void master_off_cb(uint8_t instance, uint8_t level, bool on, void *ctx)
+{
+    (void)level;
+    (void)ctx;
+    if (!on) {
+        return;
+    }
+    /* Logged per instance because this is the one action on the panel that
+     * touches loads the user never named. The first real Master OFF at the
+     * coach is also how we confirm nothing non-light rides this DGN. */
+    ESP_LOGI(TAG, "master off: instance %u", (unsigned)instance);
+    bridge_enqueue_dimmer_cmd(instance, RVC_DIMMER_CMD_OFF, RVC_LEVEL_MAX,
+                              RVC_FIELD_NA);
+}
+
+static void master_apply(bool turn_on)
+{
+    if (!turn_on) {
+        state_manager_for_each_known(master_off_cb, NULL);
+        return;
+    }
+
+#ifdef PANEL_MASTER_ON_COUNT
+    for (uint32_t i = 0; i < PANEL_MASTER_ON_COUNT; i++) {
+        ESP_LOGI(TAG, "master on: instance %u", (unsigned)PANEL_MASTER_ON[i]);
+        bridge_enqueue_dimmer_cmd(PANEL_MASTER_ON[i], RVC_DIMMER_CMD_ON_DELAY,
+                                  RVC_LEVEL_MAX, RVC_FIELD_NA);
+    }
+#else
+    ESP_LOGW(TAG, "master on: panel declares no PANEL_MASTER_ON[] scene");
+#endif
+}
+
+static void master_timer_cb(lv_timer_t *t)
+{
+    (void)t;
+    if (s_master_btn == NULL) {
+        return;
+    }
+    ui_dimmer_button_update_master(s_master_btn, master_any_light_on());
+}
 
 /* ------------------------------------------------------- commands ------- */
 
@@ -455,9 +571,20 @@ static void panel_send_cb(const panel_btn_def_t *def, rvc_dimmer_cmd_t cmd,
 #endif
         return;
     }
+    if (def->type == PANEL_BTN_LIGHT_MASTER) {
+        /* Direction is decided HERE, from a fresh read of the state manager
+         * -- not from the widget's cached state, which the 1 Hz timer only
+         * refreshes after the fact. Without this, a tap in the first second
+         * after boot (before that timer has ever run) saw master_on == false
+         * and turned everything ON while lights were already on. */
+        master_apply(!master_any_light_on());
+        return;
+    }
     if (def->type == PANEL_BTN_TANK_LEVEL || def->type == PANEL_BTN_SHORE_POWER ||
-        def->type == PANEL_BTN_SPACER) {
-        return;   /* read-only / no widget — never reaches here in practice */
+        def->type == PANEL_BTN_LOCAL_TOGGLE || def->type == PANEL_BTN_SPACER) {
+        /* Read-only, or local-only (the valve/mode toggles drive nothing
+         * yet) — never reaches the bus. */
+        return;
     }
 
     /* ON/OFF/TOGGLE carry an explicit desired level of 100 % rather than
@@ -491,7 +618,15 @@ static void panel_send_cb(const panel_btn_def_t *def, rvc_dimmer_cmd_t cmd,
 static void build_button_grid(lv_obj_t *parent, const panel_btn_def_t *buttons,
                               uint32_t count, lv_obj_t **out_buttons)
 {
-    static int32_t col_dsc[] = { LV_GRID_FR(1), LV_GRID_FR(1), LV_GRID_TEMPLATE_LAST };
+    /* Column count is per-panel (PANEL_GRID_COLS): two suits the portrait
+     * 4.3" panels, a wide landscape one fits more across. Built at runtime
+     * rather than as a literal so the count can vary; static for the same
+     * reason row_dsc is. */
+    static int32_t col_dsc[PANEL_GRID_COLS + 1];
+    for (uint32_t c = 0; c < PANEL_GRID_COLS; c++) {
+        col_dsc[c] = LV_GRID_FR(1);
+    }
+    col_dsc[PANEL_GRID_COLS] = LV_GRID_TEMPLATE_LAST;
 
     /* Row count follows the button count instead of being fixed at 4, so a
      * panel can carry more than 8 entries (bedroom_remote needs 10 once the
@@ -499,7 +634,7 @@ static void build_button_grid(lv_obj_t *parent, const panel_btn_def_t *buttons,
      * pointer, so this must outlive the object -- safe as a static because
      * build_button_grid() is only ever used for the main grid, once. */
     static int32_t row_dsc[GRID_MAX_ROWS + 1];
-    uint32_t rows = (count + 1u) / 2u;
+    uint32_t rows = (count + PANEL_GRID_COLS - 1u) / PANEL_GRID_COLS;
     if (rows < 1u) {
         rows = 1u;
     }
@@ -524,13 +659,16 @@ static void build_button_grid(lv_obj_t *parent, const panel_btn_def_t *buttons,
         lv_obj_t *btn = ui_dimmer_button_create(parent, &buttons[i],
                                                 panel_send_cb, NULL);
         lv_obj_set_grid_cell(btn,
-                             LV_GRID_ALIGN_STRETCH, i % 2, 1,
-                             LV_GRID_ALIGN_STRETCH, i / 2, 1);
+                             LV_GRID_ALIGN_STRETCH, i % PANEL_GRID_COLS, 1,
+                             LV_GRID_ALIGN_STRETCH, i / PANEL_GRID_COLS, 1);
+        if (buttons[i].type == PANEL_BTN_LIGHT_MASTER) {
+            s_master_btn = btn;
+        }
         out_buttons[i] = btn;
     }
 }
 
-#if PANEL_HAS_SCREEN_2
+#if PANEL_HAS_SCREEN_2 && !PANEL_HAS_NAV_RAIL
 /*
  * Screen 2 is a row of read-only gauges -- tank levels (mid_coach) or
  * battery status (bedroom_remote), see the file header note. Both
@@ -597,6 +735,180 @@ static void build_screen2_row(lv_obj_t *parent, const panel_btn_def_t *buttons,
 }
 #endif
 
+#if PANEL_HAS_NAV_RAIL
+/*
+ * Content pane for a side-nav panel's sections.
+ *
+ * Deliberately separate from build_screen2_row() rather than a generalisation
+ * of it: that function lays out the screens on three panels already flashed
+ * and installed, and there is nothing to gain from putting them at risk to
+ * share a few lines. The two differ in real ways anyway — a rail panel has
+ * no BACK button to pin, and its sections mix read-only gauges with action
+ * buttons.
+ *
+ * Layout is derived from the button types, not declared: read-only widgets
+ * (tanks, battery bank, shore power) take a top row; anything tappable takes
+ * a row beneath it. A section with no tappable entries gives the whole pane
+ * to the readouts.
+ */
+static void build_content_pane(lv_obj_t *parent, const panel_btn_def_t *buttons,
+                               uint32_t count, lv_obj_t **out_buttons)
+{
+    uint32_t readonly_n = 0, action_n = 0;
+    for (uint32_t i = 0; i < count; i++) {
+        switch (buttons[i].type) {
+        case PANEL_BTN_TANK_LEVEL:
+        case PANEL_BTN_BATTERY_SUMMARY:
+        case PANEL_BTN_SHORE_POWER:
+            readonly_n++;
+            break;
+        case PANEL_BTN_SPACER:
+            break;
+        default:
+            action_n++;
+            break;
+        }
+    }
+
+    lv_obj_t *top = NULL;
+    if (readonly_n > 0) {
+        top = lv_obj_create(parent);
+        lv_obj_add_style(top, &ui_style_screen, 0);
+        lv_obj_set_size(top, LV_PCT(100), action_n > 0 ? LV_PCT(68) : LV_PCT(100));
+        lv_obj_align(top, LV_ALIGN_TOP_MID, 0, 0);
+        lv_obj_remove_flag(top, LV_OBJ_FLAG_SCROLLABLE);
+        lv_obj_set_flex_flow(top, LV_FLEX_FLOW_ROW);
+        lv_obj_set_flex_align(top, LV_FLEX_ALIGN_SPACE_EVENLY,
+                              LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+        lv_obj_set_style_pad_column(top, 6, 0);
+    }
+
+    lv_obj_t *bottom = NULL;
+    if (action_n > 0) {
+        bottom = lv_obj_create(parent);
+        lv_obj_add_style(bottom, &ui_style_screen, 0);
+        lv_obj_set_size(bottom, LV_PCT(100),
+                        readonly_n > 0 ? LV_PCT(30) : LV_PCT(100));
+        lv_obj_align(bottom, LV_ALIGN_BOTTOM_MID, 0, -6);
+        lv_obj_remove_flag(bottom, LV_OBJ_FLAG_SCROLLABLE);
+        lv_obj_set_flex_flow(bottom, LV_FLEX_FLOW_ROW);
+        lv_obj_set_flex_align(bottom, LV_FLEX_ALIGN_SPACE_EVENLY,
+                              LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+        lv_obj_set_style_pad_column(bottom, 6, 0);
+    }
+
+    for (uint32_t i = 0; i < count; i++) {
+        const panel_btn_def_t *def = &buttons[i];
+        if (def->type == PANEL_BTN_SPACER) {
+            out_buttons[i] = NULL;
+            continue;
+        }
+
+        const bool readonly = (def->type == PANEL_BTN_TANK_LEVEL ||
+                               def->type == PANEL_BTN_BATTERY_SUMMARY ||
+                               def->type == PANEL_BTN_SHORE_POWER);
+        lv_obj_t *btn = ui_dimmer_button_create(readonly ? top : bottom, def,
+                                                panel_send_cb, NULL);
+
+        if (def->type == PANEL_BTN_TANK_LEVEL) {
+            /* Fixed size, centred in the row, rather than stretched to fill
+             * it: ui_tank_wave's glass is a fixed 90x90, so a full-height
+             * card just puts a small gauge in a tall empty box. */
+            lv_obj_set_size(btn, 140, 200);
+        } else {
+            /* Everything else shares the row evenly. */
+            lv_obj_set_height(btn, LV_PCT(100));
+            lv_obj_set_flex_grow(btn, 1);
+        }
+
+        if (def->type == PANEL_BTN_LIGHT_MASTER) {
+            s_master_btn = btn;
+        }
+        out_buttons[i] = btn;
+    }
+}
+
+/*
+ * The persistent section rail. Its entries are ordinary
+ * PANEL_BTN_SCREEN_SWITCH buttons, so tapping one runs through the same
+ * panel_send_cb -> show_screen() path as any other nav button; the only
+ * thing special about them is that show_screen() lights the one matching
+ * the visible section.
+ */
+static void build_nav_rail(lv_obj_t *parent)
+{
+    lv_obj_set_flex_flow(parent, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_flex_align(parent, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER,
+                          LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_style_pad_all(parent, 6, 0);
+    lv_obj_set_style_pad_row(parent, 6, 0);
+
+    for (uint32_t i = 0; i < PANEL_NAV_RAIL_COUNT; i++) {
+        lv_obj_t *btn = ui_dimmer_button_create(parent, &PANEL_NAV_RAIL[i],
+                                                panel_send_cb, NULL);
+        lv_obj_set_width(btn, LV_PCT(100));
+        lv_obj_set_height(btn, 72);
+        s_rail_buttons[i] = btn;
+    }
+}
+#endif /* PANEL_HAS_NAV_RAIL */
+
+/*
+ * Every screen's button definitions in one place, so the "does this panel
+ * have X?" scans below don't have to know which screen X happens to live on.
+ * That mattered as soon as a panel put its tanks somewhere other than screen
+ * 2: the grey/black status readout used to scan PANEL_BUTTONS_2 only.
+ */
+typedef struct {
+    const panel_btn_def_t *defs;
+    uint32_t               count;
+} screen_defs_t;
+
+static const screen_defs_t k_screen_defs[] = {
+    { PANEL_BUTTONS, PANEL_BUTTON_COUNT },
+#if PANEL_HAS_SCREEN_2
+    { PANEL_BUTTONS_2, PANEL_BUTTON_COUNT_2 },
+#endif
+#if PANEL_HAS_SCREEN_3
+    { PANEL_BUTTONS_3, PANEL_BUTTON_COUNT_3 },
+#endif
+};
+
+#define SCREEN_DEFS_COUNT (sizeof(k_screen_defs) / sizeof(k_screen_defs[0]))
+
+static bool panel_has_button_type(panel_btn_type_t type)
+{
+    for (uint32_t s = 0; s < SCREEN_DEFS_COUNT; s++) {
+        for (uint32_t i = 0; i < k_screen_defs[s].count; i++) {
+            if (k_screen_defs[s].defs[i].type == type) {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
+/*
+ * One screen-sized container. On a side-nav panel the sections sit to the
+ * right of the rail instead of filling the width; everywhere else this is
+ * the full-width pane the other panels have always used.
+ */
+static lv_obj_t *make_screen_pane(lv_obj_t *scr, int32_t logical_h)
+{
+    lv_obj_t *pane = lv_obj_create(scr);
+    lv_obj_add_style(pane, &ui_style_screen, 0);
+    lv_obj_remove_flag(pane, LV_OBJ_FLAG_SCROLLABLE);
+#if PANEL_HAS_NAV_RAIL
+    const int32_t logical_w = (int32_t)lv_display_get_horizontal_resolution(NULL);
+    lv_obj_set_size(pane, logical_w - NAV_RAIL_W, logical_h - STATUSBAR_H);
+    lv_obj_set_pos(pane, NAV_RAIL_W, STATUSBAR_H);
+#else
+    lv_obj_set_size(pane, LV_PCT(100), logical_h - STATUSBAR_H);
+    lv_obj_align(pane, LV_ALIGN_BOTTOM_MID, 0, 0);
+#endif
+    return pane;
+}
+
 static void build_screen(void)
 {
     ui_theme_init();
@@ -616,32 +928,38 @@ static void build_screen(void)
     lv_label_set_text(title, PANEL_NAME);
     lv_obj_align(title, LV_ALIGN_LEFT_MID, 0, 0);
 
-#if !PANEL_HAS_CAN
-    /* Remote panels have no tank-status readout competing for the right
-     * side of the status bar (that only exists on a panel with GREY/BLACK
-     * tank buttons, i.e. a CAN panel), so shore power lives there. */
-    s_shore_label = lv_label_create(bar);
-    lv_label_set_text(s_shore_label, "Shore --");
-    lv_obj_set_style_text_color(s_shore_label, UI_COLOR_TEXT_DIM, 0);
-    lv_obj_align(s_shore_label, LV_ALIGN_RIGHT_MID, 0, 0);
-#endif
+    /* The right side of the status bar holds either the grey/black tank
+     * readout or a compact shore-power summary -- tanks win, because a full
+     * black tank is the one thing here that needs chasing down. Decided by
+     * what the panel actually carries rather than by PANEL_HAS_CAN: a CAN
+     * panel can have a shore-power section too (main_cabinet does), and
+     * gating on the role left its readout permanently blank. */
+    const bool wants_tank_header = panel_has_button_type(PANEL_BTN_TANK_LEVEL);
+    if (!wants_tank_header && panel_has_button_type(PANEL_BTN_SHORE_POWER)) {
+        s_shore_label = lv_label_create(bar);
+        lv_label_set_text(s_shore_label, "Shore --");
+        lv_obj_set_style_text_color(s_shore_label, UI_COLOR_TEXT_DIM, 0);
+        lv_obj_align(s_shore_label, LV_ALIGN_RIGHT_MID, 0, 0);
+    }
 
 #if PANEL_HAS_SCREEN_2
     /* Find the GREY/BLACK tank buttons by label rather than hardcoding
      * instance numbers here -- keeps ui.c panel-agnostic, consistent with
      * the rest of this file. If a panel with screen 2 has no such buttons
      * (not the case today), the header simply shows nothing. */
-    for (uint32_t i = 0; i < PANEL_BUTTON_COUNT_2; i++) {
-        const panel_btn_def_t *def = &PANEL_BUTTONS_2[i];
-        if (def->type != PANEL_BTN_TANK_LEVEL || def->instance_count == 0) {
-            continue;
-        }
-        if (strcmp(def->label, "GREY") == 0) {
-            s_grey_instance = def->instances[0];
-            s_grey_found = true;
-        } else if (strcmp(def->label, "BLACK") == 0) {
-            s_black_instance = def->instances[0];
-            s_black_found = true;
+    for (uint32_t s = 0; s < SCREEN_DEFS_COUNT; s++) {
+        for (uint32_t i = 0; i < k_screen_defs[s].count; i++) {
+            const panel_btn_def_t *def = &k_screen_defs[s].defs[i];
+            if (def->type != PANEL_BTN_TANK_LEVEL || def->instance_count == 0) {
+                continue;
+            }
+            if (strcmp(def->label, "GREY") == 0) {
+                s_grey_instance = def->instances[0];
+                s_grey_found = true;
+            } else if (strcmp(def->label, "BLACK") == 0) {
+                s_black_instance = def->instances[0];
+                s_black_found = true;
+            }
         }
     }
     if (s_grey_found && s_black_found) {
@@ -651,24 +969,25 @@ static void build_screen(void)
         lv_obj_align(s_tank_status_label, LV_ALIGN_RIGHT_MID, 0, 0);
     }
 
-    for (uint32_t i = 0; i < PANEL_BUTTON_COUNT_2; i++) {
-        if (PANEL_BUTTONS_2[i].type == PANEL_BTN_BATTERY_SUMMARY) {
-            s_screen2_is_battery = true;
-            break;
-        }
-    }
+    s_screen2_is_battery = panel_has_button_type(PANEL_BTN_BATTERY_SUMMARY);
 #endif
 
     /* Use logical height (post-rotation) so the grid fills correctly in
      * both landscape (480 px) and portrait (800 px) orientations. */
     int32_t logical_h = (int32_t)lv_display_get_vertical_resolution(NULL);
 
+#if PANEL_HAS_NAV_RAIL
+    /* --- persistent section rail, left of every pane --- */
+    lv_obj_t *rail = lv_obj_create(scr);
+    lv_obj_add_style(rail, &ui_style_screen, 0);
+    lv_obj_set_size(rail, NAV_RAIL_W, logical_h - STATUSBAR_H);
+    lv_obj_set_pos(rail, 0, STATUSBAR_H);
+    lv_obj_remove_flag(rail, LV_OBJ_FLAG_SCROLLABLE);
+    build_nav_rail(rail);
+#endif
+
     /* --- screen 1 (always present) --- */
-    lv_obj_t *grid1 = lv_obj_create(scr);
-    lv_obj_add_style(grid1, &ui_style_screen, 0);
-    lv_obj_set_size(grid1, LV_PCT(100), logical_h - STATUSBAR_H);
-    lv_obj_align(grid1, LV_ALIGN_BOTTOM_MID, 0, 0);
-    lv_obj_remove_flag(grid1, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_t *grid1 = make_screen_pane(scr, logical_h);
     build_button_grid(grid1, PANEL_BUTTONS, PANEL_BUTTON_COUNT, s_buttons);
 
 #if PANEL_HAS_SCREEN_2
@@ -678,24 +997,24 @@ static void build_screen(void)
      * never show stale state just because you weren't looking at it. */
     s_screens[0] = (ui_screen_t){ grid1, s_buttons, PANEL_BUTTONS, PANEL_BUTTON_COUNT };
 
-    lv_obj_t *grid2 = lv_obj_create(scr);
-    lv_obj_add_style(grid2, &ui_style_screen, 0);
-    lv_obj_set_size(grid2, LV_PCT(100), logical_h - STATUSBAR_H);
-    lv_obj_align(grid2, LV_ALIGN_BOTTOM_MID, 0, 0);
-    lv_obj_remove_flag(grid2, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_t *grid2 = make_screen_pane(scr, logical_h);
     lv_obj_add_flag(grid2, LV_OBJ_FLAG_HIDDEN);
+#if PANEL_HAS_NAV_RAIL
+    build_content_pane(grid2, PANEL_BUTTONS_2, PANEL_BUTTON_COUNT_2, s_buttons_2);
+#else
     build_screen2_row(grid2, PANEL_BUTTONS_2, PANEL_BUTTON_COUNT_2, s_buttons_2);
+#endif
     s_screens[1] = (ui_screen_t){ grid2, s_buttons_2, PANEL_BUTTONS_2,
                                   PANEL_BUTTON_COUNT_2 };
 
 #if PANEL_HAS_SCREEN_3
-    lv_obj_t *grid3 = lv_obj_create(scr);
-    lv_obj_add_style(grid3, &ui_style_screen, 0);
-    lv_obj_set_size(grid3, LV_PCT(100), logical_h - STATUSBAR_H);
-    lv_obj_align(grid3, LV_ALIGN_BOTTOM_MID, 0, 0);
-    lv_obj_remove_flag(grid3, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_t *grid3 = make_screen_pane(scr, logical_h);
     lv_obj_add_flag(grid3, LV_OBJ_FLAG_HIDDEN);
+#if PANEL_HAS_NAV_RAIL
+    build_content_pane(grid3, PANEL_BUTTONS_3, PANEL_BUTTON_COUNT_3, s_buttons_3);
+#else
     build_screen2_row(grid3, PANEL_BUTTONS_3, PANEL_BUTTON_COUNT_3, s_buttons_3);
+#endif
     s_screens[2] = (ui_screen_t){ grid3, s_buttons_3, PANEL_BUTTONS_3,
                                   PANEL_BUTTON_COUNT_3 };
 #endif
@@ -714,9 +1033,18 @@ static void build_screen(void)
     lv_obj_add_event_cb(s_dim_overlay, dim_overlay_event_cb, LV_EVENT_PRESSED, NULL);
 
     lv_timer_create(idle_timer_cb, 1000, NULL);
-#if !PANEL_HAS_CAN
-    lv_timer_create(shore_power_timer_cb, SHORE_POWER_TIMER_MS, NULL);
-#endif
+
+    /* Every optional timer is created from what the panel actually carries.
+     * The shore timer in particular used to be gated on !PANEL_HAS_CAN,
+     * which meant a CAN panel with a shore-power section would render the
+     * widget once and never update it again. */
+    if (s_shore_label != NULL || panel_has_button_type(PANEL_BTN_SHORE_POWER)) {
+        lv_timer_create(shore_power_timer_cb, SHORE_POWER_TIMER_MS, NULL);
+    }
+    if (s_master_btn != NULL) {
+        lv_timer_create(master_timer_cb, MASTER_TIMER_MS, NULL);
+        master_timer_cb(NULL);   /* prime it; don't show "off" for a second */
+    }
 #if PANEL_HAS_SCREEN_2
     if (s_tank_status_label != NULL) {
         lv_timer_create(tank_status_timer_cb, TANK_STATUS_TIMER_MS, NULL);
@@ -724,6 +1052,9 @@ static void build_screen(void)
     if (s_screen2_is_battery) {
         lv_timer_create(battery_status_timer_cb, BATTERY_STATUS_TIMER_MS, NULL);
     }
+
+    /* Land on this panel's home section rather than assuming screen 0. */
+    show_screen(PANEL_DEFAULT_SCREEN);
 #endif
 }
 
@@ -770,7 +1101,6 @@ void ui_on_status(uint8_t instance, uint8_t level, bool on)
 
 void ui_on_shore_power(const ui_shore_power_t *sp)
 {
-#if !PANEL_HAS_CAN
     if (!s_ui_ready || sp == NULL) {
         return;
     }
@@ -782,9 +1112,6 @@ void ui_on_shore_power(const ui_shore_power_t *sp)
     s_shore_seen = true;
     s_shore_last_ms = lv_tick_get();
     lvgl_port_unlock();
-#else
-    (void)sp;
-#endif
 }
 
 void ui_on_battery_status(const ui_battery_pack_t *pack)

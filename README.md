@@ -47,7 +47,7 @@ installed equipment →](docs/SYSTEM.md)**
 
 ## Hardware
 
-Four nodes: three touchscreen panels and one headless BLE proxy. They reach
+Five nodes: four touchscreen panels and one headless BLE proxy. They reach
 the coach over RV-C CAN and each other over ESP-NOW. Everything reached over
 BLE — the battery packs and the shore-power monitor, all of which live in the
 basement bay — is held by the proxy in that bay and broadcast to the panels.
@@ -57,11 +57,20 @@ basement bay — is held by the proxy in that bay and broadcast to the panels.
 | `mid_coach` | Waveshare ESP32-S3-Touch-LCD-4.3B | RV-C CAN + ESP-NOW bridge |
 | `ent_center` | Waveshare ESP32-S3-Touch-LCD-4.3B | RV-C CAN |
 | `bedroom_remote` | Waveshare ESP32-S3-Touch-LCD-4.3B | ESP-NOW only |
+| `main_cabinet` | Waveshare ESP32-S3-Touch-LCD-7 | RV-C CAN + ESP-NOW telemetry (listen only) |
 | Bluetooth proxy basement | ESP32-D0WD-V3, 4 MB | BLE (3 battery packs + Power Watchdog) + ESP-NOW broadcast |
 
-Panel boards are ESP32-S3-WROOM-1-N16R8 (16 MB flash, 8 MB octal PSRAM) with
-a 4.3" 800×480 RGB LCD run rotated to portrait, GT911 touch, CH422G expander,
-onboard TJA1051 CAN transceiver, 7–36 V input.
+Panel boards are ESP32-S3-WROOM-1 with 16 MB flash / 8 MB octal PSRAM, GT911
+touch, CH422G expander, onboard TJA1051 CAN transceiver and 7–36 V input.
+The 4.3B panels run their 800×480 LCD rotated to portrait; `main_cabinet`'s
+7" runs landscape, which is what gives its side-nav rail room to live.
+
+⚠️ **The two boards put CAN on different pins** — 4.3B on GPIO15/16, the 7"
+on GPIO20/19, where the 4.3B has RS485 — and on the 7" those pins are muxed
+against native USB, so it is flashed over its UART port. A board mismatch
+fails silently, so `BOARD` is derived from `PANEL` in the root
+`CMakeLists.txt` and validated by `tools/check_panels.py`; there is no
+`-DBOARD=` to get wrong.
 
 📖 **Full equipment list, protocols and architecture diagram:
 [docs/SYSTEM.md](docs/SYSTEM.md)**
@@ -224,8 +233,19 @@ from the SeeLevel, the ESP-NOW bridge and remote panel, all three battery
 packs over BLE with the combined bank readout, and the Power Watchdog with
 values matching the unit's own display.
 
+`main_cabinet` (the 7" side-nav panel) was confirmed on the coach
+2026-08-23: RV-C CAN works on the 7" board's GPIO20/19 pins, the battery
+bank and shore power arrive as ESP-NOW broadcasts from the proxy, Light
+Master on/off behaves as designed, and the display geometry and colours are
+correct. That settles both bring-up unknowns — the RGB timings and the
+EXIO5 USB/CAN mux polarity.
+
 Known open items, all tracked as `TODO(bench)` in code:
 
+- **The G6's own LIGHT MASTER command**, if it has one. The panel's master
+  is synthesised (sweep the on-lights off; apply a scene for on) because
+  the factory rocker's DGN has never been captured. Worth sniffing the
+  rocker to find out whether a single real frame exists.
 - **Power Watchdog byte offsets** came from public reverse engineering
   rather than a capture from this unit; the values check out against its
   display, but the client logs raw packets for confirmation.

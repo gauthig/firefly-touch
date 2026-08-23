@@ -27,11 +27,19 @@ python tools/check_panels.py
 ```
 
 ```
-  mid_coach         index 0   source addr 0x80   "MID COACH"
-  ent_center        index 1   source addr 0x81   "ENT CENTER"
-  bedroom_remote    index 2   source addr 0x82†  "BED REMOTE"
-  next free         index 3   source addr 0x83
+  mid_coach        index 0   source addr 0x80   board 4_3b   "MID COACH"
+  ent_center       index 1   source addr 0x81   board 4_3b   "ENT CENTER"
+  bedroom_remote   index 2   source addr 0x82†  board 4_3b   "BED REMOTE"
+  main_cabinet     index 3   source addr 0x83   board lcd7   "MAIN CABINET"
+  next free        index 4   source addr 0x84
 ```
+
+⚠️ **The Board column is not cosmetic.** `4_3b` is the Waveshare 4.3B;
+`lcd7` is the 7". They put CAN on different pins, and a mismatch fails
+silently — the panel boots, lights up, and never sees the bus. `BOARD` is
+derived from `PANEL` by a mapping in the root `CMakeLists.txt`, so there is
+no `-DBOARD=` to pass or forget; `tools/check_panels.py` checks that mapping
+against the registry.
 
 † `bedroom_remote` has no CAN wiring (`PANEL_HAS_CAN 0`) and never
 transmits on the bus — see *ESP-NOW remote panel* below. Its index is still
@@ -84,6 +92,37 @@ idf.py -B build_ent_center -DPANEL=ent_center -p COM5 flash monitor
 ```powershell
 idf.py -B build_bedroom_remote -DPANEL=bedroom_remote -p COM5 flash monitor
 ```
+
+### Main cabinet panel (Waveshare 7", landscape)
+
+```powershell
+idf.py -B build_main_cabinet -DPANEL=main_cabinet -p COM19 flash monitor
+```
+
+⚠️ **Flash and monitor this one over its UART port** (the CH343 bridge, e.g.
+`USB-Enhanced-SERIAL CH343 (COM19)`), not its native USB port. On this board
+CAN shares GPIO19/20 with USB D-/D+, and the firmware raises CH422G EXIO5 to
+route them to the transceiver — which disables native USB the moment
+`board_twai_init()` runs. It is not a brick risk (ROM download mode runs
+before the app), but a native-USB session goes dead a second into boot.
+
+A correct boot logs:
+
+```
+I (...) board_lcd7: display up: 800x480 RGB565 landscape, GT911 touch, LVGL on core 1
+I (...) ui: UI ready: MAIN CABINET (11 buttons, +2 on screen 2)
+I (...) main: RV-C source addr 0x83
+W (...) board_lcd7: EXIO5 -> CAN: native USB port is now disabled, use UART
+I (...) board_lcd7: TWAI up at 250 kbps on TX=20 RX=19
+I (...) espnow_link: ESP-NOW up (telemetry), broadcast only, channel 1
+```
+
+The ESP-NOW line matters: this panel is CAN-connected but still listens to
+the broadcast channel, because the battery packs and the Power Watchdog are
+on BLE links held by the basement proxy. It has no unicast peer and no keys
+— `FIREFLY_ESPNOW_PEER_MAC` is unused here and can stay at its
+placeholder. `FIREFLY_ESPNOW_CHANNEL` **must** match every other node
+(default 1).
 
 Replace `COM5` with the port from step 2. Keep the `-B <dir>` and `-DPANEL=`
 arguments **together and consistent** — `PANEL` is cached in the build

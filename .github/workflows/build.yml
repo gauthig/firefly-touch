@@ -32,7 +32,8 @@ jobs:
             --suppress=missingIncludeSystem --inline-suppr \
             -I panels -DPANEL_CONFIG_HEADER='"mid_coach.h"' \
             main components/rvc_protocol components/ui_common \
-            components/board_4_3b components/espnow_link
+            components/board components/ch422g \
+            components/espnow_link
 
   panels:
     name: Panel registry
