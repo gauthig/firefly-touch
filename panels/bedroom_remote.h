@@ -11,10 +11,14 @@
  * Before flashing: set CONFIG_FIREFLY_ESPNOW_PEER_MAC to mid_coach's MAC
  * (and mid_coach's build to this panel's MAC), and change
  * CONFIG_FIREFLY_ESPNOW_PMK/LMK from the placeholder defaults — see
- * main/Kconfig.projbuild. Also set CONFIG_FIREFLY_BATTERY_1_MAC/_2_MAC/
- * _3_MAC to the three Xiaoxiang/JBD battery BLE MACs (placeholder
- * "00:00:00:00:00:00" leaves a slot unconfigured/skipped) — see
- * components/jbd_bms.
+ * main/Kconfig.projbuild.
+ *
+ * This panel does NOT connect to the batteries. The basement proxy
+ * (proxy/) holds all three BLE links and broadcasts the readings; the bank
+ * screen below just displays what arrives. CONFIG_FIREFLY_BATTERY_1_MAC/
+ * _2_MAC/_3_MAC are still worth setting to the same three MACs the proxy
+ * uses, but here they are display labels for the per-pack detail popup
+ * only — nothing on this panel dials them.
  *
  * Naming convention: any panel whose ID ends in _remote is an ESP-NOW
  * device (no RV-C CAN wiring) that reports to the Mid Coach bridge. Panels
@@ -30,7 +34,6 @@
 #define PANEL_HAS_CAN 0
 #define PANEL_HAS_SCREEN_2 1
 #define PANEL_HAS_SCREEN_3 1
-#define PANEL_HAS_BLE_BATTERY 1
 
 /*
  * Screen-switch buttons name their target screen in instances[0]:

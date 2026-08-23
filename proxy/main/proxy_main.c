@@ -2,8 +2,9 @@
  * firefly-ble-proxy — "Bluetooth proxy basement".
  *
  * A headless classic-ESP32 node that lives in the coach's basement bay,
- * holds the BLE connection to the Hughes Power Watchdog, and re-broadcasts
- * its readings over ESP-NOW so ANY panel can display them.
+ * holds the BLE connections to the Hughes Power Watchdog and the three
+ * JBD/Xiaoxiang battery packs, and re-broadcasts their readings over
+ * ESP-NOW so ANY panel can display them.
  *
  * Why a separate node rather than doing this from a panel:
  *   - The Watchdog accepts exactly ONE BLE connection at a time, so
@@ -15,6 +16,10 @@
  *     variable entirely.
  *   - Broadcasting means read-only power data costs nothing to add to any
  *     future panel — no extra BLE link, no pairing, no config.
+ *   - The battery packs sit in this same bay. Running their links from a
+ *     bedroom wall panel (where they started) put a steel bay door in the
+ *     RF path and made one panel's radio carry BLE and ESP-NOW at once,
+ *     for data every panel would eventually want anyway.
  *
  * This node never receives commands and never actuates anything. It is a
  * pure producer: BLE in, ESP-NOW broadcast out.
@@ -28,6 +33,7 @@
 
 #include "espnow_link.h"
 #include "hughes_wd_client.h"
+#include "jbd_bms_client.h"
 
 static const char *TAG = "proxy";
 
@@ -83,6 +89,100 @@ static void broadcast_shore_power(void)
 }
 #endif
 
+#if CONFIG_FIREFLY_BATTERY_ENABLED
+/* Signed twin of scale_u16(). Battery current is bidirectional (positive =
+ * charging), so it cannot use the clamp-negatives-to-zero version. */
+static int16_t scale_i16(float value, float scale)
+{
+    const float v = value * scale;
+    if (v <= -32768.0f) {
+        return -32768;
+    }
+    if (v >= 32767.0f) {
+        return 32767;
+    }
+    return (int16_t)(v < 0.0f ? v - 0.5f : v + 0.5f);
+}
+
+/*
+ * One frame per pack, not a pre-combined bank.
+ *
+ * The combining rules (capacity-weighted SOC, summed current, mean voltage)
+ * already live in jbd_bms_combine() as pure host-tested C, and the panel
+ * links it anyway — summing here as well would fork that logic across two
+ * chips. Sending packs separately also keeps the panel's per-pack detail
+ * popup fed, which is what identifies a misbehaving physical battery.
+ *
+ * A configured-but-unreachable pack is broadcast too, flagged offline: that
+ * is how a panel tells "this pack dropped" apart from "the whole proxy is
+ * gone", which plain silence cannot express.
+ */
+static void broadcast_batteries(void)
+{
+    for (uint8_t slot = 0; slot < JBD_BMS_MAX_BATTERIES; slot++) {
+        if (!jbd_bms_slot_configured(slot)) {
+            /* Never-configured slots stay silent entirely — broadcasting
+             * them would make a panel count phantom packs toward its
+             * "N of M" indicator. */
+            continue;
+        }
+
+        espnow_telem_msg_t msg = { .kind = ESPNOW_TELEM_BATTERY };
+        espnow_battery_msg_t *b = &msg.battery;
+        b->slot = slot;
+
+        jbd_bms_status_t st;
+        if (!jbd_bms_get_status(slot, &st) || !jbd_bms_healthy(slot)) {
+            espnow_link_send_telemetry(&msg);   /* flags == 0: offline */
+            continue;
+        }
+
+        b->flags = ESPNOW_BATTERY_FLAG_ONLINE;
+        b->soc_percent = st.soc_percent;
+        b->volts_cv = scale_u16(st.voltage_v, 100.0f);
+        b->current_da = scale_i16(st.current_a, 10.0f);
+        b->residual_dah = scale_u16(st.residual_ah, 10.0f);
+        b->full_dah = scale_u16(st.full_capacity_ah, 10.0f);
+
+        if (st.temp_count > 0) {
+            float lo = st.temp_c[0];
+            float hi = st.temp_c[0];
+            for (uint8_t i = 1; i < st.temp_count; i++) {
+                if (st.temp_c[i] < lo) {
+                    lo = st.temp_c[i];
+                }
+                if (st.temp_c[i] > hi) {
+                    hi = st.temp_c[i];
+                }
+            }
+            b->flags |= ESPNOW_BATTERY_FLAG_TEMP_VALID;
+            b->temp_min_dc = scale_i16(lo, 10.0f);
+            b->temp_max_dc = scale_i16(hi, 10.0f);
+        }
+
+        espnow_link_send_telemetry(&msg);
+    }
+}
+
+static void log_batteries(void)
+{
+    for (uint8_t slot = 0; slot < JBD_BMS_MAX_BATTERIES; slot++) {
+        if (!jbd_bms_slot_configured(slot)) {
+            continue;
+        }
+        jbd_bms_status_t st;
+        if (jbd_bms_get_status(slot, &st) && jbd_bms_healthy(slot)) {
+            ESP_LOGI(TAG, "battery %u: %u%% %.2fV %.2fA %.1f/%.1fAh",
+                     (unsigned)(slot + 1), (unsigned)st.soc_percent,
+                     (double)st.voltage_v, (double)st.current_a,
+                     (double)st.residual_ah, (double)st.full_capacity_ah);
+        } else {
+            ESP_LOGW(TAG, "battery %u: offline", (unsigned)(slot + 1));
+        }
+    }
+}
+#endif
+
 /* Periodic one-line health summary, so a serial capture during bench or
  * bay testing shows at a glance whether the BLE side is alive. */
 static void log_status(void)
@@ -94,8 +194,7 @@ static void log_status(void)
 
     if (!have1 && !have2) {
         ESP_LOGW(TAG, "watchdog: no data (peer %s)", hughes_wd_peer_str());
-        return;
-    }
+    } else
     if (have1 && have2) {
         ESP_LOGI(TAG, "watchdog %s: L1 %.1fV %.1fA %.0fW | L2 %.1fV %.1fA %.0fW | %.2fHz %s",
                  hughes_wd_peer_str(),
@@ -109,6 +208,9 @@ static void log_status(void)
                  (double)r->voltage_v, (double)r->current_a, (double)r->power_w,
                  (double)r->frequency_hz, hughes_wd_error_str(r->error_code));
     }
+#endif
+#if CONFIG_FIREFLY_BATTERY_ENABLED
+    log_batteries();
 #endif
 }
 
@@ -129,12 +231,28 @@ static void proxy_task(void *arg)
     /* Log roughly every 30 s regardless of the broadcast cadence, so the
      * serial output stays readable when the interval is short. */
     const uint32_t log_every = (30000u / CONFIG_FIREFLY_TELEMETRY_INTERVAL_MS) + 1u;
+#if CONFIG_FIREFLY_BATTERY_ENABLED
+    /* Batteries go out on their own, much slower cadence: the packs are only
+     * polled every FIREFLY_BATTERY_POLL_INTERVAL_MS, so re-broadcasting them
+     * at the shore-power rate would just resend identical numbers six times
+     * over. Shore power really does change second to second; a 300 Ah bank's
+     * state of charge does not. */
+    const uint32_t battery_every =
+        (CONFIG_FIREFLY_BATTERY_POLL_INTERVAL_MS / CONFIG_FIREFLY_TELEMETRY_INTERVAL_MS) + 1u;
+    uint32_t battery_tick = 0;
+#endif
     uint32_t tick = 0;
 
     for (;;) {
         vTaskDelay(pdMS_TO_TICKS(CONFIG_FIREFLY_TELEMETRY_INTERVAL_MS));
 #if CONFIG_FIREFLY_WD_ENABLED
         broadcast_shore_power();
+#endif
+#if CONFIG_FIREFLY_BATTERY_ENABLED
+        if (++battery_tick >= battery_every) {
+            battery_tick = 0;
+            broadcast_batteries();
+        }
 #endif
         if (++tick >= log_every) {
             tick = 0;
@@ -157,12 +275,23 @@ void app_main(void)
     ESP_LOGW(TAG, "Power Watchdog support disabled in Kconfig");
 #endif
 
+#if CONFIG_FIREFLY_BATTERY_ENABLED
+    /* Shares the Bluedroid stack whichever client starts first brought up.
+     * Each battery is its own GATTC app with its own app_id, and every
+     * handler filters on the event's remote_bda, so the two clients' events
+     * never cross. */
+    ESP_ERROR_CHECK(jbd_bms_client_start());
+#else
+    ESP_LOGW(TAG, "battery monitoring disabled in Kconfig");
+#endif
+
     if (xTaskCreate(proxy_task, "proxy", PROXY_TASK_STACK, NULL,
                     PROXY_TASK_PRIO, NULL) != pdPASS) {
         ESP_LOGE(TAG, "failed to create proxy task");
         return;
     }
 
-    ESP_LOGI(TAG, "up: broadcasting every %d ms on channel %d",
-             CONFIG_FIREFLY_TELEMETRY_INTERVAL_MS, CONFIG_FIREFLY_ESPNOW_CHANNEL);
+    ESP_LOGI(TAG, "up on channel %d: shore power every %d ms, batteries every %d ms",
+             CONFIG_FIREFLY_ESPNOW_CHANNEL, CONFIG_FIREFLY_TELEMETRY_INTERVAL_MS,
+             CONFIG_FIREFLY_BATTERY_POLL_INTERVAL_MS);
 }

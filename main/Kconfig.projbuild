@@ -51,14 +51,23 @@ menu "Firefly Touch Panel"
 
     menu "JBD-BMS battery monitor"
 
+        comment "A panel no longer connects to the batteries -- see proxy/"
+
         config FIREFLY_BATTERY_1_MAC
-            string "Battery 1 BLE MAC address (AA:BB:CC:DD:EE:FF)"
+            string "Battery 1 BLE MAC address (display label only)"
             default "00:00:00:00:00:00"
             help
-                BLE MAC of the first Xiaoxiang/JBD BMS. The placeholder
-                all-zero address means "unconfigured" -- that slot is
-                skipped entirely (no connection attempted, status always
-                reads as invalid) until a real MAC is set.
+                BLE MAC of the first Xiaoxiang/JBD BMS.
+
+                On a PANEL this is a display label and nothing more: it
+                names a row in the battery bank's per-pack detail popup so a
+                physical pack can be identified during troubleshooting. The
+                BLE links themselves are held by the basement proxy
+                (proxy/), which broadcasts the readings over ESP-NOW.
+
+                Set it to the same MAC the proxy uses for slot 1. Left at
+                the all-zero placeholder, the row simply shows "--" and
+                still displays whatever telemetry arrives for that slot.
 
         config FIREFLY_BATTERY_2_MAC
             string "Battery 2 BLE MAC address (AA:BB:CC:DD:EE:FF)"
@@ -78,9 +87,16 @@ menu "Firefly Touch Panel"
             range 20000 600000
             help
                 How often each connected battery is asked for a fresh
-                basic-info reading. SOC, current and time-remaining are all
-                slow-moving values, so there is nothing to gain from polling
-                hard.
+                basic-info reading -- and, on a panel, how often the proxy
+                is expected to re-broadcast one. SOC, current and
+                time-remaining are all slow-moving values, so there is
+                nothing to gain from polling hard.
+
+                Keep this in step with the proxy's own setting: a panel
+                derives its "pack has gone quiet" window from this value
+                (3x), so a panel configured far below the proxy's real
+                interval would show packs flickering offline between
+                broadcasts.
 
                 The 20 s lower bound is deliberate, not arbitrary: JBD BMS
                 units are widely reported to misbehave when polled more

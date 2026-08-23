@@ -18,11 +18,11 @@
  * the two NTC values its temperature-count byte advertises. Treat the
  * offsets below as confirmed.
  *
- * TODO(bench): the CURRENT SIGN CONVENTION is still an assumption —
- * positive = charging, negative = discharging. Nothing in the captured
- * frame pins it down (its current field is zero). Confirm against a pack
- * that is visibly charging vs. discharging and flip
- * jbd_bms_estimate_hours()'s branches if these packs disagree.
+ * CURRENT SIGN CONVENTION: positive = charging, negative = discharging.
+ * Bench-verified 2026-08-23 against the real packs, both directions
+ * observed — this was an assumption for a long time (the captured frame
+ * could not settle it, its current field being zero) and is now confirmed.
+ * Don't reopen it without a contradicting capture.
  */
 #pragma once
 
@@ -43,6 +43,12 @@ extern "C" {
 #define JBD_BMS_REQUEST_LEN 7u
 
 /* JBD supports up to 6 NTC probes; the Vatrer 300 Ah packs report 2. */
+/* How many packs this project's bank is built from. Lives here rather than
+ * in jbd_bms_client.h because it is no longer only the BLE client's
+ * business: it also sizes the ESP-NOW telemetry slot index and the panel's
+ * per-pack table, neither of which links the client at all. */
+#define JBD_BMS_MAX_BATTERIES 3
+
 #define JBD_BMS_MAX_TEMPS 6u
 
 /*
@@ -53,8 +59,7 @@ bool jbd_bms_build_request(uint8_t reg, uint8_t *out, size_t out_len);
 
 typedef struct {
     float    voltage_v;
-    /* Positive = charging, negative = discharging. Sign convention is the
-     * TODO(bench) item noted above — flip if a real pack disagrees. */
+    /* Positive = charging, negative = discharging (verified, see above). */
     float    current_a;
     float    residual_ah;
     float    full_capacity_ah;

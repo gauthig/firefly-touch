@@ -175,15 +175,19 @@ defaults before deploying** — these frames actuate real loads and ESP-NOW's
 encryption is only as good as the key. Both are truncated/zero-padded to 16
 bytes; keep them at 16 ASCII characters.
 
-2b. `bedroom_remote` also runs the battery-status BLE client (see
-`CLAUDE.md` → *Battery monitor*). While still in that same menuconfig
-session, navigate to *Firefly Touch Panel* → *JBD-BMS battery monitor* and
-set `FIREFLY_BATTERY_1_MAC`/`_2_MAC`/`_3_MAC` to each Vatrer battery's BLE
-MAC (find it with a phone BLE scanner app, e.g. nRF Connect — look for the
-Xiaoxiang/JBD module's advertised name). Leave a slot at the placeholder
-`00:00:00:00:00:00` to skip it (no connection attempted, gauge shows
-"--"). Only `bedroom_remote` has this menu; `mid_coach`'s build never
-starts the BLE stack at all (`PANEL_HAS_BLE_BATTERY 0`).
+2b. **No panel connects to the batteries** — the basement proxy does, and
+broadcasts the readings (see *Basement BLE proxy* below, and `CLAUDE.md` →
+*Battery monitor*). `bedroom_remote` still has a *JBD-BMS battery monitor*
+menu, but on a panel those MACs are **display labels only**: they name the
+rows in the bank screen's tap-to-open per-pack detail popup. Set them to the
+same three MACs the proxy uses if you want that popup labeled; leave them at
+`00:00:00:00:00:00` and the rows just read `--` while still showing live
+readings.
+
+Keep `FIREFLY_BATTERY_POLL_INTERVAL_MS` in step with the proxy's, though —
+the panel derives its "this pack has gone quiet" window from it (3×), so a
+panel set well below the proxy's real interval will flicker packs offline
+between broadcasts.
 
 3. Build and flash both boards, keeping the same `-D SDKCONFIG=` flag used in
    step 2 (CMake caches it per build dir, so it's optional on later commands
@@ -199,18 +203,58 @@ idf.py -B build_bedroom_remote -DPANEL=bedroom_remote -D SDKCONFIG=build_bedroom
    `bedroom_remote` and confirm the corresponding real load actuates and
    the remote panel's own button visually confirms (round-trip status echo);
    then toggle the same load from `mid_coach`'s hardware button or the
-   factory switch and confirm the remote panel's display updates. If any
-   battery MACs are configured, also open the **BATTERY STATUS** screen
-   and confirm each connects and shows a live SOC/rate reading — watch
-   `bedroom_remote`'s serial log (UART0) for connect/discover/subscribe
-   messages from `jbd_bms_client` if a battery never lights up; see
-   `CLAUDE.md` → *Battery monitor* for the address-type/UUID bench-TODO
-   knobs to try if connections never establish at all.
+   factory switch and confirm the remote panel's display updates. With the
+   proxy powered and in range, also open the **BATTERY** and **SHORE POWER**
+   screens and confirm live readings — if they sit at `--`, the problem is
+   on the broadcast side, so check the proxy's serial log rather than the
+   panel's (the panel has no BLE to fail).
 
 The simulator can preview `bedroom_remote`'s layout, including the fake
-battery-status screen (`cd sim; .\build.ps1 -Panel bedroom_remote -Run`),
-but cannot exercise the real ESP-NOW link or BLE connections themselves —
-no radio in a PC build.
+battery-bank screen (`cd sim; .\build.ps1 -Panel bedroom_remote -Run`),
+but cannot exercise the real ESP-NOW link — no radio in a PC build.
+
+## Basement BLE proxy
+
+A **separate ESP-IDF project** (`proxy/`) on a **classic ESP32**, not an
+ESP32-S3 — different target, different sdkconfig, and a genuinely different
+BLE API in places (see `CLAUDE.md` → *Chip portability trap*). It holds every
+BLE link in the coach: the three Vatrer/JBD battery packs and the Hughes
+Power Watchdog, all of which sit in the same bay it does. It has no display
+and no CAN wiring; it only broadcasts.
+
+It uses a CP210x USB bridge, so it auto-resets — **no BOOT/RESET button
+dance needed**, unlike the panels.
+
+```powershell
+idf.py -C proxy -B proxy/build set-target esp32     # first time only
+idf.py -C proxy -B proxy/build menuconfig           # Firefly BLE Proxy
+idf.py -C proxy -B proxy/build -p COM4 flash monitor
+```
+
+Under *Firefly BLE Proxy*, set:
+
+| Setting | Value |
+|---|---|
+| `FIREFLY_ESPNOW_CHANNEL` | **must match every panel** (default 1) |
+| `FIREFLY_BATTERY_1_MAC` / `_2_MAC` / `_3_MAC` | each pack's BLE MAC |
+| `FIREFLY_BATTERY_POLL_INTERVAL_MS` | 30000 (floor is 20000 — see below) |
+| `FIREFLY_WD_ENABLED` | `y` |
+
+Find a pack's MAC with a phone BLE scanner (e.g. nRF Connect) — look for the
+Xiaoxiang/JBD module's advertised name. A slot left at `00:00:00:00:00:00`
+is skipped entirely: never connected to, never broadcast, and never counted
+toward the panel's "N of M" pack indicator.
+
+The 20 s floor on the poll interval is enforced, not merely advised: JBD BMS
+units are widely reported to misbehave when polled harder than that.
+
+The proxy needs no peer MAC and no keys — it broadcasts, and ESP-NOW cannot
+encrypt broadcast frames at all. That is acceptable only because everything
+it sends is read-only telemetry; commands stay on the encrypted unicast link.
+
+Verify from its serial log: it prints one battery line per configured pack
+and one Watchdog line roughly every 30 s. `battery N: offline` means that
+pack is configured but not answering — the panel will show it that way too.
 
 ## If the board will not enter download mode
 

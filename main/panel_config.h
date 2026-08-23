@@ -77,14 +77,11 @@
 #endif
 
 /*
- * PANEL_HAS_BLE_BATTERY 1 = this panel starts the jbd_bms BLE client
- * (components/jbd_bms) at boot and shows a battery-status screen fed by
- * it. The jbd_bms component is always compiled into main (see
- * main/CMakeLists.txt, same precedent as espnow_link being required
- * unconditionally even though only some panels use it) but the BLE/
- * Bluedroid BLE stack is only actually started when this is set, so a
- * CAN-only panel like mid_coach never pays the coexistence/runtime cost.
+ * No panel runs a BLE client any more. The three JBD/Xiaoxiang battery
+ * packs sit in the basement bay next to the headless proxy (proxy/), which
+ * holds their BLE links and broadcasts the readings over ESP-NOW; a panel
+ * just displays what arrives. The old PANEL_HAS_BLE_BATTERY switch is gone
+ * rather than left as an unused option, since nothing selects it and the
+ * radio-planning tradeoff behind the move is not one to re-litigate per
+ * panel.
  */
-#ifndef PANEL_HAS_BLE_BATTERY
-#define PANEL_HAS_BLE_BATTERY 0
-#endif

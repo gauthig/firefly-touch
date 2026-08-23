@@ -64,6 +64,23 @@ typedef struct {
     espnow_telem_msg_t telem;
 } espnow_telem_frame_t;
 
+/*
+ * The telemetry frame's size is load-bearing for the same reason the
+ * control frame's is, and the trap is easier to walk into: every producer
+ * is a different physical node (the basement proxy broadcasts shore power
+ * and batteries, mid_coach broadcasts tanks), and they are flashed one at a
+ * time. Widening the union to fit a new measurement would make every OLDER
+ * producer's broadcasts fail this receiver's length check -- so adding
+ * batteries would silently kill tank display until mid_coach was reflashed
+ * too, with nothing logged anywhere.
+ *
+ * New measurements therefore have to fit the existing envelope. If this
+ * assert fires, shrink the new struct rather than bumping the number.
+ */
+_Static_assert(sizeof(espnow_telem_frame_t) == 20,
+               "espnow telemetry frame size changed -- broadcasts from nodes "
+               "still on older firmware will be dropped as malformed");
+
 /* Big enough for the largest frame; the queue carries raw bytes + length so
  * adding another frame type later doesn't require touching the queue. */
 #define RX_ITEM_MAX 48

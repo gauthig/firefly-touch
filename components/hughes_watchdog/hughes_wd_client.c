@@ -11,6 +11,7 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "ble_host.h"
 #include "esp_bt.h"
 #include "esp_bt_main.h"
 #include "esp_gap_ble_api.h"
@@ -24,7 +25,9 @@
 
 static const char *TAG = "hughes_wd";
 
-#define WD_APP_ID          0
+/* Unique across every BLE client on this node -- the batteries take 0..2.
+ * See BLE_HOST_APP_ID_* in ble_host.h, which is where the allocation lives. */
+#define WD_APP_ID          BLE_HOST_APP_ID_WATCHDOG
 #define WD_SCAN_DURATION_S 30
 /* The device streams ~1 Hz; three missed seconds is already a problem, but
  * allow generous slack for BLE/WiFi coexistence hiccups before declaring a
@@ -248,6 +251,13 @@ static void gattc_event_handler(esp_gattc_cb_event_t event, esp_gatt_if_t gattc_
                                 esp_ble_gattc_cb_param_t *p)
 {
     if (event == ESP_GATTC_REG_EVT) {
+        /* Registration events fan out to every client on the node, so claim
+         * only our own app_id: without this check the Watchdog would adopt
+         * whichever gattc_if the batteries registered last and quietly stop
+         * seeing its own events. */
+        if (p->reg.app_id != WD_APP_ID) {
+            return;
+        }
         s_gattc_if = gattc_if;
         ESP_LOGI(TAG, "app registered, gattc_if %d", gattc_if);
         esp_ble_gap_set_scan_params(&s_scan_params);
@@ -362,35 +372,13 @@ esp_err_t hughes_wd_client_start(void)
         return ESP_ERR_NO_MEM;
     }
 
-    esp_err_t err = esp_bt_controller_mem_release(ESP_BT_MODE_CLASSIC_BT);
-    if (err != ESP_OK && err != ESP_ERR_INVALID_STATE) {
-        ESP_LOGW(TAG, "esp_bt_controller_mem_release: %s", esp_err_to_name(err));
-    }
-
-    esp_bt_controller_config_t bt_cfg = BT_CONTROLLER_INIT_CONFIG_DEFAULT();
-    err = esp_bt_controller_init(&bt_cfg);
-    if (err != ESP_OK) {
-        ESP_LOGE(TAG, "bt_controller_init: %s", esp_err_to_name(err));
-        return err;
-    }
-    err = esp_bt_controller_enable(ESP_BT_MODE_BLE);
-    if (err != ESP_OK) {
-        ESP_LOGE(TAG, "bt_controller_enable: %s", esp_err_to_name(err));
-        return err;
-    }
-    err = esp_bluedroid_init();
-    if (err != ESP_OK) {
-        ESP_LOGE(TAG, "bluedroid_init: %s", esp_err_to_name(err));
-        return err;
-    }
-    err = esp_bluedroid_enable();
-    if (err != ESP_OK) {
-        ESP_LOGE(TAG, "bluedroid_enable: %s", esp_err_to_name(err));
-        return err;
-    }
-
-    ESP_ERROR_CHECK(esp_ble_gap_register_callback(gap_event_handler));
-    ESP_ERROR_CHECK(esp_ble_gattc_register_callback(gattc_event_handler));
+    /* Bluedroid is single-tenant for stack bring-up and for the one GAP and
+     * one GATTC callback slot, and this node also runs the battery client.
+     * ble_host owns both and fans events out; registering directly here
+     * would silently unhook whichever client got there first. */
+    ESP_ERROR_CHECK(ble_host_add_gap_observer(gap_event_handler));
+    ESP_ERROR_CHECK(ble_host_add_gattc_observer(gattc_event_handler));
+    ESP_ERROR_CHECK(ble_host_start());
     ESP_ERROR_CHECK(esp_ble_gattc_app_register(WD_APP_ID));
 
     ESP_LOGI(TAG, "Power Watchdog client started (scanning for a Gen 1 unit)");

@@ -13,6 +13,49 @@ the full UI are verified on both the plain ESP32-S3-Touch-LCD-4.3 (bench,
 command-code/interlock bugs below. Hold-to-dim, the rest of the instance
 map, and the other items in *Unverified* below are still unconfirmed.
 
+### Changed — battery BLE moved to the basement proxy (2026-08-23)
+
+Issues #40–#42. The three JBD/Xiaoxiang packs are in the same basement bay
+as the BLE proxy, so holding their links from a bedroom wall panel put a
+steel bay door in the RF path and made one panel's radio carry three BLE
+connections alongside ESP-NOW — for data any panel would eventually want.
+
+- `bedroom_remote` no longer runs a BLE client at all. `PANEL_HAS_BLE_BATTERY`
+  and its wiring were removed rather than left as an unselected option.
+- The proxy now holds **four** BLE links (3 packs + the Power Watchdog) and
+  broadcasts per-pack readings every 30 s.
+- **Per-pack frames on the wire, not a pre-combined bank.** `jbd_bms_combine()`
+  stays the single host-tested aggregator, and the panel's per-pack detail
+  popup keeps real numbers. A configured-but-unreachable pack is broadcast
+  flagged offline, so "this pack dropped" stays distinguishable from "the
+  proxy is gone".
+- New `components/ble_host`: shared Bluedroid bring-up plus GAP/GATTC
+  callback fan-out. Bluedroid holds exactly one GAP and one GATTC callback
+  per node and a second registration *replaces* the first without erroring,
+  so two clients on one node would silently fight; GATTC app IDs are also one
+  flat namespace, and both clients had been using 0.
+- `jbd_bms_client.c`'s `try_connect()` now selects on
+  `CONFIG_BT_BLE_50_FEATURES_SUPPORTED` — the classic ESP32 is BLE 4.2 and
+  needs `esp_ble_gattc_open()`, not the S3's `esp_ble_gattc_enh_open()`.
+- The battery telemetry struct is sized to fit the existing 16-byte union
+  member, pinned by a `_Static_assert`, so `sizeof(espnow_telem_frame_t)`
+  is unchanged and `mid_coach`'s tank broadcasts keep parsing on an updated
+  panel without reflashing it.
+- New `ui_on_battery_status()` entry point makes the UI source-agnostic; the
+  simulator feeds the same path, so `sim/stubs/jbd_bms_client.h` is gone and
+  `jbd_bms_combine()` runs for real in the sim.
+
+Bench-verified at the coach 2026-08-23: all three packs and the Watchdog
+connect from the proxy, and `bedroom_remote` shows the combined bank from
+broadcasts alone.
+
+### Fixed — battery current sign convention confirmed (2026-08-23)
+
+Positive = charging, negative = discharging, observed in both directions on
+real packs. This had stood as an assumption since the protocol work: the
+committed regression frame carries a zero current field and so could never
+settle it. The long-standing `TODO(bench)` is closed.
+
 ### Removed — OTA update feature (2026-08-16)
 
 - **All OTA (over-the-air) update code has been removed.** Bench testing

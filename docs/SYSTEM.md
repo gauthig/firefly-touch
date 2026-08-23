@@ -5,7 +5,8 @@ Every device this project talks to, and how each one is reached.
 The guiding constraint: **there is no hub and no cloud.** Panels are
 independent peers on the coach's RV-C bus, and the two things that aren't on
 that bus (the batteries and the shore-power monitor) are reached over BLE by
-whichever node is physically closest to them, then re-broadcast to everyone
+the node physically closest to them — both live in the basement bay, so both
+are held by the proxy sitting in that bay — then re-broadcast to everyone
 else.
 
 ## Architecture
@@ -39,13 +40,13 @@ graph TB
     MID <-->|"ESP-NOW unicast<br/>encrypted · ch 1"| BED
 
     MID -.->|"ESP-NOW broadcast<br/>tank levels"| BED
-    PROXY -.->|"ESP-NOW broadcast<br/>shore power"| BED
+    PROXY -.->|"ESP-NOW broadcast<br/>shore power + batteries"| BED
     PROXY -.->|"ESP-NOW broadcast"| MID
 
-    BED -->|"BLE GATT<br/>3 links"| BAT1
-    BED --> BAT2
-    BED --> BAT3
-    PROXY -->|"BLE GATT"| WD
+    PROXY -->|"BLE GATT<br/>4 links"| BAT1
+    PROXY --> BAT2
+    PROXY --> BAT3
+    PROXY --> WD
 
     BAT1 -.->|"RS-485 daisy-chain<br/><i>not used by this project</i>"| BAT2
     BAT2 -.-> BAT3
@@ -67,8 +68,8 @@ shared RV-C CAN bus, where every node is a peer.
 |---|---|---|---|
 | **`mid_coach`** | Waveshare ESP32-S3-Touch-LCD-4.3B | Lights + tank levels. Also the ESP-NOW bridge and the tank-telemetry producer. | RV-C CAN, ESP-NOW (unicast + broadcast) |
 | **`ent_center`** | Waveshare ESP32-S3-Touch-LCD-4.3B | Lights only | RV-C CAN |
-| **`bedroom_remote`** | Waveshare ESP32-S3-Touch-LCD-4.3B | Lights, battery bank, shore power. **No CAN wiring.** | ESP-NOW, BLE (3 links) |
-| **Bluetooth proxy basement** | ESP32-D0WD-V3 (classic ESP32, 4 MB, no PSRAM) | Headless. Holds the Watchdog BLE link and re-broadcasts it. | BLE (1 link), ESP-NOW broadcast |
+| **`bedroom_remote`** | Waveshare ESP32-S3-Touch-LCD-4.3B | Lights, battery bank, shore power — the latter two entirely from broadcasts. **No CAN wiring, no BLE.** | ESP-NOW |
+| **Bluetooth proxy basement** | ESP32-D0WD-V3 (classic ESP32, 4 MB, no PSRAM) | Headless. Holds every BLE link in the coach and re-broadcasts what it reads. | BLE (4 links), ESP-NOW broadcast |
 
 Panel boards: ESP32-S3-WROOM-1-N16R8 (16 MB flash, 8 MB octal PSRAM), 4.3"
 800×480 RGB LCD run rotated to portrait, GT911 capacitive touch on I²C,
@@ -136,12 +137,17 @@ build.
 
 | Link | Held by | Service | Behaviour |
 |---|---|---|---|
-| 3 × battery BMS | `bedroom_remote` | `0xFF00` | Polled every 30 s |
+| 3 × battery BMS | Bluetooth proxy basement | `0xFF00` | Polled every 30 s |
 | Power Watchdog | basement proxy | `0xFFE0` | Streams ~1 Hz, no polling |
 
 Both peripherals accept **one connection at a time**, which is why the
 Watchdog gets a dedicated node rather than sharing a panel — and why your
 phone app cannot connect while ours is attached.
+
+All four BLE links are held by one node, which is why
+`components/ble_host` exists: Bluedroid allows exactly one GAP callback and
+one GATTC callback per node, and a second registration silently replaces the
+first rather than failing.
 
 Poll rate matters for the batteries: JBD units are widely reported to
 misbehave when polled more often than ~20 s, so the Kconfig floor enforces

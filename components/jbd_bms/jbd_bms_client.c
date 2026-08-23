@@ -29,6 +29,7 @@
 
 #include <string.h>
 
+#include "ble_host.h"
 #include "esp_bt.h"
 #include "esp_bt_main.h"
 #include "esp_gap_ble_api.h"
@@ -316,10 +317,15 @@ static void gattc_event_handler(esp_gattc_cb_event_t event, esp_gatt_if_t gattc_
                                 esp_ble_gattc_cb_param_t *param)
 {
     if (event == ESP_GATTC_REG_EVT) {
-        const uint16_t app_id = param->reg.app_id;
-        if (app_id >= JBD_BMS_MAX_BATTERIES) {
+        /* Registration events fan out to every client on the node, so a
+         * battery slot must claim only its own app_id -- otherwise this
+         * client would capture the Power Watchdog's gattc_if and the two
+         * would fight over the same connection. */
+        const int slot_id = (int)param->reg.app_id - BLE_HOST_APP_ID_BATTERY_BASE;
+        if (slot_id < 0 || slot_id >= JBD_BMS_MAX_BATTERIES) {
             return;
         }
+        const uint16_t app_id = (uint16_t)slot_id;
         jbd_slot_t *slot = &s_slots[app_id];
         if (param->reg.status != ESP_GATT_OK) {
             ESP_LOGW(TAG, "battery %u: app register failed, status %d", app_id + 1,
@@ -341,24 +347,25 @@ static void gattc_event_handler(esp_gattc_cb_event_t event, esp_gatt_if_t gattc_
     }
 }
 
-static void gap_event_handler(esp_gap_ble_cb_event_t event, esp_ble_gap_cb_param_t *param)
-{
-    /* No scanning/advertising here -- batteries are connected directly by
-     * known address, so nothing in this project currently needs a GAP
-     * event, but Bluedroid requires a registered callback regardless. */
-    (void)event;
-    (void)param;
-}
-
 static void try_connect(jbd_slot_t *slot)
 {
     ESP_LOGI(TAG, "battery %u: connecting...", slot_index(slot) + 1);
 
-    /* esp_ble_gattc_open() requires BT_BLE_42_FEATURES_SUPPORTED, which is
-     * off by default on ESP32-S3 (BT_BLE_50_FEATURES_SUPPORTED is the
-     * default instead) -- use the BLE 5.0 "enhanced" connect API, same
-     * call shape as the official Bluedroid gattc_demo example's direct
-     * (non-scan) connect path. */
+    /*
+     * Two connect APIs, selected by what the chip's BLE stack actually
+     * supports -- this file runs on both the panels' ESP32-S3 and the
+     * basement proxy's classic ESP32, and the call is not portable:
+     *
+     *   - ESP32-S3 defaults to BT_BLE_50_FEATURES_SUPPORTED, where
+     *     esp_ble_gattc_open() is not even linked in (it needs
+     *     BT_BLE_42_FEATURES_SUPPORTED) -- it fails at link time with
+     *     "undefined reference".
+     *   - The classic ESP32 is BLE 4.2 and has no enhanced open at all.
+     *
+     * Same call shape either way as the official Bluedroid gattc_demo
+     * example's direct (non-scan) connect path.
+     */
+#if defined(CONFIG_BT_BLE_50_FEATURES_SUPPORTED)
     esp_ble_gatt_creat_conn_params_t conn_params = { 0 };
     memcpy(conn_params.remote_bda, slot->bda, sizeof(esp_bd_addr_t));
     conn_params.remote_addr_type = JBD_BMS_ADDR_TYPE;
@@ -368,8 +375,12 @@ static void try_connect(jbd_slot_t *slot)
     conn_params.phy_mask = 0x0;
 
     esp_err_t err = esp_ble_gattc_enh_open(slot->gattc_if, &conn_params);
+#else
+    esp_err_t err = esp_ble_gattc_open(slot->gattc_if, slot->bda,
+                                       JBD_BMS_ADDR_TYPE, true);
+#endif
     if (err != ESP_OK) {
-        ESP_LOGW(TAG, "esp_ble_gattc_enh_open failed, err=%s", esp_err_to_name(err));
+        ESP_LOGW(TAG, "gattc open failed, err=%s", esp_err_to_name(err));
         reset_slot_for_retry(slot);
         return;
     }
@@ -465,39 +476,22 @@ esp_err_t jbd_bms_client_start(void)
         ESP_LOGI(TAG, "no batteries configured -- BLE client idle until MACs are set");
     }
 
-    esp_err_t err = esp_bt_controller_mem_release(ESP_BT_MODE_CLASSIC_BT);
-    if (err != ESP_OK && err != ESP_ERR_INVALID_STATE) {
-        ESP_LOGW(TAG, "esp_bt_controller_mem_release: %s", esp_err_to_name(err));
-    }
-
-    esp_bt_controller_config_t bt_cfg = BT_CONTROLLER_INIT_CONFIG_DEFAULT();
-    err = esp_bt_controller_init(&bt_cfg);
-    if (err != ESP_OK) {
-        ESP_LOGE(TAG, "esp_bt_controller_init failed: %s", esp_err_to_name(err));
-        return err;
-    }
-    err = esp_bt_controller_enable(ESP_BT_MODE_BLE);
-    if (err != ESP_OK) {
-        ESP_LOGE(TAG, "esp_bt_controller_enable failed: %s", esp_err_to_name(err));
-        return err;
-    }
-    err = esp_bluedroid_init();
-    if (err != ESP_OK) {
-        ESP_LOGE(TAG, "esp_bluedroid_init failed: %s", esp_err_to_name(err));
-        return err;
-    }
-    err = esp_bluedroid_enable();
-    if (err != ESP_OK) {
-        ESP_LOGE(TAG, "esp_bluedroid_enable failed: %s", esp_err_to_name(err));
-        return err;
-    }
-
-    ESP_ERROR_CHECK(esp_ble_gap_register_callback(gap_event_handler));
-    ESP_ERROR_CHECK(esp_ble_gattc_register_callback(gattc_event_handler));
+    /* The Bluedroid stack may already be up: on the basement proxy the
+     * Power Watchdog client shares it. ble_host owns the one-shot bring-up
+     * and the single GAP/GATTC callback slots, and fans events out to every
+     * client -- registering our own callbacks directly here would silently
+     * unhook whichever client registered first. */
+    ESP_ERROR_CHECK(ble_host_add_gattc_observer(gattc_event_handler));
+    ESP_ERROR_CHECK(ble_host_start());
 
     for (uint8_t i = 0; i < JBD_BMS_MAX_BATTERIES; i++) {
         if (s_slots[i].enabled) {
-            esp_err_t reg_err = esp_ble_gattc_app_register(i);
+            /* app_id is the slot index, offset into this node's shared
+             * GATTC app-ID namespace -- see BLE_HOST_APP_ID_* in
+             * ble_host.h. It has to stay unique across every BLE client on
+             * the node, not just within this one. */
+            esp_err_t reg_err =
+                esp_ble_gattc_app_register(BLE_HOST_APP_ID_BATTERY_BASE + i);
             if (reg_err != ESP_OK) {
                 ESP_LOGW(TAG, "battery %u: app register call failed: %s", i + 1,
                          esp_err_to_name(reg_err));
@@ -532,6 +526,11 @@ bool jbd_bms_get_status(uint8_t index, jbd_bms_status_t *out)
     }
     xSemaphoreGive(s_status_mutex);
     return valid;
+}
+
+bool jbd_bms_slot_configured(uint8_t index)
+{
+    return index < JBD_BMS_MAX_BATTERIES && s_slots[index].enabled;
 }
 
 bool jbd_bms_healthy(uint8_t index)

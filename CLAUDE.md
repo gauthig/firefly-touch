@@ -105,7 +105,10 @@ report two NTC temperatures so the °F high/low readout is live too.
 and same reason as `SIM_TANK_START_TICK`, since a `--shot` capture only
 runs ~2 s of real time and would never reach the offline window naturally.
 
-There's no real BLE stack in the sim at all — `sim/stubs/jbd_bms_client.h`
+There's no real BLE stack in the sim at all, and no client left to fake:
+the panel is fed by ESP-NOW telemetry, so the sweep pushes through
+`ui_on_battery_status()`, the same entry point the real broadcasts use.
+(Historical note, since the file is gone: `sim/stubs/jbd_bms_client.h`
 shadows the real component header (which pulls in the ESP `bt` component)
 with just the declarations `ui.c` needs, backed by that fake table;
 `jbd_bms_protocol.c` itself is compiled straight into the sim unmodified
@@ -133,7 +136,7 @@ CAN-connected case in `main/panel_config.h`.
 | `twai_tx`      | 0    | 11   | drains TX queue → `twai_transmit`; bus-off recovery. Nothing else ever blocks on the bus |
 | `espnow_rx`    | 0    | 10   | (only if `PANEL_IS_BRIDGE` or `!PANEL_HAS_CAN`) drains ESP-NOW recv queue, invokes the registered cmd/status callback |
 | `state_mgr`    | 0    | 9    | owns instance→{level,on} table; on change calls `ui_on_status()` under the LVGL lock, and the registered ESP-NOW status sink if any |
-| `jbd_bms`      | ?    | 9    | (only if `PANEL_HAS_BLE_BATTERY`) drives each configured battery's connect/discover/subscribe/poll state machine; Bluedroid's own host task runs alongside it (see *Battery monitor* below) |
+| `jbd_bms`      | -    | 9    | **not on a panel any more** — runs on the basement proxy, which holds the battery BLE links and broadcasts the readings (see *Battery monitor* below) |
 | LVGL (port)    | 1    | 4    | rendering + touch; button callbacks only enqueue via `bridge_enqueue_dimmer_cmd()` |
 
 **Invariant:** icon/button visual state is driven ONLY by status frames from
@@ -168,9 +171,19 @@ enqueuing locally, and status arrives the same way in reverse (see below).
 - `components/jbd_bms` — Xiaoxiang/JBD Smart BMS protocol codec
   (`jbd_bms_protocol.c`, pure C, host-testable like `rvc_protocol`) plus a
   Bluedroid GATT-client (`jbd_bms_client.c`) for up to 3 fixed battery
-  peripherals (see *Battery monitor* below). Always compiled into `main`
-  (same precedent as `espnow_link`), but the BLE stack is only actually
-  started when a panel sets `PANEL_HAS_BLE_BATTERY 1`.
+  peripherals (see *Battery monitor* below). The **client** runs on the
+  basement proxy, not on a panel; a panel links the component only for
+  `jbd_bms_protocol.h`'s types and `jbd_bms_combine()`.
+- `components/ble_host` — shared Bluedroid bring-up + GAP/GATTC callback
+  fan-out, so the proxy can run the battery client and the Power Watchdog
+  client at once. Bluedroid is single-tenant in three places and every one
+  of them fails **silently**: the stack init calls are one-shot, the GAP and
+  GATTC callback registrations hold exactly one function pointer each (a
+  second registration *replaces* the first rather than erroring), and GATTC
+  app IDs are one flat namespace per node. `ble_host.h` owns the first two
+  and records the app-ID allocation for the third. Any new BLE client goes
+  through it — never call `esp_ble_gap_register_callback()` /
+  `esp_ble_gattc_register_callback()` directly.
 
 ## ESP-NOW remote-panel bridge
 
@@ -254,11 +267,38 @@ RV-C instance map used to pick these.
 
 ## Battery monitor (JBD-BMS via BLE)
 
-`bedroom_remote` (`PANEL_HAS_BLE_BATTERY 1`) additionally runs a Bluedroid
-GATT-client central role (`components/jbd_bms`) alongside its ESP-NOW
-light-switch relay, connecting to up to 3 Vatrer 300AH batteries'
-Xiaoxiang/JBD-BMS boards over BLE (issues #25–#27). v1 scope mirrors
-ESP-NOW's: fixed MAC addresses from Kconfig, no scanning/pairing UI, no mesh.
+**The BLE links live on the basement proxy, not on a panel** (issues
+#40–#42, moved there 2026-08-22). The proxy runs a Bluedroid GATT-client
+central role (`components/jbd_bms`) against up to 3 Vatrer 300AH batteries'
+Xiaoxiang/JBD-BMS boards, and re-broadcasts each pack's reading over ESP-NOW
+every poll interval; `bedroom_remote` just displays what arrives. v1 scope
+mirrors ESP-NOW's: fixed MAC addresses from Kconfig, no scanning/pairing UI,
+no mesh.
+
+Why it moved: the packs are in the same basement bay as the proxy, so
+running their links from a bedroom wall panel put a steel bay door in the RF
+path and made one panel's radio carry three BLE connections plus ESP-NOW —
+for data that any panel would eventually want anyway. Broadcasting it costs
+a future panel nothing.
+
+**Bench-verified 2026-08-23** on real hardware: all 3 packs and the Power
+Watchdog connect from the proxy simultaneously, `bedroom_remote` shows the
+combined bank from broadcasts alone, and both charge and discharge were
+observed (which is what finally settled the current-sign question below).
+Note the original proxy board died during this work — it powered up and
+enumerated its USB bridge but never drove UART TX, not even the boot ROM
+banner, in any boot mode at any baud. A replacement classic ESP32 was a
+straight swap: the telemetry role has no unicast peer, so no node knows or
+cares about the proxy's MAC and nothing needed reconfiguring.
+
+⚠️ **Per-pack frames go on the wire, NOT a pre-combined bank.** The
+combining rules already live in `jbd_bms_combine()` as pure host-tested C
+and the panel links it regardless, so summing on the proxy as well would
+fork that logic across two chip families. Sending packs separately is also
+what keeps the panel's per-pack detail popup fed. A configured-but-
+unreachable pack is broadcast too, flagged offline — that is how a panel
+distinguishes "this pack dropped" from "the whole proxy is gone", which
+silence alone cannot express.
 
 **The three packs are wired in PARALLEL, so the screen shows ONE combined
 bank reading, not three per-pack gauges** (issues #29–#32): one voltage, one
@@ -270,8 +310,8 @@ one.** A JBD BLE module is a UART bridge to a single BMS's serial port;
 register `0x03` returns only that pack's own data and it knows nothing of its
 siblings. Vendor displays that plug into one battery and show the whole bank
 are using the packs' **RS485 inter-pack daisy-chain**, a different physical
-bus this panel is not wired into. The three-BLE-connection architecture is
-therefore correct, and the combining happens in
+bus nothing in this project is wired into. The three-BLE-connection
+architecture is therefore correct, and the combining happens in
 `jbd_bms_combine()` (see below).
 Bluedroid rather than NimBLE per explicit project decision — each battery
 is its own GATTC "app" (`esp_ble_gattc_app_register()`, app_id == battery
@@ -328,10 +368,12 @@ is already fixed).
   payloads that stop at the RSOC byte still parse; they just report
   `temp_count == 0` and the UI shows "--".
 
-  **Still TODO(bench): the CURRENT SIGN CONVENTION.** This project assumes
-  positive = charging, negative = discharging. The captured frame can't
-  settle it (its current field is zero). Flip `jbd_bms_estimate_hours()`'s
-  branches if a real pack disagrees.
+  **CURRENT SIGN CONVENTION: verified 2026-08-23.** Positive = charging,
+  negative = discharging, confirmed on the real packs with both directions
+  observed. This sat as an assumption for a long time because the captured
+  regression frame carries a zero current field and so cannot settle it —
+  only a live pack could. Settled now; don't reopen it without a
+  contradicting capture.
 - **Watts is not in the protocol** — there is no power field. It is always
   derived. `jbd_bms_combine()` sums per-pack V×I rather than computing
   mean_V × sum_I: identical while the packs agree, but it stays correct if
@@ -357,19 +399,33 @@ is already fixed).
   no need to try `BLE_ADDR_TYPE_RANDOM`. Polls every
   `CONFIG_FIREFLY_BATTERY_POLL_INTERVAL_MS` once subscribed;
   `jbd_bms_get_status()`/`jbd_bms_healthy()` mirror
-  `state_manager_get_tank()`'s valid/invalid contract. See *Development
-  notes & gotchas* below for the Bluedroid virtual-connection bug that had
-  to be fixed to get all 3 connecting instead of just the first.
-- **BLE/WiFi coexistence: bench-verified 2026-08-20**, no ESP-NOW
-  degradation observed with all 3 BLE connections active on
-  `bedroom_remote` (`mid_coach` on COM16, `bedroom_remote` on COM11).
-  ESP32-S3 shares one 2.4 GHz radio between WiFi and BLE via IDF's
-  software coexistence manager (`CONFIG_SW_COEXIST_ENABLE`, on by default
-  once both `esp_wifi` and `bt` are enabled — see `sdkconfig.defaults`).
-- UI: `main/ui/ui.c`'s `battery_status_timer_cb` polls every configured
-  slot once a second, packs the live ones (`jbd_bms_get_status()` **and**
-  `jbd_bms_healthy()`), calls `jbd_bms_combine()`, and pushes the single
-  resulting `jbd_bms_bank_t` to one `PANEL_BTN_BATTERY_SUMMARY` widget
+  `state_manager_get_tank()`'s valid/invalid contract, and
+  `jbd_bms_slot_configured()` separates "configured but offline" from
+  "never configured". See *Development notes & gotchas* below for the
+  Bluedroid virtual-connection bug that had to be fixed to get all 3
+  connecting instead of just the first.
+
+  Now that it runs on the classic ESP32, `try_connect()` picks its connect
+  API on `CONFIG_BT_BLE_50_FEATURES_SUPPORTED` — `esp_ble_gattc_enh_open()`
+  on the S3, `esp_ble_gattc_open()` on the classic part (the latter is not
+  even linked on the S3's default host stack). Stack bring-up and callback
+  registration go through `components/ble_host`, and the batteries' GATTC
+  app IDs are `BLE_HOST_APP_ID_BATTERY_BASE + slot`, which must stay
+  distinct from the Watchdog's.
+- **BLE/WiFi coexistence** was bench-verified 2026-08-20 on
+  `bedroom_remote` with all 3 BLE connections plus ESP-NOW active, and no
+  degradation was observed — which is worth keeping on record even though
+  the panel no longer holds those links, because the proxy now carries
+  *four* (3 packs + the Watchdog) alongside its ESP-NOW broadcasts. Both
+  chips share one 2.4 GHz radio between WiFi and BLE via IDF's software
+  coexistence manager (`CONFIG_SW_COEXIST_ENABLE`, on by default once both
+  `esp_wifi` and `bt` are enabled).
+- UI: broadcasts arrive at `ui_on_battery_status()` (`main/ui/ui.c`), which
+  only caches them — mirroring `ui_on_shore_power()`, so exactly one place
+  decides what the readout says. `battery_status_timer_cb` then runs once a
+  second over that table, packs the fresh packs, calls `jbd_bms_combine()`,
+  and pushes the single resulting `jbd_bms_bank_t` to one
+  `PANEL_BTN_BATTERY_SUMMARY` widget
   (`components/ui_common/ui_battery_summary.c`). Layout, mirroring the
   Vatrer display: SOC arc with the percent at its center (indicator colored
   by band — green ≥50 %, `UI_COLOR_WARN` 20–49 %, `UI_COLOR_ERR` <20 %), a
@@ -457,8 +513,16 @@ client here is receive-only by design, not by omission.
 
 ⚠️ **Chip portability trap.** `esp_ble_gattc_enh_open()` is the BLE 5.0 path
 the S3 needs; the classic ESP32 is BLE 4.2 and wants `esp_ble_gattc_open()`.
-`try_connect()` selects on `CONFIG_BT_BLE_50_FEATURES_SUPPORTED`. If battery
-code is ever moved to this node, `jbd_bms_client.c` needs the same guard.
+Both `hughes_wd_client.c` and `jbd_bms_client.c` select on
+`CONFIG_BT_BLE_50_FEATURES_SUPPORTED` in their `try_connect()`. Any new
+client on this node needs the same guard.
+
+⚠️ **Two BLE clients share one Bluedroid.** As of issues #40–#42 the
+batteries live here too, so `components/ble_host` owns stack bring-up and
+the single GAP/GATTC callback slots and fans events out. Both clients also
+filter registration events by their own `app_id` — without that, whichever
+client registered last would capture the other's `gattc_if` and the two
+would silently fight over one connection.
 
 TODO(bench): the byte offsets above are from public reverse engineering, not
 from this unit. The client logs the first 5 raw packets at INFO — check them
@@ -468,8 +532,8 @@ against the Watchdog's own display before trusting the numbers.
 
 Read-only measurements broadcast to every node on the channel, so a panel
 can display data it has no connection to. Two producers today: the proxy
-(shore power) and the bridge panel (tank levels, so read-only remotes can
-show tanks — previously out of scope).
+(shore power and per-pack battery readings) and the bridge panel (tank
+levels, so read-only remotes can show tanks — previously out of scope).
 
 - **Broadcast is unencrypted and unavoidably so** — ESP-NOW cannot encrypt
   broadcast frames. Acceptable *only* because this is read-only telemetry.
@@ -891,6 +955,13 @@ Hard-won during setup — check here before re-debugging:
   `cmake -DPANEL=$Panel` passes the literal string `$Panel`. Quote the whole
   argument: `cmake "-DPANEL=$Panel"`. This silently produced a "panel not
   found" error deep in a rebuild, not at configure time.
+- **Windows PowerShell 5.1 refuses to source `export.ps1`** ("not digitally
+  signed", `UnauthorizedAccess`) — its default execution policy blocks
+  unsigned scripts. PowerShell 7 (`pwsh`) runs it fine, which is why this
+  only shows up when a command is run by hand in a 5.1 window. Either use
+  `pwsh`, or `Set-ExecutionPolicy -Scope Process -Bypass` in that window
+  only (session-scoped, reverts on close — don't loosen CurrentUser or
+  LocalMachine for this).
 - **`. C:\esp\esp-idf\export.ps1` is per-shell.** Any script that calls
   `idf.py`, `cmake`, or `ninja` must source it first (or check
   `Get-Command cmake` and source on demand, as `sim/build.ps1` does).
@@ -942,7 +1013,11 @@ ESP32-S3-Touch-LCD-4.3, **not** the B):
   `TODO(critical)` in `board_4_3b.h` stands.
 
 Hard-won during battery-status BLE bring-up (2026-08-19/20, `bedroom_remote`
-on COM11, `mid_coach` on COM16):
+on COM11, `mid_coach` on COM16). ⚠️ The BLE client has since moved to the
+basement proxy (issues #40–#42), so read "the node running the client" for
+`bedroom_remote` below — every one of these still applies, just on a
+different board, and the sdkconfig warning now applies to `proxy/sdkconfig`
+as well:
 
 - **Regenerating `sdkconfig` wipes anything not in `sdkconfig.defaults`,
   including per-panel secrets like the ESP-NOW peer MAC/PMK/LMK.** Deleting

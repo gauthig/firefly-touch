@@ -36,10 +36,6 @@
 #include "espnow_link.h"
 #endif
 
-#if PANEL_HAS_BLE_BATTERY
-#include "jbd_bms_client.h"
-#endif
-
 static const char *TAG = "main";
 
 #if !PANEL_HAS_CAN
@@ -86,6 +82,24 @@ static void remote_telem_rx(const espnow_telem_msg_t *msg, void *ctx)
             sp.watts[i] = (float)msg->shore.watts[i];
         }
         ui_on_shore_power(&sp);
+        break;
+    }
+
+    case ESPNOW_TELEM_BATTERY: {
+        const espnow_battery_msg_t *b = &msg->battery;
+        ui_battery_pack_t pack = {
+            .slot             = b->slot,
+            .online           = (b->flags & ESPNOW_BATTERY_FLAG_ONLINE) != 0,
+            .soc_percent      = b->soc_percent,
+            .voltage_v        = (float)b->volts_cv / 100.0f,
+            .current_a        = (float)b->current_da / 10.0f,
+            .residual_ah      = (float)b->residual_dah / 10.0f,
+            .full_capacity_ah = (float)b->full_dah / 10.0f,
+            .temp_valid       = (b->flags & ESPNOW_BATTERY_FLAG_TEMP_VALID) != 0,
+            .temp_min_c       = (float)b->temp_min_dc / 10.0f,
+            .temp_max_c       = (float)b->temp_max_dc / 10.0f,
+        };
+        ui_on_battery_status(&pack);
         break;
     }
 
@@ -205,10 +219,6 @@ void app_main(void)
     ESP_ERROR_CHECK(espnow_link_init(ESPNOW_ROLE_REMOTE));
     espnow_link_set_status_rx_cb(remote_status_rx, NULL);
     espnow_link_set_telem_rx_cb(remote_telem_rx, NULL);
-#endif
-
-#if PANEL_HAS_BLE_BATTERY
-    ESP_ERROR_CHECK(jbd_bms_client_start());
 #endif
 
     ESP_LOGI(TAG, "up");
