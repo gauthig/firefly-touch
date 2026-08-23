@@ -80,13 +80,13 @@
  * legend and MUST be confirmed with a sniffer build — see CLAUDE.md.
  */
 static const panel_btn_def_t PANEL_BUTTONS[] = {
-    { "BUTTON ONE",   PANEL_BTN_DIMMER, {0},     1 },
-    { "BUTTON TWO",   PANEL_BTN_DIMMER, {0},     1 },
-    { "BUTTON THREE", PANEL_BTN_DIMMER, {0, 0},  2 },
-    { "BUTTON FOUR",  PANEL_BTN_DIMMER, {0},     1 },
-    { "BUTTON FIVE",  PANEL_BTN_DIMMER, {0},     1 },
-    { "BUTTON SIX",   PANEL_BTN_DIMMER, {0},     1 },
-    { "BUTTON SEVEN", PANEL_BTN_SWITCH, {0, 0},  2 },
+    { .label = "BUTTON ONE", .type = PANEL_BTN_DIMMER, .instances = {0}, .instance_count = 1 },
+    { .label = "BUTTON TWO", .type = PANEL_BTN_DIMMER, .instances = {0}, .instance_count = 1 },
+    { .label = "BUTTON THREE", .type = PANEL_BTN_DIMMER, .instances = {0, 0}, .instance_count = 2 },
+    { .label = "BUTTON FOUR", .type = PANEL_BTN_DIMMER, .instances = {0}, .instance_count = 1 },
+    { .label = "BUTTON FIVE", .type = PANEL_BTN_DIMMER, .instances = {0}, .instance_count = 1 },
+    { .label = "BUTTON SIX", .type = PANEL_BTN_DIMMER, .instances = {0}, .instance_count = 1 },
+    { .label = "BUTTON SEVEN", .type = PANEL_BTN_SWITCH, .instances = {0, 0}, .instance_count = 2 },
 };
 
 #define PANEL_BUTTON_COUNT (sizeof(PANEL_BUTTONS) / sizeof(PANEL_BUTTONS[0]))

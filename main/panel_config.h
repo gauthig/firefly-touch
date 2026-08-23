@@ -77,6 +77,65 @@
 #endif
 
 /*
+ * PANEL_WANTS_TELEMETRY 1 = this CAN-connected panel also listens to the
+ * ESP-NOW broadcast channel, in the receive-only TELEMETRY role (no unicast
+ * peer, no keys, nothing actuable).
+ *
+ * Needed because some readings exist ONLY as broadcasts: the battery packs
+ * and the Hughes Power Watchdog are on BLE links held by the basement
+ * proxy, and no amount of CAN wiring reaches them. A remote panel gets this
+ * for free as part of PANEL_HAS_CAN=0; a CAN panel that wants a battery or
+ * shore-power section has to ask.
+ */
+#ifndef PANEL_WANTS_TELEMETRY
+#define PANEL_WANTS_TELEMETRY 0
+#endif
+
+#if PANEL_WANTS_TELEMETRY && !PANEL_HAS_CAN
+#error "PANEL_WANTS_TELEMETRY is for CAN panels; a remote panel already receives telemetry"
+#endif
+
+/*
+ * PANEL_HAS_NAV_RAIL 1 = this panel shows a PERSISTENT side rail listing its
+ * sections, with the selected one filling the rest of the screen, instead of
+ * the whole-screen swap the other panels use. The panel header then defines
+ * PANEL_NAV_RAIL[]/PANEL_NAV_RAIL_COUNT — plain panel_btn_def_t entries of
+ * type PANEL_BTN_SCREEN_SWITCH, reusing the existing convention that
+ * instances[0] names the target screen.
+ *
+ * Rail order is independent of screen index, so a panel can list its
+ * sections in whatever order reads best while keeping its button grid on
+ * screen 0 (where build_button_grid() handles it).
+ *
+ * This wants a landscape display; a portrait panel has no width to spare.
+ */
+#ifndef PANEL_HAS_NAV_RAIL
+#define PANEL_HAS_NAV_RAIL 0
+#endif
+
+#if PANEL_HAS_NAV_RAIL && !PANEL_HAS_SCREEN_2
+#error "PANEL_HAS_NAV_RAIL needs at least two screens to navigate between"
+#endif
+
+/*
+ * Screen shown at boot, and returned to when the backlight idles off. 0 is
+ * the main button grid. A rail panel typically wants a different one — the
+ * grid is just one section among several, not the home screen.
+ */
+#ifndef PANEL_DEFAULT_SCREEN
+#define PANEL_DEFAULT_SCREEN 0
+#endif
+
+/*
+ * Columns in the main button grid. Two suits a portrait 4.3" panel; a wide
+ * landscape panel fits more across and would otherwise stretch each button
+ * into a letterbox.
+ */
+#ifndef PANEL_GRID_COLS
+#define PANEL_GRID_COLS 2
+#endif
+
+/*
  * No panel runs a BLE client any more. The three JBD/Xiaoxiang battery
  * packs sit in the basement bay next to the headless proxy (proxy/), which
  * holds their BLE links and broadcasts the readings over ESP-NOW; a panel

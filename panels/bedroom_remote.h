@@ -42,16 +42,16 @@
  * leaving one stranded beside MOTION.
  */
 static const panel_btn_def_t PANEL_BUTTONS[] = {
-    { "BEDROOM CEILING", PANEL_BTN_DIMMER, {17},     1 },
-    { "BED O/H",         PANEL_BTN_DIMMER, {18},     1 },
-    { "CENTER CEILING",  PANEL_BTN_DIMMER, {25},     1 },
-    { "BATHROOM",        PANEL_BTN_DIMMER, {13},     1 },
-    { "MIDSHIP",         PANEL_BTN_DIMMER, {35},     1 },
-    { "COURTESY",        PANEL_BTN_DIMMER, {21},     1 },
-    { "MOTION",          PANEL_BTN_SWITCH, {46},     1 },
-    { "",                PANEL_BTN_SPACER, {0},      0 },
-    { "BATTERY",         PANEL_BTN_SCREEN_SWITCH, {1}, 1 },
-    { "SHORE POWER",     PANEL_BTN_SCREEN_SWITCH, {2}, 1 },
+    { .label = "BEDROOM CEILING", .type = PANEL_BTN_DIMMER, .instances = {17}, .instance_count = 1 },
+    { .label = "BED O/H", .type = PANEL_BTN_DIMMER, .instances = {18}, .instance_count = 1 },
+    { .label = "CENTER CEILING", .type = PANEL_BTN_DIMMER, .instances = {25}, .instance_count = 1 },
+    { .label = "BATHROOM", .type = PANEL_BTN_DIMMER, .instances = {13}, .instance_count = 1 },
+    { .label = "MIDSHIP", .type = PANEL_BTN_DIMMER, .instances = {35}, .instance_count = 1 },
+    { .label = "COURTESY", .type = PANEL_BTN_DIMMER, .instances = {21}, .instance_count = 1 },
+    { .label = "MOTION", .type = PANEL_BTN_SWITCH, .instances = {46}, .instance_count = 1 },
+    { .label = "", .type = PANEL_BTN_SPACER, .instances = {0}, .instance_count = 0 },
+    { .label = "BATTERY", .type = PANEL_BTN_SCREEN_SWITCH, .instances = {1}, .instance_count = 1 },
+    { .label = "SHORE POWER", .type = PANEL_BTN_SCREEN_SWITCH, .instances = {2}, .instance_count = 1 },
 };
 
 #define PANEL_BUTTON_COUNT (sizeof(PANEL_BUTTONS) / sizeof(PANEL_BUTTONS[0]))
@@ -65,8 +65,8 @@ static const panel_btn_def_t PANEL_BUTTONS[] = {
  * instances: it aggregates every configured battery slot itself.
  */
 static const panel_btn_def_t PANEL_BUTTONS_2[] = {
-    { "BANK", PANEL_BTN_BATTERY_SUMMARY, {0}, 0 },
-    { "BACK", PANEL_BTN_SCREEN_SWITCH,   {0}, 1 },
+    { .label = "BANK", .type = PANEL_BTN_BATTERY_SUMMARY, .instances = {0}, .instance_count = 0 },
+    { .label = "BACK", .type = PANEL_BTN_SCREEN_SWITCH, .instances = {0}, .instance_count = 1 },
 };
 
 #define PANEL_BUTTON_COUNT_2 (sizeof(PANEL_BUTTONS_2) / sizeof(PANEL_BUTTONS_2[0]))
@@ -78,8 +78,8 @@ static const panel_btn_def_t PANEL_BUTTONS_2[] = {
  * Watchdog itself, and needs none.
  */
 static const panel_btn_def_t PANEL_BUTTONS_3[] = {
-    { "SHORE", PANEL_BTN_SHORE_POWER,   {0}, 0 },
-    { "BACK",  PANEL_BTN_SCREEN_SWITCH, {0}, 1 },
+    { .label = "SHORE", .type = PANEL_BTN_SHORE_POWER, .instances = {0}, .instance_count = 0 },
+    { .label = "BACK", .type = PANEL_BTN_SCREEN_SWITCH, .instances = {0}, .instance_count = 1 },
 };
 
 #define PANEL_BUTTON_COUNT_3 (sizeof(PANEL_BUTTONS_3) / sizeof(PANEL_BUTTONS_3[0]))

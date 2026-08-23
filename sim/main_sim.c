@@ -1,24 +1,33 @@
 /*
  * main_sim — LVGL PC simulator entry point.
  *
- * Default: opens a 480x800 SDL window rendering the selected panel with the
- * real UI code; mouse = touch (click, click-and-hold to ramp).
+ * Default: opens an SDL window rendering the selected panel with the real UI
+ * code; mouse = touch (click, click-and-hold to ramp).
  *
- * Why 480x800 and not the panel's physical 800x480: the firmware runs the
- * display rotated 90 degrees (board_4_3b.c sets sw_rotate + ROTATION_90), so
- * every layout decision in the UI code is made against a LOGICAL resolution
- * of 480x800 -- build_screen() explicitly sizes itself off
- * lv_display_get_vertical_resolution() for exactly this reason. Creating the
- * simulator display at the physical size instead would preview a landscape
- * screen the hardware never shows, which is worse than useless for judging a
- * layout. Matching the logical geometry needs no rotation here at all.
+ * WINDOW SIZE MATCHES THE PANEL'S LOGICAL RESOLUTION, WHICH IS NOT ALWAYS
+ * ITS PHYSICAL ONE:
  *
- * `--shot <file.bmp> [screen2]`: headless mode — renders one frame to an
- * in-memory display, saves a BMP screenshot, and exits (used for CI /
- * remote review). With `screen2`, taps the TANK LEVELS / BATTERY STATUS
- * button first and lets real time run forward briefly so the tank-status,
- * battery-status and wave-animation timers all have a chance to fire
- * before the snapshot.
+ *   - 4.3B panels are physically 800x480 but run rotated 90 degrees
+ *     (board_4_3b.c sets sw_rotate + ROTATION_90), so all layout code sees
+ *     480x800 portrait. build_screen() sizes itself off
+ *     lv_display_get_vertical_resolution() for exactly this reason.
+ *   - The Waveshare 7" (main_cabinet) runs unrotated, so its logical
+ *     resolution IS 800x480 landscape -- which is what makes room for the
+ *     side-nav rail.
+ *
+ * Previewing the wrong one shows a screen the hardware never displays, which
+ * is worse than useless for judging a layout. PANEL_HAS_NAV_RAIL is the
+ * marker for the landscape case; matching the logical geometry means no
+ * rotation is needed on the sim side either way.
+ *
+ * `--shot <file.bmp> [screen2|screen3|section:<LABEL>]`: headless mode —
+ * renders one frame to an in-memory display, saves a BMP screenshot, and
+ * exits (used for CI / remote review). Any of those taps a section button
+ * first, then lets real time run forward briefly so the tank-status,
+ * battery-status and wave-animation timers all have a chance to fire before
+ * the snapshot. `section:` names the button explicitly, which is what a
+ * side-nav panel needs -- it has more sections than "screen 2 / screen 3"
+ * can describe, e.g. `section:LIGHTS`.
  */
 #include <stdbool.h>
 #include <stdint.h>
@@ -29,7 +38,17 @@
 #include <SDL2/SDL.h>
 
 #include "lvgl.h"
+#include "panel_config.h"
 #include "ui.h"
+
+/* Logical geometry of the panel being previewed -- see the file header. */
+#if PANEL_HAS_NAV_RAIL
+#define SIM_W 800
+#define SIM_H 480
+#else
+#define SIM_W 480
+#define SIM_H 800
+#endif
 
 void sim_seed_demo_state(void);
 
@@ -49,8 +68,8 @@ static uint32_t tick_cb(void)
  * in captures taken the old way. Rendering the display for real and reading
  * back its framebuffer captures exactly what the panel would show.
  */
-#define HEADLESS_W 480
-#define HEADLESS_H 800
+#define HEADLESS_W SIM_W
+#define HEADLESS_H SIM_H
 static uint8_t s_headless_fb[HEADLESS_W * HEADLESS_H * 4];
 
 static void headless_flush_cb(lv_display_t *disp, const lv_area_t *area,
@@ -184,7 +203,8 @@ static bool click_button_labeled(lv_obj_t *root, const char *text)
     return true;
 }
 
-static int run_screenshot(const char *path, bool screen2, int popup_taps, bool screen3)
+static int run_screenshot(const char *path, bool screen2, int popup_taps, bool screen3,
+                          const char *section)
 {
     lv_display_t *disp = lv_display_create(HEADLESS_W, HEADLESS_H);
     lv_display_set_color_format(disp, LV_COLOR_FORMAT_XRGB8888);
@@ -202,9 +222,31 @@ static int run_screenshot(const char *path, bool screen2, int popup_taps, bool s
     ui_init();
     sim_seed_demo_state();
 
+    if (section != NULL) {
+        /* Explicit section name(s) -- the only way to reach an arbitrary one
+         * on a side-nav panel, which has more than the two the flags below
+         * assume (and whose home screen is not necessarily the grid).
+         *
+         * Comma-separated for a SEQUENCE of taps: reaching a control inside
+         * a section means opening that section first, since a hidden widget
+         * cannot be hit-tested. e.g. "TANKS,GREY CLOSED". */
+        char buf[128];
+        snprintf(buf, sizeof(buf), "%s", section);
+        for (char *label = strtok(buf, ","); label != NULL;
+             label = strtok(NULL, ",")) {
+            lv_timer_handler();   /* let the previous tap's screen appear */
+            if (!click_button_labeled(lv_screen_active(), label)) {
+                fprintf(stderr, "[sim] no button labeled \"%s\" on this panel\n",
+                        label);
+            }
+        }
+    }
+
     if (screen2) {
-        /* Whichever secondary-screen button this panel actually has. */
+        /* Whichever secondary-screen button the built panel actually has.
+         * A side-nav panel names its sections on the rail instead. */
         if (!click_button_labeled(lv_screen_active(), "TANK LEVELS") &&
+            !click_button_labeled(lv_screen_active(), "TANKS") &&
             !click_button_labeled(lv_screen_active(), "BATTERY STATUS") &&
             !click_button_labeled(lv_screen_active(), "BATTERY")) {
             fprintf(stderr, "[sim] no screen-switch button found (no screen 2 on this panel?)\n");
@@ -255,7 +297,7 @@ static int run_screenshot(const char *path, bool screen2, int popup_taps, bool s
 
 static int run_window(void)
 {
-    lv_display_t *disp = lv_sdl_window_create(480, 800);
+    lv_display_t *disp = lv_sdl_window_create(SIM_W, SIM_H);
     lv_sdl_window_set_title(disp, "firefly-touch simulator");
     lv_sdl_mouse_create();
 
@@ -285,10 +327,17 @@ int main(int argc, char **argv)
         if (argc >= 5 && strcmp(argv[4], "popup") == 0) {
             popup_taps = (argc >= 6) ? atoi(argv[5]) : 1;
         }
-        if (screen3) {
-            return run_screenshot(argv[2], false, 0, true);
+        /* `section:<LABEL>` taps a button by name -- needed for a side-nav
+         * panel, where "screen 2" is not a meaningful description of a
+         * section reachable from a persistent rail. */
+        const char *section = NULL;
+        if (argc >= 4 && strncmp(argv[3], "section:", 8) == 0) {
+            section = argv[3] + 8;
         }
-        return run_screenshot(argv[2], screen2, popup_taps, false);
+        if (screen3) {
+            return run_screenshot(argv[2], false, 0, true, NULL);
+        }
+        return run_screenshot(argv[2], screen2, popup_taps, false, section);
     }
     return run_window();
 }

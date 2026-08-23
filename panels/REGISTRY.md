@@ -12,19 +12,32 @@ run. If you add a panel header without adding a row here, CI fails.
 
 ## Allocated
 
-| `PANEL` value | Index | Source addr | On-screen name | Location / replaces |
-|---|---|---|---|---|
-| `mid_coach` | 0 | `0x80` | MID COACH | Mid coach wall — Entegra SW2-E8 (p/n 0291135 / 75570); ESP-NOW bridge/router to the remotes |
-| `ent_center` | 1 | `0x81` | ENT CENTER | Entertainment center — Entegra SW4-E1 (p/n 0291136 / 75571) |
-| `bedroom_remote` | 2 | `0x82`† | BED REMOTE | No CAN wiring — relays to `mid_coach` over ESP-NOW, see below |
+| `PANEL` value | Index | Source addr | Board | On-screen name | Location / replaces |
+|---|---|---|---|---|---|
+| `mid_coach` | 0 | `0x80` | `4_3b` | MID COACH | Mid coach wall — Entegra SW2-E8 (p/n 0291135 / 75570); ESP-NOW bridge/router to the remotes |
+| `ent_center` | 1 | `0x81` | `4_3b` | ENT CENTER | Entertainment center — Entegra SW4-E1 (p/n 0291136 / 75571) |
+| `bedroom_remote` | 2 | `0x82`† | `4_3b` | BED REMOTE | No CAN wiring — relays to `mid_coach` over ESP-NOW, see below |
+| `main_cabinet` | 3 | `0x83` | `lcd7` | MAIN CABINET | Main cabinet — Waveshare 7" landscape, side-nav rail (Power / Tanks / Lights) |
 
-**Next free index: 3** (source address `0x83`).
+**Next free index: 4** (source address `0x84`).
 
 † `bedroom_remote` has `PANEL_HAS_CAN 0` (`panels/bedroom_remote.h`)
 — it never transmits on the CAN bus, so `0x82` is never actually claimed as
 a source address. The index is still allocated from this table because it
 doubles as the panel's ESP-NOW peer identity; one allocation table stays
 authoritative for every panel regardless of role.
+
+## Boards
+
+The **Board** column names the display-board component
+(`components/board_<board>`), and must match the `PANEL_BOARD_<panel>`
+mapping in the root `CMakeLists.txt`; panels absent from that mapping get
+`4_3b`. `tools/check_panels.py` checks the two agree.
+
+Board is derived from the panel rather than passed on the command line
+because the mismatch fails **silently**: the Waveshare 7" puts CAN on
+GPIO20/19, where the 4.3B has RS485, so a panel built for the wrong board
+boots, lights up, and never sees the bus.
 
 ## Naming convention
 

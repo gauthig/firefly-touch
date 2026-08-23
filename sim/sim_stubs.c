@@ -9,7 +9,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-#include "board_4_3b.h"
+#include "board.h"
 #include "bridge_tx.h"
 #include "lvgl.h"
 #include "rvc_protocol.h"
@@ -39,6 +39,19 @@ bool state_manager_bus_healthy(void)
 bool espnow_link_healthy(void)
 {
     return true;
+}
+
+/* Backs the light-master button: ui.c walks every instance with known state
+ * to answer "is any light on" and to sweep them off. The fake bus table
+ * above IS that state here, so master behaves in the sim exactly as it does
+ * on a real panel -- including reaching instances that have no button. */
+void state_manager_for_each_known(state_status_sink_t cb, void *ctx)
+{
+    for (unsigned i = 0; i < 256; i++) {
+        if (s_level[i] != 0 || s_on[i]) {
+            cb((uint8_t)i, s_level[i], s_on[i], ctx);
+        }
+    }
 }
 
 bool state_manager_get_tank(uint8_t instance, uint8_t *percent)

@@ -13,7 +13,7 @@
 #
 # It reuses the shared components by pointing at them individually rather
 # than at components/ as a whole: pulling in the whole directory would drag
-# board_4_3b and ui_common (and therefore LVGL) into a build that has no
+# board and ui_common (and therefore LVGL) into a build that has no
 # display at all.
 #
 # Build:

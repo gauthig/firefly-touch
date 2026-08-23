@@ -4,16 +4,24 @@ Every image below is a capture from the built-in PC simulator (`sim/`),
 which compiles the **real** UI sources against the same LVGL version the
 firmware uses. They are not mockups.
 
-The panels run **portrait, 480×800** — the physically-landscape 800×480 LCD
-is rotated 90° in `board_4_3b.c`, and all layout code sizes itself off the
-logical resolution. Captures match what the hardware shows.
+Most panels run **portrait, 480×800** — their physically-landscape
+800×480 LCD is rotated 90° in `board_4_3b.c`. `main_cabinet` is the
+exception: its 7" panel runs unrotated, so it is **landscape, 800×480**.
+Either way the layout code sizes itself off the LOGICAL resolution and the
+simulator matches it, so captures show what the hardware shows.
 
 Regenerate them with:
 
 ```powershell
 cd sim
 .\build.ps1 -Panel bedroom_remote -Shot out.bmp -Screen2
+.\build.ps1 -Panel main_cabinet -Shot out.bmp -Section LIGHTS
 ```
+
+`-Section` taps a section button by name before the capture, which is how a
+side-nav panel's sections are reached. It takes a comma-separated sequence
+(`-Section "TANKS,GREY CLOSED"`) to reach a control *inside* a section —
+a hidden widget can't be hit-tested, so the section has to be opened first.
 
 ---
 
@@ -88,6 +96,47 @@ named; unset slots simply read `--` while still showing live values.
 
 ---
 
+## `main_cabinet` — "MAIN CABINET"
+
+The 7" panel, and the only one in **landscape**. A persistent left rail lists
+the sections and the selected one fills the rest of the screen, instead of
+the whole-screen swap the 4.3B panels use. It boots into POWER.
+
+Hardwired to the RV-C bus, and additionally listens to the ESP-NOW broadcast
+channel — the battery packs and the Power Watchdog are on BLE links held by
+the basement proxy, which no amount of CAN wiring reaches.
+
+### Power (the default section)
+
+Battery bank and shore power side by side: everything you'd want to know
+about the coach's electrical state without touching anything.
+
+![main cabinet power](images/main-cabinet-power.png)
+
+### Tanks
+
+The three SeeLevel gauges, plus three controls that are **deliberately
+inert**: they flip their caption and drive nothing. The dump valves and the
+gravity/macerator selector aren't wired yet; the control surface is here so
+the layout is settled when they are.
+
+![main cabinet tanks](images/main-cabinet-tanks.png)
+
+### Lights
+
+A three-column grid — the extra width over a portrait panel pays for a
+third column. MASTER leads: it lights whenever any light is on anywhere on
+the bus, and switching it off sweeps every instance currently reporting on,
+including lights this panel has no button for.
+
+![main cabinet lights](images/main-cabinet-lights.png)
+
+⚠️ MASTER's **on** direction is a declared scene (instances 24, 26, 27, 35,
+13, 17 at 100 %), not a broadcast: RV-C has no all-on command, and the G6's
+own LIGHT MASTER DGN has never been captured.
+
+---
+
 ## Notes on what you're seeing
 
 - **Simulated values.** `sim/sim_stubs.c` drives synthetic tank, battery and
@@ -96,4 +145,8 @@ named; unset slots simply read `--` while still showing live values.
 - **Dark theme throughout.** These are wall panels in a coach, frequently
   read at night. Idle dims to 20 % at 120 s and turns the backlight fully
   off at 300 s, at which point any secondary screen also returns to the
-  lights grid.
+  panel's home section (the lights grid, except on `main_cabinet`, which
+  goes back to POWER).
+- **The tank gauge is a fixed 90×90 glass** inside a larger card, so it
+  looks small in a tall container. That is pre-existing on every panel, not
+  specific to the 7".

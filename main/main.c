@@ -20,7 +20,7 @@
 
 #include "esp_log.h"
 
-#include "board_4_3b.h"
+#include "board.h"
 #include "panel_config.h"
 #include "ui.h"
 
@@ -32,7 +32,7 @@
 #include "state_manager.h"
 #endif
 
-#if !PANEL_HAS_CAN || PANEL_IS_BRIDGE
+#if !PANEL_HAS_CAN || PANEL_IS_BRIDGE || PANEL_WANTS_TELEMETRY
 #include "espnow_link.h"
 #endif
 
@@ -49,7 +49,9 @@ static void remote_status_rx(const espnow_status_msg_t *msg, void *ctx)
     (void)ctx;
     ui_on_status(msg->instance, msg->level, msg->on);
 }
+#endif
 
+#if !PANEL_HAS_CAN || PANEL_WANTS_TELEMETRY
 /*
  * Read-only telemetry broadcast by some other node — the basement BLE proxy
  * (shore power) or the bridge panel (tank levels). Unlike status frames
@@ -60,6 +62,13 @@ static void remote_status_rx(const espnow_status_msg_t *msg, void *ctx)
  * Tank telemetry deliberately re-enters through ui_on_tank_status(), the
  * same entry point the bridge's own CAN-fed tanks use, so a remote panel
  * with tank gauges needs no special handling at all.
+ *
+ * Also used by a CAN-connected panel that sets PANEL_WANTS_TELEMETRY: the
+ * battery packs and the Power Watchdog are reachable ONLY as broadcasts
+ * from the basement proxy, so a panel showing them needs this regardless of
+ * having its own bus. Such a panel gets tank readings from both CAN and
+ * these broadcasts; they carry the same numbers, so whichever arrives last
+ * simply wins.
  */
 static void remote_telem_rx(const espnow_telem_msg_t *msg, void *ctx)
 {
@@ -218,6 +227,13 @@ void app_main(void)
 #elif !PANEL_HAS_CAN
     ESP_ERROR_CHECK(espnow_link_init(ESPNOW_ROLE_REMOTE));
     espnow_link_set_status_rx_cb(remote_status_rx, NULL);
+    espnow_link_set_telem_rx_cb(remote_telem_rx, NULL);
+#elif PANEL_WANTS_TELEMETRY
+    /* Telemetry role = no unicast peer at all: this panel drives its own
+     * loads over CAN and only LISTENS to the broadcast channel, for the
+     * battery bank and shore power that live on the proxy's BLE links.
+     * Nothing it receives here actuates anything. */
+    ESP_ERROR_CHECK(espnow_link_init(ESPNOW_ROLE_TELEMETRY));
     espnow_link_set_telem_rx_cb(remote_telem_rx, NULL);
 #endif
 

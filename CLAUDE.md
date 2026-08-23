@@ -5,9 +5,21 @@ Firefly Integrations G6A multiplex system. Each panel is an **independent peer
 node** on the coach's RV-C bus (CAN 2.0B, 250 kbps, 29-bit extended IDs).
 There is no hub or gateway — the bus is the shared state mechanism.
 
-Hardware: Waveshare **ESP32-S3-Touch-LCD-4.3B** (ESP32-S3-WROOM-1-N16R8,
-16 MB flash / 8 MB octal PSRAM, 4.3" 800x480 RGB LCD, GT911 touch on I2C,
-CH422G IO expander, TJA1051 CAN transceiver, 7–36 V input).
+Hardware: two board types, both ESP32-S3-WROOM-1 with 16 MB flash / 8 MB
+octal PSRAM, GT911 touch on I2C, CH422G IO expander, TJA1051 CAN
+transceiver, 7-36 V input:
+
+- Waveshare **ESP32-S3-Touch-LCD-4.3B** — 4.3" 800x480, run rotated to
+  portrait. `mid_coach`, `ent_center`, `bedroom_remote`.
+- Waveshare **ESP32-S3-Touch-LCD-7** (non-B) — 7" 800x480 EK9716, run
+  landscape. `main_cabinet`.
+
+⚠️ **The boards put CAN on different pins** (4.3B: GPIO15/16; 7": GPIO20/19,
+where the 4.3B has RS485) and a mismatch fails *silently* — the panel boots,
+lights up, and never sees the bus. `BOARD` is therefore **derived from
+`PANEL`** by a mapping in the root `CMakeLists.txt`; there is no `-DBOARD=`
+to forget. `tools/check_panels.py` cross-checks it against
+`panels/REGISTRY.md`'s Board column.
 
 Docs for humans: [README.md](README.md) (overview, toolchain install) and
 [docs/FLASHING.md](docs/FLASHING.md) (per-device upload, panel identity
@@ -139,6 +151,11 @@ CAN-connected case in `main/panel_config.h`.
 | `jbd_bms`      | -    | 9    | **not on a panel any more** — runs on the basement proxy, which holds the battery BLE links and broadcasts the readings (see *Battery monitor* below) |
 | LVGL (port)    | 1    | 4    | rendering + touch; button callbacks only enqueue via `bridge_enqueue_dimmer_cmd()` |
 
+A CAN panel can also set `PANEL_WANTS_TELEMETRY 1` to run `espnow_rx` in the
+receive-only TELEMETRY role (no unicast peer, no keys). `main_cabinet` does:
+the battery packs and the Power Watchdog are on BLE links held by the
+basement proxy, and no amount of CAN wiring reaches them.
+
 **Invariant:** icon/button visual state is driven ONLY by status frames from
 the bus (or, on a remote panel, status relayed from the bridge's bus) —
 never by locally sent commands. That keeps panels in sync with the factory
@@ -155,11 +172,22 @@ enqueuing locally, and status arrives the same way in reverse (see below).
 
 - `components/rvc_protocol` — pure C (no ESP deps): 29-bit ID pack/unpack,
   DGN encode/decode. Host-testable (`host_test/`).
-- `components/board_4_3b` — Waveshare 4.3B bring-up: RGB timings, CH422G
-  (custom minimal driver, `ch422g.c`), GT911, esp_lvgl_port glue, TWAI init.
-  RGB timing / pin values follow Waveshare's published demo — **merge points
-  are marked in `board_4_3b.c`; diff against the current Waveshare demo when
+- `components/board` — board bring-up: RGB timings, GT911, esp_lvgl_port
+  glue, TWAI init. One component, one board compiled: `board_4_3b.c` or
+  `board_lcd7.c`, chosen by `BOARD`, both behind `include/board.h` so `main/`
+  and `sim/` never name a board. RGB timing / pin values follow the vendor
+  demos — **merge points are marked in each file; diff against the current
+  Waveshare demo (or Espressif's `ESP32_Display_Panel` board definition) when
   bringing up hardware, don't invent timings.**
+  ⚠️ Only the SOURCE selection is conditional in its `CMakeLists.txt`;
+  `REQUIRES` is a constant list. IDF resolves the dependency graph in an
+  *early expansion* pass that runs before the project's variables exist, so
+  anything conditional on `BOARD` there evaluates with `BOARD` unset. An
+  earlier attempt used two components that each registered empty unless
+  selected; every `REQUIRES` silently became nothing and the build failed
+  with "board.h: No such file" while the CMake looked correct.
+- `components/ch422g` — the minimal CH422G IO-expander driver, shared by both
+  boards (same chip, same 0x24/0x38 addresses).
 - `components/ui_common` — theme (`ui_theme`), shared dimmer-button widget
   (`ui_dimmer_button`), panel-config types (`panel_def.h`). Buttons show
   label text only (no icon glyph); background swaps dark blue -> light blue
@@ -855,6 +883,105 @@ matches the standard RV-C dimmer pattern and how Firefly's own switches
 behave; `LV_OBJ_FLAG_PRESS_LOCK` must stay enabled (LVGL's default — don't
 remove it) or small finger drift cancels the long-press before it fires.
 
+## Side-nav rail (main_cabinet)
+
+`main_cabinet` presents a **persistent left rail** listing its sections
+(POWER / TANKS / LIGHTS) with the selected one filling the rest of the
+screen, rather than the whole-screen swap the 4.3B panels use. Its 7"
+landscape display is what makes room for it; a portrait panel has none to
+spare.
+
+Opt in with `PANEL_HAS_NAV_RAIL 1` plus a `PANEL_NAV_RAIL[]` array. Rail
+entries are ordinary `PANEL_BTN_SCREEN_SWITCH` defs, reusing the existing
+convention that `instances[0]` names the target screen — no new nav type.
+`show_screen()` lights the entry whose target matches the visible section,
+compared by target rather than by rail position, so **rail order is
+independent of screen index**. That is what lets LIGHTS stay screen 0 (where
+`build_button_grid()` handles it) while the rail reads POWER / TANKS /
+LIGHTS.
+
+Related knobs (`main/panel_config.h`, all defaulted so the other panels are
+untouched):
+
+- `PANEL_DEFAULT_SCREEN` — screen shown at boot and returned to when the
+  backlight idles off. `main_cabinet` uses 1 (POWER); the grid is just one
+  section, not the home screen.
+- `PANEL_GRID_COLS` — columns in the main button grid, 2 by default,
+  3 on `main_cabinet`.
+- `PANEL_WANTS_TELEMETRY` — see the task map above.
+
+Rail screens are laid out by `build_content_pane()` (read-only widgets in a
+top row, tappable ones beneath). `build_screen2_row()` is deliberately left
+**untouched** for the non-rail panels: it lays out screens on three panels
+that are flashed and installed, and there was nothing to gain from putting
+them at risk to share a few lines.
+
+⚠️ Three latent bugs surfaced while building this and are now fixed — all
+of them only bite a CAN panel that shows broadcast telemetry:
+the shore-power timer was created only `#if !PANEL_HAS_CAN` (so a CAN panel's
+shore readout would render once and never update); the grey/black and battery
+scans looked only at `PANEL_BUTTONS_2` (so a panel with tanks on screen 2
+got no header readout); and `idle_timer_cb` returned to screen 0 rather than
+`PANEL_DEFAULT_SCREEN`. The scans now walk every screen via
+`k_screen_defs[]`/`panel_has_button_type()`.
+
+### Two new button types
+
+- `PANEL_BTN_LOCAL_TOGGLE` — shows `label` when off and `label_alt` when
+  on, flips on tap, and **sends nothing**. Used for the grey/black dump
+  valves and the gravity/macerator selector, whose actuation isn't built
+  yet; the control surface exists so the layout is settled when it is.
+  State is in memory only. Coloured like any other on-state, *not* with the
+  warn colour — an alarm colour on a button that actuates nothing would
+  announce an open dump valve that doesn't exist. Revisit when they drive
+  real valves.
+- `PANEL_BTN_LIGHT_MASTER` — all-lights on/off, tap only, no ramp. See
+  below.
+
+`panel_btn_def_t` gained `label_alt` as its **last** field, and every panel
+header's button table was converted to **designated initializers** at the
+same time. Positional initializers trip `-Wmissing-field-initializers` under
+`-Wextra` the moment a field is added; designated ones don't, so the next
+field costs no churn at all.
+
+### Light master
+
+⚠️ **There is no known G6 master command.**
+[docs/instance_map.yaml](docs/instance_map.yaml) records the factory
+"ON / LIGHT MASTER / OFF" rocker (SW1 Entry Door, SW6 Bedroom Wall) as having
+no instance number and an unidentified DGN, never sniffed. Capturing it is a
+separate future job; until then the master is synthesised:
+
+- **OFF** sweeps `state_manager_for_each_known()` and sends an explicit OFF
+  to every instance currently reporting on — which reaches lights the
+  panel has no button for. Each one is logged.
+- **ON** has nothing to sweep (an unseen instance has no known state), so it
+  falls back to the panel header's `PANEL_MASTER_ON[]` scene list
+  (24, 26, 27, 35, 13, 17 at 100 %). Kept as its own array rather than
+  widening `PANEL_BTN_MAX_INSTANCES` from 4 to 6, which would grow every
+  button on every panel.
+- Displayed state is "is any light on", refreshed at 1 Hz and **primed at
+  build time** — without priming, a tap in the first second after boot saw
+  a stale `false` and turned everything on while lights were already on.
+- The direction is decided in `panel_send_cb()` from a **fresh** read, not
+  from the widget's cached copy, for the same reason.
+- `#error`-guarded against `!PANEL_HAS_CAN`: the sweep needs a local state
+  manager, which a remote panel never populates.
+
+⚠️ The sweep targets every `DC_DIMMER` instance seen, on the assumption this
+coach uses that DGN only for lights. Every instance switched off is logged,
+so the first real Master OFF at the coach is also the verification.
+
+**Bench + coach verified 2026-08-23** (`main_cabinet` on COM19): CAN works
+on GPIO20/19 — which also confirms the EXIO5 USB/CAN mux polarity, taken
+from ESP3D's notes rather than a schematic — the battery bank and shore
+power arrive as ESP-NOW broadcasts, Master on/off behaves as designed
+against real loads, and the display geometry and colours are correct,
+confirming the RGB timings taken from Espressif's board definition. The
+remaining open question is deliberate: whether the coach's factory LIGHT
+MASTER rocker puts a real all-lights frame on the bus. Sniff it before
+assuming it doesn't.
+
 ## Panels & source-address allocation
 
 `panels/REGISTRY.md` is the **canonical allocation record** for `PANEL_INDEX`.
@@ -946,6 +1073,10 @@ these; verify a change with `git add -A --dry-run` before committing.
 
 Machine-specific notes go in `CLAUDE.local.md` (gitignored), never in this
 file.
+
+⚠️ `components/board_4_3b` was renamed to **`components/board`** (holding
+both boards) and the CH422G driver split out into `components/ch422g`. Both
+are committed sources like any other component.
 
 ## Development notes & gotchas
 

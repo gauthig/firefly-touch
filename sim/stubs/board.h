@@ -1,4 +1,4 @@
-/* Simulator stub for board_4_3b.h — geometry constants + backlight print. */
+/* Simulator stub for board.h — geometry constants + backlight print. */
 #pragma once
 
 #include <stdint.h>
