@@ -63,6 +63,33 @@ jobs:
         run: |
           gcc -Wall -Wextra -Werror -I../include ../rvc_protocol.c test_rvc.c -o test_rvc
           ./test_rvc
+      - name: Compile and run jbd_bms tests
+        working-directory: components/jbd_bms/host_test
+        run: |
+          gcc -Wall -Wextra -Werror -I../include ../jbd_bms_protocol.c test_jbd_bms.c -lm -o test_jbd_bms
+          ./test_jbd_bms
+      - name: Compile and run hughes_watchdog tests
+        working-directory: components/hughes_watchdog/host_test
+        run: |
+          gcc -Wall -Wextra -Werror -I../include ../hughes_wd_protocol.c test_hughes_wd.c -lm -o test_hughes_wd
+          ./test_hughes_wd
+
+  # The basement BLE proxy is a separate project on a different chip
+  # (classic ESP32, not the panels' S3), so the panel matrix above cannot
+  # cover it — without this job it would build on nobody's machine but the
+  # author's.
+  proxy:
+    name: Build ble proxy
+    needs: [lint, host-tests]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: idf.py build
+        uses: espressif/esp-idf-ci-action@v1
+        with:
+          esp_idf_version: v5.5.5
+          target: esp32
+          command: idf.py -C proxy -B proxy/build build
 
   firmware:
     name: Build ${{ matrix.panel }}

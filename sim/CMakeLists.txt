@@ -41,7 +41,8 @@ add_executable(sim
     ${REPO}/components/ui_common/ui_theme.c
     ${REPO}/components/ui_common/ui_dimmer_button.c
     ${REPO}/components/ui_common/ui_tank_wave.c
-    ${REPO}/components/ui_common/ui_battery_gauge.c
+    ${REPO}/components/ui_common/ui_battery_summary.c
+    ${REPO}/components/ui_common/ui_shore_panel.c
     ${REPO}/components/rvc_protocol/rvc_protocol.c
     ${REPO}/components/jbd_bms/jbd_bms_protocol.c
 )

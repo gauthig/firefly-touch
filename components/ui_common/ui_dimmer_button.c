@@ -4,7 +4,8 @@
 
 #include "esp_log.h"
 
-#include "ui_battery_gauge.h"
+#include "ui_battery_summary.h"
+#include "ui_shore_panel.h"
 #include "ui_tank_wave.h"
 #include "ui_theme.h"
 
@@ -41,7 +42,8 @@ typedef struct {
     lv_obj_t *name;
     lv_obj_t *bar;            /* PANEL_BTN_DIMMER only: brightness bar */
     lv_obj_t *tank_wave;      /* PANEL_BTN_TANK_LEVEL only: animated gauge */
-    lv_obj_t *battery_gauge;  /* PANEL_BTN_BATTERY_STATUS only: animated gauge */
+    lv_obj_t *battery_summary;/* PANEL_BTN_BATTERY_SUMMARY only: bank readout */
+    lv_obj_t *shore_panel;    /* PANEL_BTN_SHORE_POWER only: L1/L2 readout */
 } btn_ctx_t;
 
 static bool any_on(const btn_ctx_t *ctx)
@@ -122,15 +124,17 @@ static void handle_tap(btn_ctx_t *ctx)
         send(ctx, RVC_DIMMER_CMD_TOGGLE);
         return;
     }
-    if (ctx->def->type == PANEL_BTN_TANK_LEVEL) {
+    if (ctx->def->type == PANEL_BTN_TANK_LEVEL ||
+        ctx->def->type == PANEL_BTN_SHORE_POWER) {
         /* Read-only display, no command, no confirm timer. */
         return;
     }
-    if (ctx->def->type == PANEL_BTN_BATTERY_STATUS) {
+    if (ctx->def->type == PANEL_BTN_BATTERY_SUMMARY) {
         /* Read-only display -- the only "action" a tap has is toggling the
-         * BLE-MAC troubleshooting popup, local UI only, never an RV-C/
-         * ESP-NOW command. */
-        ui_battery_gauge_toggle_mac_popup(ctx->battery_gauge);
+         * per-pack detail popup (MAC/SOC/volts/amps/temp per slot, for
+         * telling which physical pack is which), local UI only, never an
+         * RV-C/ESP-NOW command. */
+        ui_battery_summary_toggle_detail(ctx->battery_summary);
         return;
     }
 
@@ -161,6 +165,39 @@ static void handle_tap(btn_ctx_t *ctx)
     lv_timer_set_repeat_count(ctx->confirm_timer, 1);
 }
 
+/*
+ * Which release event this widget acts on.
+ *
+ * LVGL sends LV_EVENT_SHORT_CLICKED only when a press is released BEFORE
+ * the long-press threshold (400 ms by default); a slower press produces
+ * LONG_PRESSED and then CLICKED, with no SHORT_CLICKED at all. Widgets that
+ * listen solely for SHORT_CLICKED therefore ignore a deliberate finger
+ * press outright -- which is exactly how the battery detail popup and the
+ * screen-nav buttons came to feel broken on real hardware: a quick tap
+ * worked, a considered one did nothing but flash the pressed background.
+ *
+ * Dimmers and switches must keep SHORT_CLICKED, because for them a long
+ * press has its own meaning (hold-to-ramp) and must not also toggle the
+ * load. Everything else has no long-press behaviour, so it acts on
+ * CLICKED and accepts a press of any duration.
+ *
+ * Exactly one of the two is handled per widget: a quick tap raises BOTH
+ * SHORT_CLICKED and CLICKED, so reacting to both would fire twice -- which
+ * on a toggle reads as the popup opening and instantly closing again.
+ */
+static bool acts_on_click(const btn_ctx_t *ctx)
+{
+    switch (ctx->def->type) {
+    case PANEL_BTN_SCREEN_SWITCH:
+    case PANEL_BTN_BATTERY_SUMMARY:
+    case PANEL_BTN_SHORE_POWER:
+    case PANEL_BTN_TANK_LEVEL:
+        return true;
+    default:
+        return false;
+    }
+}
+
 static void event_cb(lv_event_t *e)
 {
     btn_ctx_t *ctx = lv_event_get_user_data(e);
@@ -168,7 +205,15 @@ static void event_cb(lv_event_t *e)
 
     switch (code) {
     case LV_EVENT_SHORT_CLICKED:
-        handle_tap(ctx);
+        if (!acts_on_click(ctx)) {
+            handle_tap(ctx);
+        }
+        break;
+
+    case LV_EVENT_CLICKED:
+        if (acts_on_click(ctx)) {
+            handle_tap(ctx);
+        }
         break;
 
     case LV_EVENT_LONG_PRESSED:
@@ -260,8 +305,20 @@ lv_obj_t *ui_dimmer_button_create(lv_obj_t *parent,
         ctx->tank_wave = ui_tank_wave_create(btn);
     }
 
-    if (def->type == PANEL_BTN_BATTERY_STATUS) {
-        ctx->battery_gauge = ui_battery_gauge_create(btn);
+    if (def->type == PANEL_BTN_BATTERY_SUMMARY) {
+        /* The bank readout fills the whole card and carries its own labels,
+         * so the button's own name label would just steal vertical space. */
+        lv_obj_add_flag(ctx->name, LV_OBJ_FLAG_HIDDEN);
+        ctx->battery_summary = ui_battery_summary_create(btn);
+    }
+
+    if (def->type == PANEL_BTN_SHORE_POWER) {
+        lv_obj_add_flag(ctx->name, LV_OBJ_FLAG_HIDDEN);
+        /* Transparent: the two Line columns carry their own tile
+         * backgrounds, so a card behind them would just be visual noise. */
+        lv_obj_set_style_bg_opa(btn, LV_OPA_TRANSP, LV_PART_MAIN);
+        lv_obj_set_style_pad_all(btn, 0, 0);
+        ctx->shore_panel = ui_shore_panel_create(btn);
     }
 
     lv_obj_add_event_cb(btn, event_cb, LV_EVENT_ALL, ctx);
@@ -278,7 +335,8 @@ void ui_dimmer_button_update(lv_obj_t *btn, uint8_t instance,
      * must not cross-contaminate their state. See
      * ui_dimmer_button_update_tank()/_update_battery() for those. */
     if (ctx == NULL || ctx->def->type == PANEL_BTN_TANK_LEVEL ||
-        ctx->def->type == PANEL_BTN_BATTERY_STATUS) {
+        ctx->def->type == PANEL_BTN_BATTERY_SUMMARY ||
+        ctx->def->type == PANEL_BTN_SHORE_POWER) {
         return;
     }
 
@@ -320,32 +378,29 @@ void ui_dimmer_button_update_tank(lv_obj_t *btn, uint8_t instance,
     ui_tank_wave_set_percent(ctx->tank_wave, percent, valid);
 }
 
-void ui_dimmer_button_update_battery(lv_obj_t *btn, uint8_t index, uint8_t percent,
-                                     float rate_amps, float hours, bool valid)
+void ui_dimmer_button_update_bank(lv_obj_t *btn, const jbd_bms_bank_t *bank,
+                                  const ui_battery_pack_info_t *packs,
+                                  uint8_t packs_len, uint8_t configured_packs)
 {
     btn_ctx_t *ctx = lv_obj_get_user_data(btn);
-    if (ctx == NULL || ctx->def->type != PANEL_BTN_BATTERY_STATUS) {
+    if (ctx == NULL || ctx->def->type != PANEL_BTN_BATTERY_SUMMARY) {
         return;
     }
-
-    bool hit = false;
-    for (uint8_t i = 0; i < ctx->def->instance_count; i++) {
-        if (ctx->def->instances[i] == index) {
-            hit = true;
-        }
+    /* No instance matching here, unlike the dimmer/tank paths: there is one
+     * bank, and it is assembled from BLE slots rather than addressed by an
+     * RV-C instance. */
+    ui_battery_summary_set_bank(ctx->battery_summary, bank, configured_packs);
+    if (packs != NULL) {
+        ui_battery_summary_set_packs(ctx->battery_summary, packs, packs_len);
     }
-    if (!hit) {
-        return;
-    }
-
-    ui_battery_gauge_set_status(ctx->battery_gauge, percent, rate_amps, hours, valid);
 }
 
-void ui_dimmer_button_set_battery_mac(lv_obj_t *btn, const char *mac)
+void ui_dimmer_button_update_shore(lv_obj_t *btn, const ui_shore_reading_t *r,
+                                   bool valid)
 {
     btn_ctx_t *ctx = lv_obj_get_user_data(btn);
-    if (ctx == NULL || ctx->def->type != PANEL_BTN_BATTERY_STATUS) {
+    if (ctx == NULL || ctx->def->type != PANEL_BTN_SHORE_POWER) {
         return;
     }
-    ui_battery_gauge_set_mac(ctx->battery_gauge, mac);
+    ui_shore_panel_set(ctx->shore_panel, r, valid);
 }

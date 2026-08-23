@@ -1,0 +1,58 @@
+menu "Firefly BLE Proxy"
+
+    comment "ESP-NOW must match the panels' settings exactly"
+
+    config FIREFLY_ESPNOW_CHANNEL
+        int "ESP-NOW WiFi channel"
+        default 1
+        range 1 13
+        help
+            MUST match the channel every panel is built with — there is no
+            AP to negotiate one, so a mismatch means the broadcasts are
+            silently invisible. The panels default to channel 1.
+
+    config FIREFLY_ESPNOW_PEER_MAC
+        string "ESP-NOW unicast peer MAC (unused by this node)"
+        default "AA:BB:CC:DD:EE:FF"
+        help
+            Not used. This node runs the telemetry-only role: it broadcasts
+            and never unicasts, so it has no peer. The symbol exists because
+            the shared espnow_link component references it. Leave it at the
+            placeholder.
+
+    config FIREFLY_ESPNOW_PMK
+        string "ESP-NOW primary master key (16 ASCII chars)"
+        default "firefly-pmk-0001"
+        help
+            Only used for encrypted unicast peers, which this node has none
+            of — broadcast frames cannot be encrypted at all. Kept so the
+            shared component compiles; harmless to leave at the default.
+
+    config FIREFLY_ESPNOW_LMK
+        string "ESP-NOW peer local master key (16 ASCII chars)"
+        default "firefly-lmk-0001"
+        help
+            As above — unused by the telemetry-only role.
+
+    config FIREFLY_TELEMETRY_INTERVAL_MS
+        int "Telemetry broadcast interval (ms)"
+        default 5000
+        range 1000 60000
+        help
+            How often the latest Power Watchdog reading is broadcast to the
+            panels.
+
+            Note this is NOT a poll interval: the Watchdog streams
+            notifications about once a second on its own and offers no way
+            to slow that down. This only controls how often we re-broadcast
+            the newest values, which is also what makes a dropped broadcast
+            self-healing — the next one corrects it.
+
+    config FIREFLY_WD_ENABLED
+        bool "Connect to a Hughes Power Watchdog"
+        default y
+        help
+            Scan for and subscribe to a Gen 1 (Bluetooth-only) Power
+            Watchdog, and broadcast its per-line volts/amps/watts.
+
+endmenu

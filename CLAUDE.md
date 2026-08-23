@@ -62,7 +62,23 @@ cd sim
 .\build.ps1 -Run                    # mid_coach, interactive window
 .\build.ps1 -Panel ent_center -Run
 .\build.ps1 -Shot preview.bmp       # headless screenshot, then exits
+.\build.ps1 -Shot p.bmp -Screen2    # ...of screen 2
+.\build.ps1 -Shot p.bmp -Screen2 -Popup   # ...with the pack-detail popup open
 ```
+
+**The sim window is 480x800 (portrait), matching the firmware's LOGICAL
+resolution** — `board_4_3b.c` runs the physically-800x480 panel rotated 90°,
+and all UI layout code sizes itself off
+`lv_display_get_vertical_resolution()`. The sim used to create an 800x480
+landscape display, which previewed a screen the hardware never shows; it now
+matches, so no rotation is needed on the sim side at all. Don't "fix" it back
+to the physical dimensions.
+
+Headless `--shot` renders into a full-size XRGB8888 framebuffer and writes
+that, rather than calling `lv_snapshot_take()` on the active screen — a
+snapshot walks one object tree and so silently misses everything on
+`lv_layer_top()`, which is where the idle-dim overlay and the battery
+pack-detail popup live.
 
 Mouse = touch: click to toggle, click-and-hold to ramp. Requires the WinLibs
 gcc (winget) and cmake/ninja (auto-sourced from ESP-IDF's export.ps1). SDL2
@@ -81,14 +97,23 @@ one-off capture instead of waiting on it.
 `sim_stubs.c` similarly fakes `jbd_bms_get_status()` on `bedroom_remote`
 (`battery_sweep_timer_cb`) — battery 1 slow-charges 0→100→0, battery 2
 slow-discharges the opposite phase, battery 3 sits idle at a fixed low SOC
-— so the battery gauges, SOC color bands (green/warn/err), and rate/ETA
-text are all visible without real BLE hardware. There's no real BLE stack
-in the sim at all — `sim/stubs/jbd_bms_client.h` shadows the real
-component header (which pulls in the ESP `bt` component) with just the
-declarations `ui.c` needs, backed by that fake table; `jbd_bms_protocol.c`
-itself is compiled straight into the sim unmodified (same host-testable
-pure-C pattern as `rvc_protocol.c`). `--shot <file> screen2` taps whichever
-of "TANK LEVELS" or "BATTERY STATUS" exists on the built panel.
+**and drops offline for part of the cycle**, which is what exercises the
+shrinking-bank path and the amber "2 of 3" indicator (otherwise only
+reachable by physically powering down a pack on the bench). All three
+report two NTC temperatures so the °F high/low readout is live too.
+`SIM_BATTERY_START_TICK=<n>` jumps the sweep to a chosen point — same trick
+and same reason as `SIM_TANK_START_TICK`, since a `--shot` capture only
+runs ~2 s of real time and would never reach the offline window naturally.
+
+There's no real BLE stack in the sim at all — `sim/stubs/jbd_bms_client.h`
+shadows the real component header (which pulls in the ESP `bt` component)
+with just the declarations `ui.c` needs, backed by that fake table;
+`jbd_bms_protocol.c` itself is compiled straight into the sim unmodified
+(same host-testable pure-C pattern as `rvc_protocol.c`), so
+`jbd_bms_combine()` runs there for free — the sim exercises the real
+aggregation, not a fake of it. `--shot <file> screen2` taps whichever of
+"TANK LEVELS" or "BATTERY STATUS" exists on the built panel; adding
+`popup` also taps the bank readout to open the pack-detail popup.
 
 ## Architecture
 
@@ -232,10 +257,22 @@ RV-C instance map used to pick these.
 `bedroom_remote` (`PANEL_HAS_BLE_BATTERY 1`) additionally runs a Bluedroid
 GATT-client central role (`components/jbd_bms`) alongside its ESP-NOW
 light-switch relay, connecting to up to 3 Vatrer 300AH batteries'
-Xiaoxiang/JBD-BMS boards over BLE and showing State of Charge,
-charge/discharge rate (Amps), and estimated remaining hours on a
-**BATTERY STATUS** screen (issues #25–#27). v1 scope mirrors ESP-NOW's:
-fixed MAC addresses from Kconfig, no scanning/pairing UI, no mesh.
+Xiaoxiang/JBD-BMS boards over BLE (issues #25–#27). v1 scope mirrors
+ESP-NOW's: fixed MAC addresses from Kconfig, no scanning/pairing UI, no mesh.
+
+**The three packs are wired in PARALLEL, so the screen shows ONE combined
+bank reading, not three per-pack gauges** (issues #29–#32): one voltage, one
+current, one power figure, one SOC, one time-remaining — the way the coach's
+own Vatrer display presents it.
+
+⚠️ **There is no BMS-side aggregation to read instead — don't go looking for
+one.** A JBD BLE module is a UART bridge to a single BMS's serial port;
+register `0x03` returns only that pack's own data and it knows nothing of its
+siblings. Vendor displays that plug into one battery and show the whole bank
+are using the packs' **RS485 inter-pack daisy-chain**, a different physical
+bus this panel is not wired into. The three-BLE-connection architecture is
+therefore correct, and the combining happens in
+`jbd_bms_combine()` (see below).
 Bluedroid rather than NimBLE per explicit project decision — each battery
 is its own GATTC "app" (`esp_ble_gattc_app_register()`, app_id == battery
 slot index), connected directly by known address (no scan needed, the MAC
@@ -243,23 +280,71 @@ is already fixed).
 
 - `CONFIG_FIREFLY_BATTERY_1_MAC`/`_2_MAC`/`_3_MAC` (`main/Kconfig.projbuild`)
   — each battery's BLE MAC. The placeholder `00:00:00:00:00:00` means
-  "unconfigured": that slot is never connected to and its gauge always
-  shows "--". `CONFIG_FIREFLY_BATTERY_POLL_INTERVAL_MS` (default 5000)
-  controls how often a connected battery is polled. Same shared-
-  `sdkconfig`-per-build-dir caveat as the ESP-NOW peer MAC above applies —
-  use `-D SDKCONFIG=build_bedroom_remote/sdkconfig`.
+  "unconfigured": that slot is never connected to and never counts toward
+  the bank's "N of M" indicator. Same shared-`sdkconfig`-per-build-dir
+  caveat as the ESP-NOW peer MAC above applies — use
+  `-D SDKCONFIG=build_bedroom_remote/sdkconfig`.
+- `CONFIG_FIREFLY_BATTERY_POLL_INTERVAL_MS` — **default 30000, range floor
+  20000**. JBD BMS units are widely reported to misbehave when polled more
+  often than ~every 20 s, so the floor enforces that rather than merely
+  documenting it. `jbd_bms_client.c` **derives** its `JBD_HEALTHY_WINDOW_MS`
+  staleness window from this (`3 x`) — it was a hardcoded 15000, which
+  silently became *shorter* than the poll interval when the default moved to
+  30 s, making every pack read as permanently offline between polls. Don't
+  re-hardcode it.
+  ⚠️ This value is **persisted in each `sdkconfig`**, so changing the Kconfig
+  default alone does nothing for an existing build dir — and a stale value
+  below the new floor is out of range. Edit the line in place in each
+  `sdkconfig`; do **not** regenerate the file (that wipes the real ESP-NOW
+  peer MAC and battery MACs — see the gotcha below).
 - `components/jbd_bms/jbd_bms_protocol.c` — pure C frame codec (request
-  builder, `0x03` "basic info" response parser, hours-remaining estimator),
-  host-testable exactly like `rvc_protocol`
-  (`components/jbd_bms/host_test/test_jbd_bms.c`). **Unverified against
-  real hardware, same TODO(bench) spirit as the RV-C byte-layout notes
-  above:** the checksum scope, payload field offsets, and — most
-  importantly — the current sign convention (this project assumes
-  positive = charging, negative = discharging; flip
-  `jbd_bms_estimate_hours()`'s branches if a real pack disagrees) are all
-  sourced from publicly documented JBD/Xiaoxiang implementations (e.g.
-  ESPHome's `jbd_bms` component), not yet captured from these specific
-  batteries.
+  builder, `0x03` "basic info" response parser, NTC temperature decode,
+  hours-remaining estimator, `jbd_bms_power_w()`, `jbd_bms_c_to_f()`, and
+  the `jbd_bms_combine()` bank aggregator), host-testable exactly like
+  `rvc_protocol` (`components/jbd_bms/host_test/test_jbd_bms.c`).
+
+  **Byte layout and checksum scope are now VERIFIED**, not assumed. A real
+  published JBD response frame is committed as the regression vector
+  `k_jbd_doc_frame` in the host test; its own trailing checksum (`0xFBFF`)
+  reproduces exactly under `jbd_checksum()`, which is what confirms the
+  documented checksum scope (status + len + payload). Layout:
+
+  | offset | field |
+  |--------|-------|
+  | 0-1 | total voltage, 0.01 V |
+  | 2-3 | current, 0.01 A, signed |
+  | 4-5 / 6-7 | residual / full capacity, 0.01 Ah |
+  | 8-9 | cycle count |
+  | 19 | RSOC (used directly, not recomputed from capacities) |
+  | 20 | FET status |
+  | 21 | cell/string count |
+  | **22** | **NTC probe count** |
+  | **23+** | **NTC raw values, uint16 BE; `°C = (raw − 2731)/10`** |
+
+  Cross-checks that pin the offsets: 58.88 V ÷ 15 cells = 3.92 V/cell, and
+  the frame's 27-byte payload is exactly 23 + 2×2, i.e. the two probes byte
+  22 declares. ⚠️ Some secondary sources put the NTC *count* at offset 21 —
+  that frame rules it out (15 probes would need a 53-byte payload). Short
+  payloads that stop at the RSOC byte still parse; they just report
+  `temp_count == 0` and the UI shows "--".
+
+  **Still TODO(bench): the CURRENT SIGN CONVENTION.** This project assumes
+  positive = charging, negative = discharging. The captured frame can't
+  settle it (its current field is zero). Flip `jbd_bms_estimate_hours()`'s
+  branches if a real pack disagrees.
+- **Watts is not in the protocol** — there is no power field. It is always
+  derived. `jbd_bms_combine()` sums per-pack V×I rather than computing
+  mean_V × sum_I: identical while the packs agree, but it stays correct if
+  one pack reads a different voltage or drops out.
+- **Bank aggregation rules** (`jbd_bms_combine()`, pure C, host-tested):
+  voltage = mean (packs are hard-tied, so averaging just cancels per-BMS
+  shunt/ADC offset); current, power, residual Ah and full Ah = sums; SOC =
+  capacity-weighted mean of each BMS's own RSOC (`Σ(soc·full_ah)/Σ(full_ah)`
+  — a plain mean for equal packs, but stays right if a pack is replaced with
+  a different capacity); time-remaining computed from the **aggregate
+  totals**, not averaged from per-pack estimates. Callers pass a **packed
+  array of live packs only**, so a pack dropping off BLE shrinks the bank
+  rather than dragging the averages toward zero.
 - `components/jbd_bms/jbd_bms_client.c` — one connect/discover-service
   (`0xFF00`)/discover-characteristics (notify `0xFF01`, write
   `0xFF02`)/subscribe (register-for-notify + write the CCCD)/poll state
@@ -281,21 +366,148 @@ is already fixed).
   ESP32-S3 shares one 2.4 GHz radio between WiFi and BLE via IDF's
   software coexistence manager (`CONFIG_SW_COEXIST_ENABLE`, on by default
   once both `esp_wifi` and `bt` are enabled — see `sdkconfig.defaults`).
-- UI: `main/ui/ui.c`'s `battery_status_timer_cb` polls
-  `jbd_bms_get_status()` every second and feeds the 3
-  `PANEL_BTN_BATTERY_STATUS` gauges (`components/ui_common/
-  ui_battery_gauge.c`) — a plain flex-column of text (SOC%, rate in Amps,
-  a "Charging"/"Discharging"/"Idle" word, ETA hours) inside the same card
-  background as a light-switch button, no animation or battery-silhouette
-  graphic (an animated wave-fill/silhouette version shipped first, then
-  was replaced 2026-08-19 per explicit user feedback after bench testing).
-  Box is sized taller than a
-  normal button (`LV_PCT(50)` of the row) so the text has room. Tapping the
-  box toggles a small popup showing that slot's configured BLE MAC
-  (`ui_battery_gauge_toggle_mac_popup()`), for telling which physical
-  battery is which during bench troubleshooting; tapping the popup itself
-  dismisses it. See *Dual screens* below for how screen 2 picks this
-  layout vs. the tank one.
+- UI: `main/ui/ui.c`'s `battery_status_timer_cb` polls every configured
+  slot once a second, packs the live ones (`jbd_bms_get_status()` **and**
+  `jbd_bms_healthy()`), calls `jbd_bms_combine()`, and pushes the single
+  resulting `jbd_bms_bank_t` to one `PANEL_BTN_BATTERY_SUMMARY` widget
+  (`components/ui_common/ui_battery_summary.c`). Layout, mirroring the
+  Vatrer display: SOC arc with the percent at its center (indicator colored
+  by band — green ≥50 %, `UI_COLOR_WARN` 20–49 %, `UI_COLOR_ERR` <20 %), a
+  2×2 caption-over-value grid (Total Voltage / Total Power / Total Current /
+  time-remaining), and a bottom strip with bank high/low temperature in °F
+  and an "N of M" pack indicator that goes amber when a pack is missing.
+  The fourth cell's caption tracks direction — "Fully Charged In" /
+  "Time Remaining" / "Idle", using the same ±0.05 A idle threshold as
+  `jbd_bms_estimate_hours()` so caption and ETA can never disagree — and
+  renders as `13h 20m`, not `13.3h`. Current and power are shown as
+  magnitudes since the caption already carries direction.
+  Tapping the readout toggles a per-pack **detail popup** (MAC, SOC, volts,
+  amps, temp, online/offline per slot) for telling which physical battery is
+  which during bench troubleshooting; tapping the popup dismisses it.
+
+  **History, so it isn't re-litigated:** this started as three per-pack
+  gauges with an animated wave-fill/battery-silhouette graphic; the
+  animation was dropped 2026-08-19 for a plain box per user feedback, and
+  the three boxes were collapsed into this one combined bank readout
+  2026-08-21 (issues #29–#32) because the packs are wired in parallel and
+  read as one bank. `ui_battery_gauge.c` and `PANEL_BTN_BATTERY_STATUS`
+  were deleted outright rather than left as dead code.
+  See *Dual screens* below for how screen 2 picks this layout vs. the tank
+  one.
+
+## Basement BLE proxy + broadcast telemetry (issues #33/#34)
+
+`proxy/` is a **second, separate ESP-IDF project** — not a panel, and not
+even the same chip. It is a headless **classic ESP32** (ESP32-D0WD-V3, 4 MB
+flash, no PSRAM, CP210x USB bridge — auto-resets, no BOOT/RESET button
+needed) that sits in the coach's basement bay, holds the BLE link to the
+Hughes Power Watchdog, and re-broadcasts readings over ESP-NOW.
+
+```
+idf.py -C proxy -B proxy/build set-target esp32      # once
+idf.py -C proxy -B proxy/build build
+idf.py -C proxy -B proxy/build -p COM4 flash monitor
+```
+
+It pulls in shared components **individually** (`EXTRA_COMPONENT_DIRS`
+listing `espnow_link`, `hughes_watchdog`, `rvc_protocol`) rather than
+pointing at `components/` — the whole directory would drag `board_4_3b` and
+`ui_common`, and therefore LVGL, into a build with no display. It also
+carries its own `partitions.csv`: the IDF default gives the app 1 MB and a
+Bluedroid + WiFi build lands just over that.
+
+**Why a separate node rather than a panel doing it:** the Watchdog accepts
+exactly one BLE connection at a time, so whichever device holds it owns it;
+and BLE range is the real constraint (the Watchdog is at the shore-power
+inlet, panels are on interior walls). Consolidating the three battery packs
+onto this node later is an open option — they're in the same bay — but
+was deliberately deferred so battery code, which can only be validated at
+the coach, wasn't churned before a trip.
+
+### `components/hughes_watchdog` — Gen 1 Power Watchdog
+
+Service `0xFFE0`, notify characteristic `0xFFE2`. **No init command and no
+polling** — it streams ~1 Hz once subscribed, and there is no way to slow it
+down (so the JBD-style poll-interval concern does not transfer). 40-byte
+packets arrive as two 20-byte notifications needing reassembly. A 50 A unit
+sends one packet **per line**, tagged at offsets 37-39 (`00 00 00` = L1,
+`01 01 01` = L2); a 30 A unit only ever sends L1.
+
+| offset | field |
+|--------|-------|
+| 0-2 | header `01 03 20` |
+| 3-6 / 7-10 / 11-14 / 15-18 | volts / amps / watts / kWh, BE int32 ÷ 10000 |
+| 19 | error code (0=OK, 1-9=E1-E9, 11/12=F1/F2) |
+| 31-34 | frequency, BE int32 ÷ 100 |
+| 37-39 | line ID |
+
+⚠️ **Name matching is a SUBSTRING, not a prefix.** This coach's unit
+advertises as **`APMD1CB0DE309`** — leading `A`. Every public integration
+prefix-matches `PMD`/`PWS`/`PMS` and would fail to detect it. Don't
+"simplify" `hughes_wd_name_matches()` back to a prefix test.
+
+⚠️ **Gen 1 cannot be commanded to switch power, and this is settled.** The
+ASCII strings (`relayOn`, `reset`, `setTime`, `backLight`) are known from
+the official Android app, but the wire framing is not: writes to `0xfff5`,
+`0x1003` and `0x1005`, with and without CRLF, are accepted at the GATT layer
+and ignored by the device. TechBlueprints' Gen 1 handler is receive-only for
+the same reason. Only **Gen 2** (EPOW models, `WD_V5`/`WD_E5`/`WD_V6`/`WD_E6`,
+`$yw@` framing) has a working relay command (`SetOpen`, cmd `0x0B`). The
+client here is receive-only by design, not by omission.
+
+⚠️ **Chip portability trap.** `esp_ble_gattc_enh_open()` is the BLE 5.0 path
+the S3 needs; the classic ESP32 is BLE 4.2 and wants `esp_ble_gattc_open()`.
+`try_connect()` selects on `CONFIG_BT_BLE_50_FEATURES_SUPPORTED`. If battery
+code is ever moved to this node, `jbd_bms_client.c` needs the same guard.
+
+TODO(bench): the byte offsets above are from public reverse engineering, not
+from this unit. The client logs the first 5 raw packets at INFO — check them
+against the Watchdog's own display before trusting the numbers.
+
+### Broadcast telemetry (`espnow_link`)
+
+Read-only measurements broadcast to every node on the channel, so a panel
+can display data it has no connection to. Two producers today: the proxy
+(shore power) and the bridge panel (tank levels, so read-only remotes can
+show tanks — previously out of scope).
+
+- **Broadcast is unencrypted and unavoidably so** — ESP-NOW cannot encrypt
+  broadcast frames. Acceptable *only* because this is read-only telemetry.
+  Command/status frames actuate real loads and stay encrypted unicast;
+  never move them onto this channel.
+- ⚠️ **The control frame's size is part of the wire format.** `espnow_recv_cb`
+  validates length, and panels are flashed one at a time — growing
+  `espnow_frame_t`'s union would make an updated panel's commands invisible
+  to a panel still on the old build, silently. Telemetry is therefore its
+  own struct, and a `_Static_assert` pins `sizeof(espnow_frame_t) == 16`.
+  If that assert fires, you changed the wire format.
+- Scaled integers on the wire, not floats — smaller, and no dependence on
+  float layout matching across two chip families.
+- `espnow_link_init()` takes an `espnow_role_t` (BRIDGE / REMOTE /
+  TELEMETRY) rather than the old `bool is_bridge`. The TELEMETRY role has no
+  unicast peer at all and never reads `FIREFLY_ESPNOW_PEER_MAC`.
+- Telemetry receipt deliberately does **not** update `espnow_link_healthy()`
+  — a broadcast from an unrelated node is not evidence the unicast peer is
+  alive.
+- The bridge broadcasts the tanks it displays, scanned from `PANEL_BUTTONS_2`
+  rather than hardcoded (same trick `ui.c` uses to find GREY/BLACK). Invalid
+  readings are broadcast too, so a remote can distinguish "no reading" from
+  "0 %". Remote tank telemetry re-enters via `ui_on_tank_status()`, the same
+  entry point CAN-fed tanks use.
+- Shore power renders two ways on a remote panel: a compact **status bar**
+  summary (volts + amps per line) for passive awareness, and a full
+  **Line 1 / Line 2 screen** (`PANEL_BTN_SHORE_POWER`,
+  `components/ui_common/ui_shore_panel.c`) laid out like the Hughes phone
+  app — Volts / Amps / Freq / Watts per column, green digits. Both age out
+  to "--" after 20 s of silence, and the staleness decision is made once in
+  `shore_power_timer_cb()` so the two can never disagree. A 30 A pedestal
+  reports one line, and the Line 2 column is hidden rather than shown as
+  zeroes. Note a panel with GREY/BLACK tank buttons already uses the status
+  bar's right side for the tank readout — today no panel has both.
+
+⚠️ **All ESP-NOW nodes must share one WiFi channel** (`FIREFLY_ESPNOW_CHANNEL`,
+default 1) — there is no AP to negotiate one, and a mismatch is silently
+invisible, exactly like a wrong peer MAC.
 
 ## RV-C protocol
 
@@ -477,26 +689,47 @@ flips (`UI_COLOR_TEXT_DIM` off, `UI_COLOR_TEXT_ON_LIT` — dark navy — on) for
 contrast against the light-blue on-state. The dimmer level bar keeps its own
 amber (`UI_COLOR_AMBER`) fill, independent of this background swap.
 
-**Dual screens (GitHub issue #4).** A panel opts in with
-`#define PANEL_HAS_SCREEN_2 1` (default 0, `main/panel_config.h`) plus a
-second `PANEL_BUTTONS_2[]`/`PANEL_BUTTON_COUNT_2` array. `build_screen()`
-in `main/ui/ui.c` builds both screens up front as sibling containers
-(screen 2 starts `LV_OBJ_FLAG_HIDDEN`) so status updates keep both correct
-even while one is hidden — switching back must never show stale state. One
-`PANEL_BTN_SCREEN_SWITCH` button per screen calls `switch_screen()` to
-toggle which one is visible; it's local UI nav only, never forwarded as an
-RV-C command.
+**Multiple screens (GitHub issue #4, extended for #37).** A panel opts in
+with `#define PANEL_HAS_SCREEN_2 1` (default 0, `main/panel_config.h`) plus
+a `PANEL_BUTTONS_2[]`/`PANEL_BUTTON_COUNT_2` array, and optionally
+`PANEL_HAS_SCREEN_3` + `PANEL_BUTTONS_3[]` (bedroom_remote: battery bank on
+2, shore power on 3). `build_screen()` in `main/ui/ui.c` builds **every**
+screen up front as sibling containers (all but screen 0 start
+`LV_OBJ_FLAG_HIDDEN`) so status updates keep them all correct even while
+hidden — switching must never show stale state. `ui.c` holds them as a
+`s_screens[]` list rather than named globals, and all the update paths
+(`ui_on_status`, `ui_on_tank_status`, shore power) walk that list.
+
+`PANEL_BTN_SCREEN_SWITCH` is local UI nav only, never forwarded as an RV-C
+command. **With more than two screens a nav button must say which screen it
+targets, via `instances[0]`** (0 = the main grid). A button with
+`instance_count == 0` keeps the original toggle-between-0-and-1 behaviour —
+that's what lets `mid_coach`'s TANK LEVELS/BACK pair stay untouched.
+
+`build_button_grid()` derives its row count from the button count
+(`ceil(count/2)`, capped at `GRID_MAX_ROWS`) rather than assuming 4 rows, so
+a panel can carry more than 8 entries — `bedroom_remote` has 10 once
+BATTERY and SHORE POWER are separate buttons, with a `PANEL_BTN_SPACER`
+keeping the two nav buttons together on the bottom row.
 
 Screen 1 stays the plain 2x4 button grid (`build_button_grid()`);
 `PANEL_BTN_SPACER` fills a grid cell with nothing, which is how it
 positions a button at a specific cell instead of wherever sequential fill
-would put it. Screen 2 is a row of read-only gauges — tank levels
-(`mid_coach`, GitHub issue #10/#11) or battery status (`bedroom_remote`,
-issues #25–#27) — both built by the same `build_screen2_row()` in
-`main/ui/ui.c`: `PANEL_BTN_TANK_LEVEL` and `PANEL_BTN_BATTERY_STATUS`
-entries both lay out as a centered horizontal row of gauges
-(`ui_dimmer_button_create()` already dispatches to `ui_tank_wave` or
-`ui_battery_gauge` by button type — see below), and the one
+would put it. Screen 2 is read-only, built by `build_screen2_row()` in
+`main/ui/ui.c`, and comes in two flavors:
+
+- **tank levels** (`mid_coach`, issues #10/#11) — three
+  `PANEL_BTN_TANK_LEVEL` gauges laid out as a centered horizontal row,
+  because three tanks really are three separate things;
+- **battery bank** (`bedroom_remote`, issues #29–#32) — one
+  `PANEL_BTN_BATTERY_SUMMARY` widget filling the area, because the three
+  packs are in parallel and read as one bank.
+
+`ui_dimmer_button_create()` dispatches to `ui_tank_wave` or
+`ui_battery_summary` by button type, so `ui.c` stays panel-agnostic; the
+only layout difference it encodes is the row height (89 % vs 75 % — the
+full-width bank card would otherwise leave a dead band above BACK) and
+sizing the summary `LV_PCT(100)` instead of a fixed gauge width. The one
 `PANEL_BTN_SCREEN_SWITCH` entry ("BACK") is a small button pinned to the
 bottom center rather than an equal grid cell — see `panels/mid_coach.h`'s
 and `panels/bedroom_remote.h`'s `PANEL_BUTTONS_2[]` (just the gauge

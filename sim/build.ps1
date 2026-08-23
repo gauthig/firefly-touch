@@ -1,11 +1,14 @@
 # Build (and optionally run) the PC simulator.
 #   .\build.ps1                        # build mid_coach
 #   .\build.ps1 -Panel ent_center -Run
-#   .\build.ps1 -Shot preview.bmp      # headless screenshot
+#   .\build.ps1 -Shot preview.bmp      # headless screenshot (screen 1)
+#   .\build.ps1 -Shot preview.bmp -Screen2   # ...of screen 2 instead
 param(
     [string]$Panel = "mid_coach",
     [switch]$Run,
-    [string]$Shot = ""
+    [string]$Shot = "",
+    [switch]$Screen2,
+    [switch]$Popup      # with -Screen2: also open the per-pack detail popup
 )
 
 $ErrorActionPreference = "Stop"
@@ -31,5 +34,9 @@ if ($LASTEXITCODE -ne 0) { throw "build failed" }
 
 $exe = Join-Path $build "sim_$Panel.exe"
 Write-Host "Built $exe"
-if ($Shot -ne "") { & $exe --shot $Shot }
+if ($Shot -ne "") {
+    if ($Screen2 -and $Popup) { & $exe --shot $Shot screen2 popup }
+    elseif ($Screen2)         { & $exe --shot $Shot screen2 }
+    else                      { & $exe --shot $Shot }
+}
 elseif ($Run)    { & $exe }

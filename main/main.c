@@ -53,6 +53,46 @@ static void remote_status_rx(const espnow_status_msg_t *msg, void *ctx)
     (void)ctx;
     ui_on_status(msg->instance, msg->level, msg->on);
 }
+
+/*
+ * Read-only telemetry broadcast by some other node — the basement BLE proxy
+ * (shore power) or the bridge panel (tank levels). Unlike status frames
+ * these are unencrypted broadcasts from a node that is not our peer, which
+ * is acceptable precisely because nothing here actuates anything: it is all
+ * display.
+ *
+ * Tank telemetry deliberately re-enters through ui_on_tank_status(), the
+ * same entry point the bridge's own CAN-fed tanks use, so a remote panel
+ * with tank gauges needs no special handling at all.
+ */
+static void remote_telem_rx(const espnow_telem_msg_t *msg, void *ctx)
+{
+    (void)ctx;
+    switch (msg->kind) {
+    case ESPNOW_TELEM_TANK:
+        ui_on_tank_status(msg->tank.instance, msg->tank.percent,
+                          msg->tank.valid != 0);
+        break;
+
+    case ESPNOW_TELEM_SHORE_POWER: {
+        ui_shore_power_t sp = {
+            .line_count   = msg->shore.line_count,
+            .error_code   = msg->shore.error_code,
+            .frequency_hz = (float)msg->shore.frequency_chz / 100.0f,
+        };
+        for (int i = 0; i < 2; i++) {
+            sp.volts[i] = (float)msg->shore.volts_dv[i] / 10.0f;
+            sp.amps[i]  = (float)msg->shore.amps_da[i] / 10.0f;
+            sp.watts[i] = (float)msg->shore.watts[i];
+        }
+        ui_on_shore_power(&sp);
+        break;
+    }
+
+    default:
+        break;   /* newer producer, unknown measurement — ignore quietly */
+    }
+}
 #endif
 
 #if PANEL_IS_BRIDGE
@@ -84,6 +124,42 @@ static void bridge_resync_timer_cb(TimerHandle_t t)
     (void)t;
     state_manager_for_each_known(bridge_forward_status, NULL);
 }
+
+#if PANEL_HAS_SCREEN_2
+#define TANK_TELEMETRY_PERIOD_MS 5000
+
+/*
+ * Broadcast this panel's tank readings so read-only remotes can show them.
+ * Only the bridge sees TANK_STATUS frames — it is the one with CAN wiring —
+ * so it is the natural producer.
+ *
+ * Which instances to send is taken from PANEL_BUTTONS_2 rather than
+ * hardcoded here, the same trick ui.c uses to find the GREY/BLACK buttons:
+ * a panel broadcasts exactly the tanks it displays, so adding a fourth
+ * sensor is still a panel-header-only change.
+ */
+static void tank_telemetry_timer_cb(TimerHandle_t t)
+{
+    (void)t;
+    for (uint32_t i = 0; i < PANEL_BUTTON_COUNT_2; i++) {
+        const panel_btn_def_t *def = &PANEL_BUTTONS_2[i];
+        if (def->type != PANEL_BTN_TANK_LEVEL || def->instance_count == 0) {
+            continue;
+        }
+        uint8_t percent = 0;
+        const bool valid = state_manager_get_tank(def->instances[0], &percent);
+
+        espnow_telem_msg_t msg = { .kind = ESPNOW_TELEM_TANK };
+        msg.tank.instance = def->instances[0];
+        msg.tank.percent = percent;
+        /* Send invalid readings too: a remote must be able to tell "no
+         * reading" from "0 %", and silence alone can't distinguish a dry
+         * tank from a dead bridge. */
+        msg.tank.valid = valid ? 1u : 0u;
+        espnow_link_send_telemetry(&msg);
+    }
+}
+#endif
 #endif
 
 void app_main(void)
@@ -104,7 +180,7 @@ void app_main(void)
 #endif
 
 #if PANEL_IS_BRIDGE
-    ESP_ERROR_CHECK(espnow_link_init(true));
+    ESP_ERROR_CHECK(espnow_link_init(ESPNOW_ROLE_BRIDGE));
     espnow_link_set_cmd_rx_cb(bridge_cmd_rx, NULL);
     state_manager_register_status_sink(bridge_forward_status, NULL);
     TimerHandle_t resync_timer = xTimerCreate(
@@ -115,9 +191,20 @@ void app_main(void)
     } else {
         ESP_LOGW(TAG, "failed to create ESP-NOW resync timer");
     }
+#if PANEL_HAS_SCREEN_2
+    TimerHandle_t tank_timer = xTimerCreate(
+        "tank_telem", pdMS_TO_TICKS(TANK_TELEMETRY_PERIOD_MS), pdTRUE, NULL,
+        tank_telemetry_timer_cb);
+    if (tank_timer != NULL) {
+        xTimerStart(tank_timer, 0);
+    } else {
+        ESP_LOGW(TAG, "failed to create tank telemetry timer");
+    }
+#endif
 #elif !PANEL_HAS_CAN
-    ESP_ERROR_CHECK(espnow_link_init(false));
+    ESP_ERROR_CHECK(espnow_link_init(ESPNOW_ROLE_REMOTE));
     espnow_link_set_status_rx_cb(remote_status_rx, NULL);
+    espnow_link_set_telem_rx_cb(remote_telem_rx, NULL);
 #endif
 
 #if PANEL_HAS_BLE_BATTERY

@@ -1,18 +1,29 @@
 /*
  * main_sim — LVGL PC simulator entry point.
  *
- * Default: opens an 800x480 SDL window rendering the selected panel with the
+ * Default: opens a 480x800 SDL window rendering the selected panel with the
  * real UI code; mouse = touch (click, click-and-hold to ramp).
+ *
+ * Why 480x800 and not the panel's physical 800x480: the firmware runs the
+ * display rotated 90 degrees (board_4_3b.c sets sw_rotate + ROTATION_90), so
+ * every layout decision in the UI code is made against a LOGICAL resolution
+ * of 480x800 -- build_screen() explicitly sizes itself off
+ * lv_display_get_vertical_resolution() for exactly this reason. Creating the
+ * simulator display at the physical size instead would preview a landscape
+ * screen the hardware never shows, which is worse than useless for judging a
+ * layout. Matching the logical geometry needs no rotation here at all.
  *
  * `--shot <file.bmp> [screen2]`: headless mode — renders one frame to an
  * in-memory display, saves a BMP screenshot, and exits (used for CI /
- * remote review). With `screen2`, taps the TANK LEVELS button first and
- * lets real time run forward briefly so the tank-status timer and wave
- * animation have a chance to fire before the snapshot.
+ * remote review). With `screen2`, taps the TANK LEVELS / BATTERY STATUS
+ * button first and lets real time run forward briefly so the tank-status,
+ * battery-status and wave-animation timers all have a chance to fire
+ * before the snapshot.
  */
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include <SDL2/SDL.h>
@@ -29,18 +40,31 @@ static uint32_t tick_cb(void)
 
 /* ------------------------------------------------ headless screenshot -- */
 
+/*
+ * Headless rendering target. Deliberately a FULL-size XRGB8888 framebuffer
+ * that LVGL draws straight into, rather than lv_snapshot_take() on the
+ * active screen: a snapshot only walks one object tree, so it silently
+ * misses everything on lv_layer_top() -- the idle-dim overlay and the
+ * battery bank's per-pack detail popup both live there and never appeared
+ * in captures taken the old way. Rendering the display for real and reading
+ * back its framebuffer captures exactly what the panel would show.
+ */
+#define HEADLESS_W 480
+#define HEADLESS_H 800
+static uint8_t s_headless_fb[HEADLESS_W * HEADLESS_H * 4];
+
 static void headless_flush_cb(lv_display_t *disp, const lv_area_t *area,
                               uint8_t *px_map)
 {
     (void)area;
-    (void)px_map;
+    (void)px_map;   /* px_map IS s_headless_fb in RENDER_MODE_FULL */
     lv_display_flush_ready(disp);
 }
 
-static int write_bmp24(const char *path, const lv_draw_buf_t *buf)
+/* `data` is XRGB8888, top row first; BMP rows are bottom-up. */
+static int write_bmp24(const char *path, const uint8_t *data,
+                       uint32_t w, uint32_t h, uint32_t stride)
 {
-    const uint32_t w = buf->header.w;
-    const uint32_t h = buf->header.h;
     const uint32_t row = (w * 3 + 3) & ~3u;
     const uint32_t data_size = row * h;
     const uint32_t file_size = 54 + data_size;
@@ -61,9 +85,9 @@ static int write_bmp24(const char *path, const lv_draw_buf_t *buf)
     memcpy(&hdr[34], &data_size, 4);
     fwrite(hdr, 1, sizeof(hdr), f);
 
-    /* Snapshot is XRGB8888: bytes B,G,R,X. BMP rows are bottom-up. */
+    /* XRGB8888 in memory is B,G,R,X -- the same channel order BMP wants. */
     for (int32_t y = (int32_t)h - 1; y >= 0; y--) {
-        const uint8_t *src = buf->data + (uint32_t)y * buf->header.stride;
+        const uint8_t *src = data + (uint32_t)y * stride;
         uint8_t pad[4] = { 0 };
         for (uint32_t x = 0; x < w; x++) {
             fwrite(&src[x * 4], 1, 3, f);
@@ -74,43 +98,138 @@ static int write_bmp24(const char *path, const lv_draw_buf_t *buf)
     return 0;
 }
 
-/* Recursively finds a button whose direct child label matches `text` and
- * fires a tap on it -- used to reach screen 2 in headless --shot mode
- * (switch_screen() is internal to ui.c, so this drives the same tap path a
- * real touch would). Returns true if found. */
-static bool click_button_labeled(lv_obj_t *obj, const char *text)
+/*
+ * Scripted pointer input device.
+ *
+ * Sending LV_EVENT_SHORT_CLICKED straight to a widget (which this harness
+ * used to do) exercises the handler but NOT LVGL's input plumbing -- no
+ * hit-testing, no indev state machine, no press/release lifecycle. A whole
+ * class of bug lives in exactly that gap: the battery pack-detail popup
+ * opened once and then refused to reopen on real hardware, while scripted
+ * events toggled it perfectly. Driving a real indev reproduces it.
+ */
+static lv_point_t s_ptr;
+static bool       s_ptr_pressed;
+
+static void scripted_read_cb(lv_indev_t *indev, lv_indev_data_t *data)
+{
+    (void)indev;
+    data->point = s_ptr;
+    data->state = s_ptr_pressed ? LV_INDEV_STATE_PRESSED : LV_INDEV_STATE_RELEASED;
+}
+
+static void pump(int iterations)
+{
+    for (int i = 0; i < iterations; i++) {
+        lv_timer_handler();
+        SDL_Delay(20);
+    }
+}
+
+/*
+ * A real press-and-release at (x, y). Default hold is well under LVGL's
+ * 400 ms long-press threshold, so it registers as a short click.
+ *
+ * SIM_TAP_HOLD_MS overrides the hold time -- set it above 400 to emulate a
+ * deliberate finger press, which is a genuinely different code path:
+ * LV_EVENT_SHORT_CLICKED is NOT sent once a press crosses the long-press
+ * threshold, only LV_EVENT_CLICKED. Any widget that listens solely for
+ * SHORT_CLICKED silently ignores a slow tap.
+ */
+static void tap_at(int32_t x, int32_t y)
+{
+    static int hold_ms = -1;
+    if (hold_ms < 0) {
+        const char *env = getenv("SIM_TAP_HOLD_MS");
+        hold_ms = (env != NULL) ? atoi(env) : 80;
+    }
+
+    s_ptr.x = x;
+    s_ptr.y = y;
+    s_ptr_pressed = true;
+    pump((hold_ms / 20) + 1);
+    s_ptr_pressed = false;
+    pump(6);
+}
+
+/* Recursively finds the widget whose direct child label matches `text`. */
+static lv_obj_t *find_button_labeled(lv_obj_t *obj, const char *text)
 {
     uint32_t n = lv_obj_get_child_count(obj);
     for (uint32_t i = 0; i < n; i++) {
         lv_obj_t *child = lv_obj_get_child(obj, i);
         if (lv_obj_check_type(child, &lv_label_class) &&
             strcmp(lv_label_get_text(child), text) == 0) {
-            lv_obj_send_event(obj, LV_EVENT_SHORT_CLICKED, NULL);
-            return true;
+            return obj;
         }
-        if (click_button_labeled(child, text)) {
-            return true;
+        lv_obj_t *found = find_button_labeled(child, text);
+        if (found != NULL) {
+            return found;
         }
     }
-    return false;
+    return NULL;
 }
 
-static int run_screenshot(const char *path, bool screen2)
+/* Taps the centre of the widget carrying `text`, through the real indev. */
+static bool click_button_labeled(lv_obj_t *root, const char *text)
 {
-    static lv_color_t draw_buf[800 * 60];
-    lv_display_t *disp = lv_display_create(800, 480);
-    lv_display_set_buffers(disp, draw_buf, NULL, sizeof(draw_buf),
-                           LV_DISPLAY_RENDER_MODE_PARTIAL);
+    lv_obj_t *target = find_button_labeled(root, text);
+    if (target == NULL) {
+        return false;
+    }
+    lv_obj_update_layout(target);
+    lv_area_t a;
+    lv_obj_get_coords(target, &a);
+    tap_at((a.x1 + a.x2) / 2, (a.y1 + a.y2) / 2);
+    return true;
+}
+
+static int run_screenshot(const char *path, bool screen2, int popup_taps, bool screen3)
+{
+    lv_display_t *disp = lv_display_create(HEADLESS_W, HEADLESS_H);
+    lv_display_set_color_format(disp, LV_COLOR_FORMAT_XRGB8888);
+    lv_display_set_buffers(disp, s_headless_fb, NULL, sizeof(s_headless_fb),
+                           LV_DISPLAY_RENDER_MODE_FULL);
     lv_display_set_flush_cb(disp, headless_flush_cb);
+
+    /* Real input device, so scripted taps go through hit-testing and the
+     * indev state machine exactly as a finger would. */
+    lv_indev_t *indev = lv_indev_create();
+    lv_indev_set_type(indev, LV_INDEV_TYPE_POINTER);
+    lv_indev_set_read_cb(indev, scripted_read_cb);
+    lv_indev_set_display(indev, disp);
 
     ui_init();
     sim_seed_demo_state();
 
     if (screen2) {
+        /* Whichever secondary-screen button this panel actually has. */
         if (!click_button_labeled(lv_screen_active(), "TANK LEVELS") &&
-            !click_button_labeled(lv_screen_active(), "BATTERY STATUS")) {
+            !click_button_labeled(lv_screen_active(), "BATTERY STATUS") &&
+            !click_button_labeled(lv_screen_active(), "BATTERY")) {
             fprintf(stderr, "[sim] no screen-switch button found (no screen 2 on this panel?)\n");
         }
+        if (popup_taps > 0) {
+            /* Battery bank readout only: tapping it reveals the per-pack
+             * detail popup. The BANK label is hidden on screen (the widget
+             * carries its own labels), but it still exists, so the same
+             * label-driven tap helper reaches it.
+             *
+             * Repeating the tap is how the show/hide TOGGLE gets tested --
+             * an odd count should leave the popup visible, an even count
+             * hidden. */
+            for (int tap = 0; tap < popup_taps; tap++) {
+                lv_timer_handler();
+                if (!click_button_labeled(lv_screen_active(), "BANK")) {
+                    fprintf(stderr, "[sim] no BANK widget on this panel's screen 2\n");
+                    break;
+                }
+            }
+        }
+    }
+
+    if (screen3 && !click_button_labeled(lv_screen_active(), "SHORE POWER")) {
+        fprintf(stderr, "[sim] no SHORE POWER button on this panel\n");
     }
 
     /* Run real time forward so the tank/battery-status timers (500 ms /
@@ -122,14 +241,8 @@ static int run_screenshot(const char *path, bool screen2)
     }
     lv_refr_now(disp);
 
-    lv_draw_buf_t *snap = lv_snapshot_take(lv_screen_active(),
-                                           LV_COLOR_FORMAT_XRGB8888);
-    if (snap == NULL) {
-        fprintf(stderr, "snapshot failed\n");
-        return 1;
-    }
-    const int rc = write_bmp24(path, snap);
-    lv_draw_buf_destroy(snap);
+    const int rc = write_bmp24(path, s_headless_fb, HEADLESS_W, HEADLESS_H,
+                               HEADLESS_W * 4);
     if (rc != 0) {
         fprintf(stderr, "could not write %s\n", path);
         return 1;
@@ -142,7 +255,7 @@ static int run_screenshot(const char *path, bool screen2)
 
 static int run_window(void)
 {
-    lv_display_t *disp = lv_sdl_window_create(800, 480);
+    lv_display_t *disp = lv_sdl_window_create(480, 800);
     lv_sdl_window_set_title(disp, "firefly-touch simulator");
     lv_sdl_mouse_create();
 
@@ -165,7 +278,17 @@ int main(int argc, char **argv)
 
     if (argc >= 3 && strcmp(argv[1], "--shot") == 0) {
         const bool screen2 = argc >= 4 && strcmp(argv[3], "screen2") == 0;
-        return run_screenshot(argv[2], screen2);
+        const bool screen3 = argc >= 4 && strcmp(argv[3], "screen3") == 0;
+        /* `popup [n]` taps the bank readout n times (default 1) so the
+         * show/hide toggle can be exercised, not just the first reveal. */
+        int popup_taps = 0;
+        if (argc >= 5 && strcmp(argv[4], "popup") == 0) {
+            popup_taps = (argc >= 6) ? atoi(argv[5]) : 1;
+        }
+        if (screen3) {
+            return run_screenshot(argv[2], false, 0, true);
+        }
+        return run_screenshot(argv[2], screen2, popup_taps, false);
     }
     return run_window();
 }

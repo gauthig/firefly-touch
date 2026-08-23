@@ -27,6 +27,8 @@
 #include "lvgl.h"
 #include "panel_def.h"
 #include "rvc_protocol.h"
+#include "ui_battery_summary.h"
+#include "ui_shore_panel.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -66,22 +68,27 @@ void ui_dimmer_button_update_tank(lv_obj_t *btn, uint8_t instance,
                                   uint8_t percent, bool valid);
 
 /*
- * Feed a battery-status update for one battery index (0..2, matching
- * jbd_bms_get_status()'s slot numbering -- not an RV-C instance). No-op
- * unless this widget is a PANEL_BTN_BATTERY_STATUS watching that index.
- * rate_amps: positive = charging, negative = discharging. hours: pass a
- * non-finite value to show "--". valid=false shows "--" everywhere.
- * Caller must hold the LVGL lock.
+ * Feed a combined bank reading to a PANEL_BTN_BATTERY_SUMMARY widget. No-op
+ * for any other button type. Caller must hold the LVGL lock.
+ *
+ * `bank` may be NULL (or carry pack_count == 0) to show "--" rather than a
+ * stale reading. `packs`/`packs_len` back the tap-to-reveal per-pack detail
+ * popup and are indexed by BLE SLOT, including unconfigured ones.
+ * `configured_packs` is the tally of slots holding a real MAC, used for the
+ * "N of M" indicator -- deliberately separate from packs_len, since slot 2
+ * can be configured while slot 1 is not.
  */
-void ui_dimmer_button_update_battery(lv_obj_t *btn, uint8_t index, uint8_t percent,
-                                     float rate_amps, float hours, bool valid);
+void ui_dimmer_button_update_bank(lv_obj_t *btn, const jbd_bms_bank_t *bank,
+                                  const ui_battery_pack_info_t *packs,
+                                  uint8_t packs_len, uint8_t configured_packs);
 
 /*
- * Set the BLE MAC string shown by a PANEL_BTN_BATTERY_STATUS widget's tap-
- * to-reveal troubleshooting popup. No-op for any other button type. Caller
- * must hold the LVGL lock.
+ * Feed a shore-power reading to a PANEL_BTN_SHORE_POWER widget. No-op for
+ * any other button type. `valid` false shows "--" everywhere. Caller must
+ * hold the LVGL lock.
  */
-void ui_dimmer_button_set_battery_mac(lv_obj_t *btn, const char *mac);
+void ui_dimmer_button_update_shore(lv_obj_t *btn, const ui_shore_reading_t *r,
+                                   bool valid);
 
 #ifdef __cplusplus
 }
