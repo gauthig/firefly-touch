@@ -23,8 +23,6 @@
 extern "C" {
 #endif
 
-#define JBD_BMS_MAX_BATTERIES 3
-
 /*
  * Brings up Bluedroid and starts connecting to each configured battery MAC.
  * Must be called after nvs_flash_init(); safe to call once per boot.
@@ -39,7 +37,16 @@ esp_err_t jbd_bms_client_start(void);
  */
 bool jbd_bms_get_status(uint8_t index, jbd_bms_status_t *out);
 
-/* True if a valid notify was parsed for that slot within the last 15 s. */
+/*
+ * True if slot `index` holds a real MAC (i.e. it is one this node is meant
+ * to be talking to at all), regardless of whether it is currently
+ * answering. Lets a caller tell "configured but offline" -- worth reporting
+ * -- apart from "never configured", which should stay silent.
+ */
+bool jbd_bms_slot_configured(uint8_t index);
+
+/* True if a valid notify was parsed for that slot recently -- the window is
+ * derived from the poll interval (3x), not a fixed number of seconds. */
 bool jbd_bms_healthy(uint8_t index);
 
 #ifdef __cplusplus

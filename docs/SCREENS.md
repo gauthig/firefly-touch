@@ -47,8 +47,10 @@ Replaces the Entegra SW4-E1 panel. CAN-connected, lights only.
 
 ## `bedroom_remote` — "BED REMOTE"
 
-No CAN wiring at all. Relays button presses to `mid_coach` over ESP-NOW, and
-holds its own BLE links to the three battery packs. Three screens.
+No CAN wiring and no BLE. Relays button presses to `mid_coach` over ESP-NOW;
+everything else on this panel — battery bank, shore power — arrives as
+ESP-NOW broadcasts from the basement proxy, which holds those BLE links.
+Three screens.
 
 | Lights | Battery bank | Shore power |
 |---|---|---|
@@ -62,8 +64,10 @@ pedestal is visible without navigating anywhere.
 this is deliberately **one combined reading**, not three gauges — the way
 the coach's own Vatrer display presents it. The SOC arc is colour-banded
 (green ≥50 %, amber 20–49 %, red <20 %), and "N of M" turns amber if a pack
-drops off BLE. Aggregation happens in firmware (`jbd_bms_combine()`); there
-is no bank-level reading to fetch from a BMS.
+drops off. Aggregation happens on the panel (`jbd_bms_combine()`) from
+per-pack broadcasts, not on the proxy — there is no bank-level reading to
+fetch from a BMS, and keeping the combining in one host-tested place is what
+lets the per-pack detail popup stay honest.
 
 **Shore power.** Line 1 / Line 2 volts, amps, frequency and watts, laid out
 like the Hughes Autoformers phone app. Data arrives as an ESP-NOW broadcast
@@ -76,7 +80,9 @@ hidden rather than shown as zeroes.
 Tapping the battery bank readout opens a per-pack popup — MAC, SOC, volts,
 amps and temperature for each slot, with offline packs called out in red.
 This is the tool for telling which physical battery is which during bench
-troubleshooting.
+troubleshooting. The MACs shown are the panel's own Kconfig labels — the
+real links live on the proxy — so set them to match if you want the rows
+named; unset slots simply read `--` while still showing live values.
 
 ![pack detail popup](images/bedroom-remote-battery-detail.png)
 

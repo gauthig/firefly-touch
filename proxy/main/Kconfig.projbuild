@@ -48,6 +48,69 @@ menu "Firefly BLE Proxy"
             the newest values, which is also what makes a dropped broadcast
             self-healing — the next one corrects it.
 
+    config FIREFLY_BATTERY_ENABLED
+        bool "Connect to the JBD/Xiaoxiang battery packs"
+        default y
+        help
+            Hold a BLE link to each configured battery pack and broadcast
+            per-pack volts/amps/SOC/capacity/temperature.
+
+            The packs are in the same basement bay as this node, which is
+            the whole reason the links live here rather than on a wall
+            panel: no steel bay door in the RF path, and the panel's radio
+            is left to ESP-NOW.
+
+            Panels combine the per-pack broadcasts themselves
+            (jbd_bms_combine) rather than receiving a pre-summed bank, so
+            the aggregation stays in one host-tested place and the panel's
+            per-pack detail popup still has real numbers to show.
+
+    config FIREFLY_BATTERY_1_MAC
+        string "Battery 1 BLE MAC address (AA:BB:CC:DD:EE:FF)"
+        depends on FIREFLY_BATTERY_ENABLED
+        default "00:00:00:00:00:00"
+        help
+            BLE MAC of the first Xiaoxiang/JBD BMS. The placeholder
+            all-zero address means "unconfigured" -- that slot is skipped
+            entirely (no connection attempted, nothing broadcast) until a
+            real MAC is set.
+
+            Slot order matters: it is the slot index that goes out on the
+            wire, and it is what a panel labels its detail-popup rows by.
+
+    config FIREFLY_BATTERY_2_MAC
+        string "Battery 2 BLE MAC address (AA:BB:CC:DD:EE:FF)"
+        depends on FIREFLY_BATTERY_ENABLED
+        default "00:00:00:00:00:00"
+        help
+            Same as FIREFLY_BATTERY_1_MAC, for the second battery.
+
+    config FIREFLY_BATTERY_3_MAC
+        string "Battery 3 BLE MAC address (AA:BB:CC:DD:EE:FF)"
+        depends on FIREFLY_BATTERY_ENABLED
+        default "00:00:00:00:00:00"
+        help
+            Same as FIREFLY_BATTERY_1_MAC, for the third battery.
+
+    config FIREFLY_BATTERY_POLL_INTERVAL_MS
+        int "Battery poll / broadcast interval (ms)"
+        default 30000
+        range 20000 600000
+        help
+            How often each connected battery is asked for a fresh
+            basic-info reading, and therefore how often its values are
+            re-broadcast to the panels.
+
+            The 20 s lower bound is deliberate, not arbitrary: JBD BMS
+            units are widely reported to misbehave when polled more often
+            than roughly every 20 seconds, so the floor is enforced here
+            rather than merely documented.
+
+            Note jbd_bms_client.c derives its own "battery is healthy"
+            staleness window from this value (3x), and the panels derive
+            their "pack has gone quiet" window the same way -- so keep this
+            in step with the panels' setting.
+
     config FIREFLY_WD_ENABLED
         bool "Connect to a Hughes Power Watchdog"
         default y

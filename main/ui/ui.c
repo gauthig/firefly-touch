@@ -32,6 +32,7 @@
 
 #include "esp_log.h"
 #include "esp_lvgl_port.h"
+#include "sdkconfig.h"
 #include "lvgl.h"
 
 #include "board_4_3b.h"
@@ -42,7 +43,7 @@
 #include "ui_theme.h"
 
 #if PANEL_HAS_SCREEN_2
-#include "jbd_bms_client.h"
+#include "jbd_bms_protocol.h"
 #endif
 
 static const char *TAG = "ui";
@@ -58,6 +59,18 @@ static const char *TAG = "ui";
 #define TANK_STATUS_TIMER_MS 500
 
 #define BATTERY_STATUS_TIMER_MS 1000
+
+/*
+ * Battery readings reach this panel as ESP-NOW telemetry broadcasts from the
+ * basement BLE proxy — that node sits beside the packs in the bay and holds
+ * all three BLE links, so no panel talks to a BMS itself any more.
+ *
+ * The proxy re-broadcasts once per battery poll interval, so a pack is only
+ * called stale after roughly three missed broadcasts. Same 3x rule (and same
+ * reason) as jbd_bms_client.c's own health window: tolerate a dropped frame
+ * or two before telling the user a pack has gone away.
+ */
+#define BATTERY_STALE_MS (3 * CONFIG_FIREFLY_BATTERY_POLL_INTERVAL_MS)
 
 /*
  * Shore power (Hughes Power Watchdog, relayed from the basement BLE proxy).
@@ -255,28 +268,51 @@ static void tank_status_timer_cb(lv_timer_t *t)
 
 /* ----------------------------------------------------- battery status --- */
 
-/* Kconfig MAC per battery slot. The all-zero placeholder means "slot not
- * configured" -- it is never connected to and never counted toward the
- * bank's "N of M" indicator. */
+/*
+ * Kconfig MAC per battery slot. On a panel these are DISPLAY LABELS ONLY —
+ * they name the rows in the detail popup so a physical pack can be
+ * identified during bench troubleshooting. The connection config that
+ * actually matters lives on the proxy now.
+ *
+ * A slot therefore counts as configured if it has a real MAC label *or* if
+ * telemetry has ever arrived for it: a panel flashed without the labels
+ * degrades to unlabeled-but-live rows rather than showing nothing at all.
+ */
 static const char *const k_battery_macs[JBD_BMS_MAX_BATTERIES] = {
     CONFIG_FIREFLY_BATTERY_1_MAC,
     CONFIG_FIREFLY_BATTERY_2_MAC,
     CONFIG_FIREFLY_BATTERY_3_MAC,
 };
 
-static bool battery_slot_configured(uint8_t index)
+static jbd_bms_status_t s_battery[JBD_BMS_MAX_BATTERIES];
+static uint32_t         s_battery_last_ms[JBD_BMS_MAX_BATTERIES];
+static bool             s_battery_seen[JBD_BMS_MAX_BATTERIES];
+static bool             s_battery_online[JBD_BMS_MAX_BATTERIES];
+
+static bool battery_slot_labeled(uint8_t index)
 {
     return strcmp(k_battery_macs[index], "00:00:00:00:00:00") != 0;
 }
 
+/* Fresh means: the producer reported this pack as answering, and its
+ * broadcast has not aged out. Both have to hold — the proxy keeps
+ * broadcasting a slot it has lost the BLE link to, flagged offline, so that
+ * a panel can distinguish "pack is gone" from "the whole proxy is gone". */
+static bool battery_slot_fresh(uint8_t index)
+{
+    return s_battery_seen[index] && s_battery_online[index] &&
+           (lv_tick_get() - s_battery_last_ms[index]) <= BATTERY_STALE_MS;
+}
+
 /*
- * Polls every configured pack, combines the live ones into a single bank
- * reading, and pushes that plus the per-pack detail to the summary widget.
+ * Combines whichever packs are currently fresh into a single bank reading
+ * and pushes that, plus the per-pack detail, to the summary widget.
  *
  * The packs are wired in parallel, so this is deliberately one reading, not
  * three: jbd_bms_combine() does the aggregation (pure C, host-tested), and
- * only packs that answered are handed to it, so a pack dropping off BLE
- * shrinks the bank rather than dragging the averages toward zero.
+ * only packs that are actually reporting are handed to it, so a pack
+ * dropping off shrinks the bank rather than dragging the averages toward
+ * zero.
  */
 static void battery_status_timer_cb(lv_timer_t *t)
 {
@@ -290,18 +326,18 @@ static void battery_status_timer_cb(lv_timer_t *t)
     memset(detail, 0, sizeof(detail));
 
     for (uint8_t i = 0; i < JBD_BMS_MAX_BATTERIES; i++) {
-        detail[i].configured = battery_slot_configured(i);
-        snprintf(detail[i].mac, sizeof(detail[i].mac), "%s", k_battery_macs[i]);
+        detail[i].configured = battery_slot_labeled(i) || s_battery_seen[i];
+        snprintf(detail[i].mac, sizeof(detail[i].mac), "%s",
+                 battery_slot_labeled(i) ? k_battery_macs[i] : "--");
         if (!detail[i].configured) {
             continue;
         }
         configured_count++;
 
-        jbd_bms_status_t status;
-        if (jbd_bms_get_status(i, &status) && jbd_bms_healthy(i)) {
+        if (battery_slot_fresh(i)) {
             detail[i].online = true;
-            detail[i].status = status;
-            live[live_count++] = status;
+            detail[i].status = s_battery[i];
+            live[live_count++] = s_battery[i];
         }
     }
 
@@ -748,6 +784,38 @@ void ui_on_shore_power(const ui_shore_power_t *sp)
     lvgl_port_unlock();
 #else
     (void)sp;
+#endif
+}
+
+void ui_on_battery_status(const ui_battery_pack_t *pack)
+{
+#if PANEL_HAS_SCREEN_2
+    if (!s_ui_ready || pack == NULL || pack->slot >= JBD_BMS_MAX_BATTERIES) {
+        return;
+    }
+    /* Cache only; battery_status_timer_cb owns the staleness decision and
+     * the repaint, so there is exactly one place that decides what the bank
+     * readout says — same split as shore power above. */
+    lvgl_port_lock(0);
+    const uint8_t i = pack->slot;
+    s_battery[i] = (jbd_bms_status_t){
+        .voltage_v        = pack->voltage_v,
+        .current_a        = pack->current_a,
+        .residual_ah      = pack->residual_ah,
+        .full_capacity_ah = pack->full_capacity_ah,
+        .soc_percent      = pack->soc_percent,
+        /* The wire carries this pack's min/max rather than every probe;
+         * that is all the popup and the bank's high/low strip show, and
+         * jbd_bms_combine() only ever takes the extremes anyway. */
+        .temp_count       = pack->temp_valid ? 2u : 0u,
+        .temp_c           = { pack->temp_min_c, pack->temp_max_c },
+    };
+    s_battery_online[i] = pack->online;
+    s_battery_seen[i] = true;
+    s_battery_last_ms[i] = lv_tick_get();
+    lvgl_port_unlock();
+#else
+    (void)pack;
 #endif
 }
 

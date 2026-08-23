@@ -42,3 +42,38 @@ typedef struct {
  * "invalid" call -- silence is the invalid signal.
  */
 void ui_on_shore_power(const ui_shore_power_t *sp);
+
+/*
+ * One battery pack's reading, relayed from the basement BLE proxy. Same
+ * shape of contract as ui_shore_power_t: a plain struct rather than the
+ * espnow wire type, so ui.h stays free of espnow_link.h and main.c does the
+ * unscaling.
+ *
+ * The packs are wired in parallel and display as ONE bank, but they arrive
+ * (and are stored) separately — the UI runs jbd_bms_combine() over whichever
+ * ones are currently fresh, so a pack dropping off shrinks the bank instead
+ * of dragging its averages toward zero, and the per-pack detail popup still
+ * has real per-pack numbers to show.
+ *
+ * Temperatures are this pack's own min/max across its NTC probes, which is
+ * all the popup and the bank's high/low strip ever display.
+ */
+typedef struct {
+    uint8_t slot;              /* 0-based battery index */
+    bool    online;            /* false = producer says this pack is not answering */
+    uint8_t soc_percent;
+    float   voltage_v;
+    float   current_a;         /* signed: positive = charging */
+    float   residual_ah;
+    float   full_capacity_ah;
+    bool    temp_valid;
+    float   temp_min_c;
+    float   temp_max_c;
+} ui_battery_pack_t;
+
+/*
+ * Push one pack's reading into the UI. Takes the LVGL lock internally.
+ * Like shore power, the UI ages these out on its own, so silence — not an
+ * explicit invalid call — is what marks a pack offline.
+ */
+void ui_on_battery_status(const ui_battery_pack_t *pack);

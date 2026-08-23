@@ -70,6 +70,7 @@ typedef struct {
 typedef enum {
     ESPNOW_TELEM_SHORE_POWER = 1,   /* Hughes Power Watchdog, from the proxy */
     ESPNOW_TELEM_TANK        = 2,   /* RV-C TANK_STATUS, relayed by the bridge */
+    ESPNOW_TELEM_BATTERY     = 3,   /* one JBD/Xiaoxiang pack, from the proxy */
 } espnow_telem_kind_t;
 
 typedef struct {
@@ -87,11 +88,42 @@ typedef struct {
     uint8_t valid;              /* 0 = no reading; show "--", not 0 % */
 } espnow_tank_msg_t;
 
+/*
+ * ONE battery pack, not the combined bank. The proxy holds all three BLE
+ * links, but it deliberately broadcasts them separately and lets the panel
+ * run jbd_bms_combine(): that keeps the aggregation in one pure-C,
+ * host-tested place instead of forking it per producer, and it keeps the
+ * panel's per-pack detail popup fed with real per-pack numbers.
+ *
+ * Temperatures are reduced to this pack's own min/max rather than every NTC
+ * probe -- that is all either the popup or the bank's high/low strip shows,
+ * and it is what keeps this struct inside its 16-byte budget (see the
+ * _Static_assert in espnow_link.c: growing the telemetry union would make
+ * an updated panel silently drop tank broadcasts from a mid_coach still
+ * running the older build).
+ */
+typedef struct {
+    uint8_t slot;               /* 0-based battery index on the producer */
+    uint8_t flags;              /* bit0 = online, bit1 = temperatures valid */
+    uint8_t soc_percent;
+    uint8_t reserved;
+    uint16_t volts_cv;          /* V * 100 */
+    int16_t  current_da;        /* A * 10, signed: positive = charging */
+    uint16_t residual_dah;      /* Ah * 10 */
+    uint16_t full_dah;          /* Ah * 10 */
+    int16_t  temp_min_dc;       /* degrees C * 10 */
+    int16_t  temp_max_dc;
+} espnow_battery_msg_t;
+
+#define ESPNOW_BATTERY_FLAG_ONLINE     0x01u
+#define ESPNOW_BATTERY_FLAG_TEMP_VALID 0x02u
+
 typedef struct {
     uint8_t kind;               /* espnow_telem_kind_t */
     union {
         espnow_shore_power_t shore;
         espnow_tank_msg_t    tank;
+        espnow_battery_msg_t battery;
     };
 } espnow_telem_msg_t;
 

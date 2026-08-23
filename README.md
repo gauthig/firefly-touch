@@ -39,22 +39,25 @@ installed equipment →](docs/SYSTEM.md)**
 - **Runs on the bus at night.** Dark theme, idle auto-dim at 120 s and
   backlight-off at 300 s, and the touch that wakes the screen doesn't
   trigger the button underneath.
-- **Data it isn't wired to.** A headless ESP32 in the basement bay holds the
-  BLE link to the shore-power monitor and re-broadcasts readings over
-  ESP-NOW, so any panel can display them without its own connection.
+- **Data it isn't wired to.** A headless ESP32 in the basement bay holds
+  every BLE link in the coach — the three battery packs and the shore-power
+  monitor, all of which sit in that bay — and re-broadcasts their readings
+  over ESP-NOW, so any panel can display them without a connection of its
+  own. No panel runs a BLE stack.
 
 ## Hardware
 
 Four nodes: three touchscreen panels and one headless BLE proxy. They reach
-the coach over RV-C CAN, each other over ESP-NOW, and the batteries and
-shore-power monitor over BLE.
+the coach over RV-C CAN and each other over ESP-NOW. Everything reached over
+BLE — the battery packs and the shore-power monitor, all of which live in the
+basement bay — is held by the proxy in that bay and broadcast to the panels.
 
 | Node | Board | Talks |
 |---|---|---|
 | `mid_coach` | Waveshare ESP32-S3-Touch-LCD-4.3B | RV-C CAN + ESP-NOW bridge |
 | `ent_center` | Waveshare ESP32-S3-Touch-LCD-4.3B | RV-C CAN |
-| `bedroom_remote` | Waveshare ESP32-S3-Touch-LCD-4.3B | ESP-NOW + BLE (3 battery packs) |
-| Bluetooth proxy basement | ESP32-D0WD-V3, 4 MB | BLE (Power Watchdog) + ESP-NOW broadcast |
+| `bedroom_remote` | Waveshare ESP32-S3-Touch-LCD-4.3B | ESP-NOW only |
+| Bluetooth proxy basement | ESP32-D0WD-V3, 4 MB | BLE (3 battery packs + Power Watchdog) + ESP-NOW broadcast |
 
 Panel boards are ESP32-S3-WROOM-1-N16R8 (16 MB flash, 8 MB octal PSRAM) with
 a 4.3" 800×480 RGB LCD run rotated to portrait, GT911 touch, CH422G expander,
@@ -223,8 +226,6 @@ values matching the unit's own display.
 
 Known open items, all tracked as `TODO(bench)` in code:
 
-- **Battery current sign convention** — positive is assumed to mean
-  charging. Not yet observed under a real discharge.
 - **Power Watchdog byte offsets** came from public reverse engineering
   rather than a capture from this unit; the values check out against its
   display, but the client logs raw packets for confirmation.

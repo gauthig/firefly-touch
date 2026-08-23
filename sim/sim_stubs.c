@@ -11,7 +11,6 @@
 
 #include "board_4_3b.h"
 #include "bridge_tx.h"
-#include "jbd_bms_protocol.h"
 #include "lvgl.h"
 #include "rvc_protocol.h"
 #include "state_manager.h"
@@ -49,28 +48,6 @@ bool state_manager_get_tank(uint8_t instance, uint8_t *percent)
     }
     *percent = s_tank_pct[instance];
     return true;
-}
-
-/* Fake battery table backing jbd_bms_get_status()/jbd_bms_healthy() -- the
- * sim has no real BLE stack (see sim/stubs/jbd_bms_client.h), so
- * battery_sweep_timer_cb() below drives 3 synthetic batteries through
- * charging/discharging/idle phases to exercise the gauge widget, SOC color
- * bands, and rate/ETA text without touching real hardware. */
-static jbd_bms_status_t s_battery_status[3];
-static bool              s_battery_valid[3];
-
-bool jbd_bms_get_status(uint8_t index, jbd_bms_status_t *out)
-{
-    if (index >= 3 || !s_battery_valid[index]) {
-        return false;
-    }
-    *out = s_battery_status[index];
-    return true;
-}
-
-bool jbd_bms_healthy(uint8_t index)
-{
-    return index < 3 && s_battery_valid[index];
 }
 
 int board_backlight_set_percent(uint8_t percent)
@@ -184,12 +161,18 @@ static void tank_sweep_timer_cb(lv_timer_t *t)
  * color bands, the direction-aware ETA caption, the F temperature high/low
  * and the "N of M" pack indicator are all exercisable without real BLE.
  *
- * The three packs are treated as a parallel bank by ui.c (via
- * jbd_bms_combine()), so these deliberately differ from each other: pack 0
- * charges, pack 1 discharges on the opposite phase, and pack 2 drops OFFLINE
- * for part of the cycle -- that last one is what exercises the shrinking-bank
- * path and the amber "2 of 3" indicator, which is otherwise only reachable by
- * physically powering down a battery on the bench. */
+ * These go in through ui_on_battery_status(), exactly like the ESP-NOW
+ * telemetry broadcasts the basement proxy sends on real hardware -- no
+ * panel talks to a BMS itself any more, so there is no client left to fake.
+ * jbd_bms_combine() then runs for real inside ui.c, which is the point: the
+ * sim exercises the actual aggregation, not a stand-in for it.
+ *
+ * The three packs deliberately differ: pack 0 charges, pack 1 discharges on
+ * the opposite phase, and pack 2 drops OFFLINE for part of the cycle --
+ * that last one is what exercises the shrinking-bank path and the amber
+ * "2 of 3" indicator, which is otherwise only reachable by physically
+ * powering down a battery on the bench.
+ */
 static void battery_sweep_timer_cb(lv_timer_t *t)
 {
     (void)t;
@@ -210,44 +193,53 @@ static void battery_sweep_timer_cb(lv_timer_t *t)
 
     const uint32_t phase0 = (tick / 3) % 200;
     const uint8_t pct0 = (uint8_t)(phase0 <= 100 ? phase0 : 200 - phase0);
-    s_battery_status[0] = (jbd_bms_status_t){
-        .voltage_v = 13.2f,
-        .current_a = pct0 < 100 ? 15.0f : 0.0f,
-        .residual_ah = 300.0f * (float)pct0 / 100.0f,
+    ui_battery_pack_t p0 = {
+        .slot             = 0,
+        .online           = true,
+        .soc_percent      = pct0,
+        .voltage_v        = 13.2f,
+        .current_a        = pct0 < 100 ? 15.0f : 0.0f,
+        .residual_ah      = 300.0f * (float)pct0 / 100.0f,
         .full_capacity_ah = 300.0f,
-        .cycles = 42,
-        .soc_percent = pct0,
-        .temp_count = 2,
-        .temp_c = { 24.5f, 25.5f },
+        .temp_valid       = true,
+        .temp_min_c       = 24.5f,
+        .temp_max_c       = 25.5f,
     };
-    s_battery_valid[0] = true;
+    ui_on_battery_status(&p0);
 
     const uint32_t phase1 = (tick / 3 + 100) % 200;
     const uint8_t pct1 = (uint8_t)(phase1 <= 100 ? phase1 : 200 - phase1);
-    s_battery_status[1] = (jbd_bms_status_t){
-        .voltage_v = 12.6f,
-        .current_a = pct1 > 0 ? -8.0f : 0.0f,
-        .residual_ah = 300.0f * (float)pct1 / 100.0f,
+    ui_battery_pack_t p1 = {
+        .slot             = 1,
+        .online           = true,
+        .soc_percent      = pct1,
+        .voltage_v        = 12.6f,
+        .current_a        = pct1 > 0 ? -8.0f : 0.0f,
+        .residual_ah      = 300.0f * (float)pct1 / 100.0f,
         .full_capacity_ah = 300.0f,
-        .cycles = 88,
-        .soc_percent = pct1,
-        .temp_count = 2,
-        .temp_c = { 21.0f, 22.0f },
+        .temp_valid       = true,
+        .temp_min_c       = 21.0f,
+        .temp_max_c       = 22.0f,
     };
-    s_battery_valid[1] = true;
+    ui_on_battery_status(&p1);
 
-    s_battery_status[2] = (jbd_bms_status_t){
-        .voltage_v = 12.1f,
-        .current_a = 0.0f,
-        .residual_ah = 45.0f,
+    /* Offline for roughly a quarter of the sweep. The proxy keeps
+     * broadcasting a pack it has lost the link to, flagged offline, which
+     * is exactly what this reproduces -- the panel must show "2 of 3"
+     * rather than simply going quiet. */
+    ui_battery_pack_t p2 = {
+        .slot             = 2,
+        .online           = ((tick / 20) % 4) != 3,
+        .soc_percent      = 15,
+        .voltage_v        = 12.1f,
+        .current_a        = 0.0f,
+        .residual_ah      = 45.0f,
         .full_capacity_ah = 300.0f,
-        .cycles = 15,
-        .soc_percent = 15,
-        .temp_count = 2,
-        .temp_c = { 30.0f, 31.5f },
+        .temp_valid       = true,
+        .temp_min_c       = 30.0f,
+        .temp_max_c       = 31.5f,
     };
-    /* Offline for roughly a quarter of the sweep. */
-    s_battery_valid[2] = ((tick / 20) % 4) != 3;
+    ui_on_battery_status(&p2);
 }
 
 /* Fakes the shore-power telemetry that the basement BLE proxy would
