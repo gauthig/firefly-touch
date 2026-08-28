@@ -551,25 +551,20 @@ static void show_screen(uint8_t index)
 /* --------------------------------------------------- light master ------- */
 
 /*
- * RV-C has no all-lights command, and the G6's own factory LIGHT MASTER
- * rocker has never been captured on the bus — docs/instance_map.yaml records
- * it as having no instance number and an unidentified DGN. So "master" here
- * is synthesised from what the panel can actually see and address:
+ * RV-C has no single all-lights command, but the coach's factory LIGHT
+ * MASTER rocker does have a real mechanism, captured on the bus 2026-08-28:
+ * group addressing. It sends one DC_DIMMER_COMMAND_2 per group to instance
+ * 0xFF, across the groups in PANEL_MASTER_GROUPS. master_apply() below
+ * replays exactly that, so the panel's MASTER and the coach's own rocker are
+ * the same action.
  *
- *   OFF -> sweep every instance the state manager currently reports as on
- *          and send each an explicit OFF. Idempotent, and it reaches lights
- *          this panel has no button for.
- *   ON  -> there is nothing to sweep (an unseen instance has no known
- *          state), so fall back to the panel's declared scene list.
- *
- * If the real DGN is ever captured, this becomes one frame instead.
+ * The button's DISPLAYED state is still derived locally — "is any light on",
+ * from the state manager — which is why the guard below stays even though
+ * actuation no longer reads that table.
  */
 
-#if defined(PANEL_MASTER_ON_COUNT) && !PANEL_HAS_CAN
-#error "PANEL_BTN_LIGHT_MASTER's off-sweep reads the local state manager, \
-which only a PANEL_HAS_CAN panel populates. A remote panel would sweep an \
-empty table and silently turn nothing off."
-#endif
+/* The PANEL_HAS_LIGHT_MASTER / PANEL_HAS_CAN consistency check lives in
+ * main/panel_config.h with the other panel-shape guards. */
 
 static void master_any_on_cb(uint8_t instance, uint8_t level, bool on, void *ctx)
 {
@@ -587,37 +582,40 @@ static bool master_any_light_on(void)
     return any;
 }
 
-static void master_off_cb(uint8_t instance, uint8_t level, bool on, void *ctx)
-{
-    (void)level;
-    (void)ctx;
-    if (!on) {
-        return;
-    }
-    /* Logged per instance because this is the one action on the panel that
-     * touches loads the user never named. The first real Master OFF at the
-     * coach is also how we confirm nothing non-light rides this DGN. */
-    ESP_LOGI(TAG, "master off: instance %u", (unsigned)instance);
-    bridge_enqueue_dimmer_cmd(instance, RVC_DIMMER_CMD_OFF, RVC_LEVEL_MAX,
-                              RVC_FIELD_NA);
-}
-
+/*
+ * Drive every light exactly the way the coach's own LIGHT MASTER rocker
+ * does: one DC_DIMMER_COMMAND_2 per group, addressed to instance 0xFF.
+ *
+ * OFF is MEMORY_OFF (command 0x06) at level 0 — off, but each load REMEMBERS
+ * its level. ON is SET_LEVEL with RVC_LEVEL_RESTORE (251), which brings back
+ * whatever each load remembered. That pairing is why a master-on restores the
+ * lights that were lit at the brightness they had, and leaves the rest off.
+ *
+ * ⚠️ This replaced a synthesised master (state-manager sweep for off, a fixed
+ * 100 % PANEL_MASTER_ON[] scene for on) once the rocker was finally sniffed —
+ * see docs/instance_map.yaml -> light_master. The old version was NOT
+ * equivalent: its ON lit loads that had been off and overrode remembered
+ * brightness, and its OFF could only reach instances the panel had seen
+ * report on, so a load quiet since boot stayed lit.
+ *
+ * Deliberately NOT belt-and-braces with the old sweep on top: the rocker is
+ * the reference behaviour, so replaying it is correct by construction, while
+ * also sweeping would switch off loads outside these groups — something the
+ * factory master does not do.
+ */
 static void master_apply(bool turn_on)
 {
-    if (!turn_on) {
-        state_manager_for_each_known(master_off_cb, NULL);
-        return;
-    }
+    static const uint8_t k_groups[] = PANEL_MASTER_GROUPS;
 
-#ifdef PANEL_MASTER_ON_COUNT
-    for (uint32_t i = 0; i < PANEL_MASTER_ON_COUNT; i++) {
-        ESP_LOGI(TAG, "master on: instance %u", (unsigned)PANEL_MASTER_ON[i]);
-        bridge_enqueue_dimmer_cmd(PANEL_MASTER_ON[i], RVC_DIMMER_CMD_ON_DELAY,
-                                  RVC_LEVEL_MAX, RVC_FIELD_NA);
+    const rvc_dimmer_cmd_t cmd = turn_on ? RVC_DIMMER_CMD_SET_LEVEL
+                                         : RVC_DIMMER_CMD_MEMORY_OFF;
+    const uint8_t level = turn_on ? RVC_LEVEL_RESTORE : 0u;
+
+    for (uint32_t i = 0; i < sizeof(k_groups) / sizeof(k_groups[0]); i++) {
+        ESP_LOGI(TAG, "master %s: group 0x%02X", turn_on ? "on" : "off",
+                 (unsigned)k_groups[i]);
+        bridge_enqueue_dimmer_group_cmd(k_groups[i], cmd, level);
     }
-#else
-    ESP_LOGW(TAG, "master on: panel declares no PANEL_MASTER_ON[] scene");
-#endif
 }
 
 static void master_timer_cb(lv_timer_t *t)

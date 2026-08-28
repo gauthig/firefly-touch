@@ -16,3 +16,16 @@
  */
 bool bridge_enqueue_dimmer_cmd(uint8_t instance, rvc_dimmer_cmd_t cmd,
                                uint8_t level, uint8_t duration);
+
+/*
+ * Group-addressed variant: instance 0xFF ("every instance in this group")
+ * plus the group bitmask, which is how the coach's LIGHT MASTER rocker
+ * drives all the lights at once. See docs/instance_map.yaml -> light_master.
+ *
+ * CAN panels only — it returns false on a remote panel, because group
+ * addressing has no room in the ESP-NOW command frame. That is not a
+ * limitation in practice: PANEL_BTN_LIGHT_MASTER is #error-guarded against
+ * !PANEL_HAS_CAN already.
+ */
+bool bridge_enqueue_dimmer_group_cmd(uint8_t group, rvc_dimmer_cmd_t cmd,
+                                     uint8_t level);

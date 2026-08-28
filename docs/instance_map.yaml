@@ -371,12 +371,16 @@ light_master:
     instances 25, 26, 27 and 34 at 0xC8 (100%) -- which are precisely the
     four observed lit at 0xC8 earlier in the same capture. Loads that were
     already off stayed off.
-  differs_from_our_master: >
-    main_cabinet's synthesised MASTER is not equivalent. Its ON applies the
-    fixed PANEL_MASTER_ON[] scene at 100%, so it lights loads that were off
-    and overrides remembered brightness; its OFF sweeps only instances the
-    panel has actually SEEN report on, so it cannot reach a load that has
-    been quiet since boot.
+  implemented_by: >
+    main_cabinet's MASTER button replays exactly these frames as of
+    2026-08-28 (coach-verified). It previously synthesised the action -- a
+    fixed 100% scene for on, a state-manager sweep for off -- which lit
+    loads that had been off and could not reach a load quiet since boot.
+    Groups live in PANEL_MASTER_GROUPS (main/panel_config.h).
+    WATCH OUT: level 251 is a sentinel, and the encoder's brightness clamp
+    ate it on the first attempt, turning master-on into "set everything to
+    100%" -- indistinguishable from the old scene behaviour. Guarded now by
+    a byte-for-byte host test against the frames above.
   caveat: >
     The group list 0x84-0x89 is only known to be COMPLETE in the sense that
     it is what this rocker sends. A load in some other group would not be

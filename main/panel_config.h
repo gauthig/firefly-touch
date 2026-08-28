@@ -96,6 +96,48 @@
 #endif
 
 /*
+ * PANEL_HAS_LIGHT_MASTER 1 = this panel carries a PANEL_BTN_LIGHT_MASTER
+ * button. Declared rather than inferred: the preprocessor cannot look inside
+ * PANEL_BUTTONS[] to see whether one is there, and the guard below needs to
+ * know at compile time.
+ *
+ * (This replaced an older trick of testing for PANEL_MASTER_ON_COUNT, which
+ * worked only while the master needed a declared scene list. It no longer
+ * does — see PANEL_MASTER_GROUPS below.)
+ */
+#ifndef PANEL_HAS_LIGHT_MASTER
+#define PANEL_HAS_LIGHT_MASTER 0
+#endif
+
+#if PANEL_HAS_LIGHT_MASTER && !PANEL_HAS_CAN
+#error "PANEL_BTN_LIGHT_MASTER needs a CAN bus: its displayed state reads the \
+local state manager, which only a PANEL_HAS_CAN panel populates, and its \
+group-addressed frames have no room in the ESP-NOW command format."
+#endif
+
+/*
+ * The RV-C groups a PANEL_BTN_LIGHT_MASTER button drives.
+ *
+ * Bus-confirmed 2026-08-28: this coach's factory LIGHT MASTER rocker sends
+ * one DC_DIMMER_COMMAND_2 per group across exactly these six, addressed to
+ * instance 0xFF. Replaying them is what makes our master behave identically
+ * to the coach's own switch — including restoring each load's remembered
+ * level rather than forcing a scene. Full capture in
+ * docs/instance_map.yaml -> light_master.
+ *
+ * This is a property of the COACH, not of any one panel, so it lives here
+ * rather than in an individual panel header — but a panel may override it if
+ * a different rig ever needs to.
+ *
+ * ⚠️ The list is known to be what this rocker sends, which is the behaviour
+ * being matched. A load in some other group is not covered by these frames,
+ * and is not covered by the factory master either.
+ */
+#ifndef PANEL_MASTER_GROUPS
+#define PANEL_MASTER_GROUPS { 0x84, 0x85, 0x86, 0x87, 0x88, 0x89 }
+#endif
+
+/*
  * PANEL_WANTS_TELEMETRY 1 = this CAN-connected panel also listens to the
  * ESP-NOW broadcast channel, in the receive-only TELEMETRY role (no unicast
  * peer, no keys, nothing actuable).

@@ -98,6 +98,42 @@ static void test_encode_dimmer_command(void)
     rvc_encode_dc_dimmer_command_2(&cmd, data);
     assert(data[2] == 200);
 
+    /*
+     * The LIGHT MASTER pair, byte-for-byte as the coach's factory rocker
+     * sends it (captured 2026-08-28, docs/instance_map.yaml -> light_master).
+     *
+     * ⚠️ REGRESSION GUARD. RVC_LEVEL_RESTORE (251) sits above RVC_LEVEL_MAX,
+     * and the brightness clamp used to eat it and emit 200 instead -- turning
+     * "restore what each load remembered" into "set everything to 100 %".
+     * That shipped once and lit loads that had been off. If this assert ever
+     * fails, the master is broken again in exactly that way.
+     */
+    rvc_dimmer_command_t master = {
+        .instance = RVC_INSTANCE_ALL,
+        .group    = 0x84,
+        .level    = 0,
+        .command  = RVC_DIMMER_CMD_MEMORY_OFF,
+        .duration = RVC_FIELD_NA,
+    };
+    rvc_encode_dc_dimmer_command_2(&master, data);
+    /* FF 84 00 06 FF 00 FF FF */
+    assert(data[0] == 0xFF && data[1] == 0x84 && data[2] == 0x00);
+    assert(data[3] == 0x06 && data[4] == 0xFF && data[5] == 0x00);
+    assert(data[6] == 0xFF && data[7] == 0xFF);
+
+    master.level   = RVC_LEVEL_RESTORE;
+    master.command = RVC_DIMMER_CMD_SET_LEVEL;
+    rvc_encode_dc_dimmer_command_2(&master, data);
+    /* FF 84 FB 00 FF 00 FF FF -- byte 2 must stay 0xFB, NOT be clamped */
+    assert(data[0] == 0xFF && data[1] == 0x84);
+    assert(data[2] == RVC_LEVEL_RESTORE);
+    assert(data[3] == 0x00 && data[4] == 0xFF && data[5] == 0x00);
+
+    /* A genuine out-of-range brightness must still clamp. */
+    master.level = 230;
+    rvc_encode_dc_dimmer_command_2(&master, data);
+    assert(data[2] == RVC_LEVEL_MAX);
+
     printf("PASS encode_dimmer_command\n");
 }
 

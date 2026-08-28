@@ -127,7 +127,7 @@ static void twai_tx_task(void *arg)
 
         const rvc_dimmer_command_t rc = {
             .instance = cmd.instance,
-            .group = RVC_FIELD_NA,
+            .group = cmd.group,
             .level = cmd.level,
             .command = cmd.command,
             .duration = cmd.duration,
@@ -167,9 +167,30 @@ bool twai_enqueue_dimmer_cmd(uint8_t instance, rvc_dimmer_cmd_t cmd,
         .command = cmd,
         .level = level,
         .duration = duration,
+        .group = RVC_FIELD_NA,   /* instance-addressed: no group */
     };
     if (xQueueSend(s_tx_queue, &msg, 0) != pdTRUE) {
         ESP_LOGW(TAG, "TX queue full, dropped cmd %u for instance %u", cmd, instance);
+        return false;
+    }
+    return true;
+}
+
+bool twai_enqueue_dimmer_group_cmd(uint8_t group, rvc_dimmer_cmd_t cmd,
+                                   uint8_t level)
+{
+    if (s_tx_queue == NULL) {
+        return false;
+    }
+    const dimmer_cmd_msg_t msg = {
+        .instance = RVC_INSTANCE_ALL,
+        .command = cmd,
+        .level = level,
+        .duration = RVC_FIELD_NA,
+        .group = group,
+    };
+    if (xQueueSend(s_tx_queue, &msg, 0) != pdTRUE) {
+        ESP_LOGW(TAG, "TX queue full, dropped cmd %u for group 0x%02X", cmd, group);
         return false;
     }
     return true;

@@ -999,8 +999,8 @@ field costs no churn at all.
 
 ### Light master
 
-⚠️ **The real master command IS now known (bus-confirmed 2026-08-28) — the
-implementation below has not caught up yet.** The factory
+**The panel sends exactly what the coach's own rocker sends** (bus-confirmed
+2026-08-28, implemented and coach-verified the same day). The factory
 "ON / LIGHT MASTER / OFF" rocker (source `0x9F`) sends **six ordinary
 `DC_DIMMER_COMMAND_2` frames**, one per group `0x84`–`0x89`, each addressed to
 **instance `0xFF`** (all):
@@ -1016,33 +1016,43 @@ Acknowledgment PGN** — not the "unidentified proprietary DGN" the docs used to
 call it. Full capture and byte decode:
 [docs/instance_map.yaml](docs/instance_map.yaml) → `light_master`.
 
-⚠️ **The synthesised master below is therefore NOT equivalent to the rocker**,
-and replacing it is open work. Its ON applies a fixed 100 % scene, so it lights
-loads that were off and overrides remembered brightness; its OFF sweeps only
-instances the panel has *seen* report on, so it cannot reach a load that has
-been quiet since boot. The real rocker drove 24 instances off and restored
-exactly the four that had been lit. Until it is replaced, the master is
-synthesised:
+`master_apply()` in `main/ui/ui.c` replays those six frames per press. The
+groups live in `PANEL_MASTER_GROUPS` (`main/panel_config.h`) because they are
+a property of the **coach**, not of any one panel.
 
-- **OFF** sweeps `state_manager_for_each_known()` and sends an explicit OFF
-  to every instance currently reporting on — which reaches lights the
-  panel has no button for. Each one is logged.
-- **ON** has nothing to sweep (an unseen instance has no known state), so it
-  falls back to the panel header's `PANEL_MASTER_ON[]` scene list
-  (24, 26, 27, 35, 13, 17 at 100 %). Kept as its own array rather than
-  widening `PANEL_BTN_MAX_INSTANCES` from 4 to 6, which would grow every
-  button on every panel.
-- Displayed state is "is any light on", refreshed at 1 Hz and **primed at
-  build time** — without priming, a tap in the first second after boot saw
+- **`RVC_LEVEL_RESTORE` (251) is a SENTINEL, not a brightness.** ⚠️ The
+  encoder clamps levels to `RVC_LEVEL_MAX` (200), and that clamp silently ate
+  251 the first time this shipped — master-on went out as `SET_LEVEL 200`,
+  i.e. "set every light in these groups to 100 %", which lit loads that had
+  been off and looked exactly like the old scene behaviour it replaced.
+  `rvc_encode_dc_dimmer_command_2()` now exempts the sentinels, and
+  `host_test/test_rvc.c` asserts both master frames byte-for-byte against the
+  captured ones. Any future sentinel above 200 needs adding to that exemption.
+- **Group addressing is plumbed separately from instance addressing.**
+  `bridge_enqueue_dimmer_group_cmd()` / `twai_enqueue_dimmer_group_cmd()` set
+  instance `0xFF` plus the group byte; `dimmer_cmd_msg_t` carries `group`.
+  ⚠️ That struct is **main-local** — `espnow_link` mirrors it with its own,
+  whose size is pinned by a `_Static_assert` — so this did not touch the
+  ESP-NOW wire format, and must not.
+- Displayed state is still "is any light on", refreshed at 1 Hz and **primed
+  at build time** — without priming, a tap in the first second after boot saw
   a stale `false` and turned everything on while lights were already on.
 - The direction is decided in `panel_send_cb()` from a **fresh** read, not
   from the widget's cached copy, for the same reason.
-- `#error`-guarded against `!PANEL_HAS_CAN`: the sweep needs a local state
-  manager, which a remote panel never populates.
+- `PANEL_HAS_LIGHT_MASTER` (panel header) is checked against `PANEL_HAS_CAN`
+  in `panel_config.h`. The preprocessor cannot see inside `PANEL_BUTTONS[]`,
+  so the panel declares it. This replaced an older trick of testing for
+  `PANEL_MASTER_ON_COUNT`, which only worked while a scene list existed.
 
-⚠️ The sweep targets every `DC_DIMMER` instance seen, on the assumption this
-coach uses that DGN only for lights. Every instance switched off is logged,
-so the first real Master OFF at the coach is also the verification.
+⚠️ **Deliberately NOT belt-and-braces with the old state sweep on top.** The
+rocker is the reference behaviour, so replaying it is correct by
+construction; also sweeping would switch off loads *outside* these groups,
+which the factory master does not do.
+
+⚠️ **Pressing ON without a preceding OFF restores whatever the G6 last
+remembered**, which may be stale. That is inherent to the MEMORY_OFF/restore
+pair and the factory rocker behaves the same way — not a defect to "fix"
+without deciding what the alternative should be.
 
 **Bench + coach verified 2026-08-23** (`main_cabinet` on COM19): CAN works
 on GPIO20/19 — which also confirms the EXIO5 USB/CAN mux polarity, taken
@@ -1051,10 +1061,10 @@ power arrive as ESP-NOW broadcasts, Master on/off behaves as designed
 against real loads, and the display geometry and colours are correct,
 confirming the RGB timings taken from Espressif's board definition.
 
-**That last open question is now answered (2026-08-28): the rocker DOES put
-real frames on the bus** — six `DC_DIMMER_COMMAND_2` to instance `0xFF` per
-group. See *Light master* above. Swapping the synthesised master for those
-frames is open work.
+**That last open question was answered 2026-08-28**: the rocker does put real
+frames on the bus, and the panel now sends them instead of a synthesised
+scene — see *Light master* above. Coach-verified the same day, after one
+false start (the clamped sentinel described there).
 
 ## Panels & source-address allocation
 

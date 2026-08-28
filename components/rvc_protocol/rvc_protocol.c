@@ -46,7 +46,21 @@ void rvc_encode_dc_dimmer_command_2(const rvc_dimmer_command_t *cmd, uint8_t dat
     memset(data, 0xFF, 8);
     data[0] = cmd->instance;
     data[1] = cmd->group;
-    data[2] = (cmd->level > RVC_LEVEL_MAX && cmd->level != RVC_FIELD_NA)
+    /*
+     * Clamp real brightnesses to 0..200, but let the SENTINEL values through
+     * untouched.
+     *
+     * ⚠️ RVC_LEVEL_RESTORE (251) is the trap: it is numerically above
+     * RVC_LEVEL_MAX but is not a brightness at all, it is "restore the
+     * remembered level". Clamping it to 200 silently turns a master-on into
+     * "set every light to 100 %" -- which is exactly what happened on the
+     * coach 2026-08-28 when the light master was first switched to the real
+     * group frames: the OFF half worked and the ON half lit loads that had
+     * been off. Any future sentinel above 200 needs adding here too.
+     */
+    data[2] = (cmd->level > RVC_LEVEL_MAX &&
+               cmd->level != RVC_FIELD_NA &&
+               cmd->level != RVC_LEVEL_RESTORE)
                   ? RVC_LEVEL_MAX : cmd->level;
     data[3] = (uint8_t)cmd->command;
     data[4] = cmd->duration;

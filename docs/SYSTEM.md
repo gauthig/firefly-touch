@@ -306,13 +306,12 @@ knows nothing of its siblings, so bank aggregation happens in our firmware
   and ignored. Only Gen 2 (EPOW models) has a working `SetOpen`.
 - **One remote per bridge.** ESP-NOW pairing is fixed at build time — no
   runtime pairing, no mesh.
-- **The MASTER button is still synthesised, though it no longer needs to be.**
-  RV-C has no all-lights DGN, but the coach's factory LIGHT MASTER rocker was
-  sniffed 2026-08-28 and does have a real mechanism: six ordinary
-  `DC_DIMMER_COMMAND_2` frames, one per group `0x84`–`0x89`, addressed to
-  instance `0xFF` — `MEMORY_OFF` for off, level 251 ("restore remembered")
-  for on. `main_cabinet`'s MASTER still sweeps the instances it has seen and
-  applies a fixed scene, so it is **not** equivalent: it lights loads that
-  were off and cannot reach a load that has been quiet since boot. Replacing
-  it is open work; the capture is in
-  [instance_map.yaml](instance_map.yaml) → `light_master`.
+- **The MASTER button drives the real thing, but "on" depends on the G6's
+  memory.** RV-C has no all-lights DGN; the coach's factory rocker was sniffed
+  2026-08-28 and uses group addressing — six `DC_DIMMER_COMMAND_2` frames,
+  groups `0x84`–`0x89`, instance `0xFF`, `MEMORY_OFF` for off and level 251
+  ("restore remembered") for on. `main_cabinet` replays exactly those.
+  ⚠️ Pressing **on without a preceding off** therefore restores whatever the
+  G6 last remembered, which can be stale. The factory rocker behaves the same
+  way; it is inherent to the MEMORY_OFF/restore pair, not a defect. Capture
+  and decode: [instance_map.yaml](instance_map.yaml) → `light_master`.
