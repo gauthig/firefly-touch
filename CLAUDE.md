@@ -824,6 +824,24 @@ targets, via `instances[0]`** (0 = the main grid). A button with
 `instance_count == 0` keeps the original toggle-between-0-and-1 behaviour —
 that's what lets `mid_coach`'s TANK LEVELS/BACK pair stay untouched.
 
+⚠️ **A widget-update timer must sweep `s_screens[]`, never one screen's
+button array.** `battery_status_timer_cb` walked `s_buttons_2[]` /
+`PANEL_BUTTON_COUNT_2`, which silently assumed the bank readout lives on
+screen 2 — true only while `bedroom_remote` was the only panel with one. Put
+the bank on `mid_coach`'s screen 3 (issue #57) and it built fine, showed
+`--` forever, and logged nothing. Fixed 2026-08-28; the shore and solar
+timers already did this correctly. Every `ui_dimmer_button_update_*()`
+ignores buttons of the wrong type, so passing them every button is safe and
+is the pattern to copy.
+
+⚠️ **Being `PANEL_IS_BRIDGE` does not grant the proxy's telemetry.** The
+role chain in `app_main()` is `#if PANEL_IS_BRIDGE … #elif !PANEL_HAS_CAN …
+#elif PANEL_WANTS_TELEMETRY`, so for a long time the bridge never reached
+`espnow_link_set_telem_rx_cb()`. Battery/shore/solar reach a bridge the same
+way they reach anyone — an ordinary broadcast — and the broadcast peer is
+registered for every role, so the frames were arriving with nowhere to go.
+Registered for the bridge as of issue #57.
+
 `build_button_grid()` derives its row count from the button count
 (`ceil(count/2)`, capped at `GRID_MAX_ROWS`) rather than assuming 4 rows, so
 a panel can carry more than 8 entries — `bedroom_remote` has 10 once
@@ -937,10 +955,19 @@ untouched):
 - `PANEL_WANTS_TELEMETRY` — see the task map above.
 
 Rail screens are laid out by `build_content_pane()` (read-only widgets in a
-top row, tappable ones beneath). `build_screen2_row()` is deliberately left
-**untouched** for the non-rail panels: it lays out screens on three panels
-that are flashed and installed, and there was nothing to gain from putting
-them at risk to share a few lines.
+top row, tappable ones beneath). `build_screen2_row()` is kept as separate
+code for the non-rail panels: it lays out screens on three panels that are
+flashed and installed, and there is little to gain from merging them.
+
+It did grow its own action row in 2026-08-28 (issue #57), so `mid_coach`'s
+tank screen could carry the same dump-valve controls — six items across a
+480 px portrait row would squash the gauges to nothing. ⚠️ **That change is
+gated on `action_n > 0`, and the gate is the whole safety argument**: every
+secondary screen on the installed panels has no action buttons and therefore
+takes byte-identical code. When touching this function, keep new behaviour
+behind a condition the installed screens cannot satisfy, and verify with
+simulator captures of `main_cabinet` TANKS and `bedroom_remote`'s battery
+screen rather than by reading the diff.
 
 ⚠️ Three latent bugs surfaced while building this and are now fixed — all
 of them only bite a CAN panel that shows broadcast telemetry:

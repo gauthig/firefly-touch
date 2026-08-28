@@ -389,12 +389,22 @@ static void battery_status_timer_cb(lv_timer_t *t)
     jbd_bms_bank_t bank;
     const bool have_bank = jbd_bms_combine(live, live_count, &bank);
 
-    for (uint32_t j = 0; j < PANEL_BUTTON_COUNT_2; j++) {
-        if (s_buttons_2[j] != NULL) {
-            ui_dimmer_button_update_bank(s_buttons_2[j],
-                                         have_bank ? &bank : NULL,
-                                         detail, JBD_BMS_MAX_BATTERIES,
-                                         configured_count);
+    /* Sweep every screen, not just screen 2 (issue #57). This used to walk
+     * s_buttons_2[] alone, which silently assumed the bank readout lives on
+     * screen 2 — true when only bedroom_remote had one. mid_coach puts it on
+     * screen 3, and the readout simply never updated: it built fine, showed
+     * "--" forever, and nothing logged. The shore and solar timers already
+     * sweep s_screens[]; this is the same fix.
+     * ui_dimmer_button_update_bank() ignores any button that isn't a
+     * PANEL_BTN_BATTERY_SUMMARY, so passing it every button is safe. */
+    for (uint8_t sc = 0; sc < UI_SCREEN_COUNT; sc++) {
+        for (uint32_t j = 0; j < s_screens[sc].count; j++) {
+            if (s_screens[sc].buttons[j] != NULL) {
+                ui_dimmer_button_update_bank(s_screens[sc].buttons[j],
+                                             have_bank ? &bank : NULL,
+                                             detail, JBD_BMS_MAX_BATTERIES,
+                                             configured_count);
+            }
         }
     }
 }
@@ -771,6 +781,35 @@ static void build_screen2_row(lv_obj_t *parent, const panel_btn_def_t *buttons,
     const bool has_summary = summary_n > 0;
 
     /*
+     * Tappable controls sharing a secondary screen with read-only widgets
+     * (the dump valves and gravity/macerator selector on mid_coach's tank
+     * screen) get their own row BENEATH them. They cannot join the gauge
+     * row: six items across a 480 px portrait screen would squash the
+     * gauges to nothing.
+     *
+     * ⚠️ Gated on there being any, so this is inert for every screen on the
+     * installed panels — the tank, battery and shore screens all have
+     * action_n == 0 and take the exact path they always have. That is the
+     * point: build_screen2_row() lays out three flashed panels, so a change
+     * here has to be provably a no-op for them.
+     */
+    uint32_t action_n = 0;
+    for (uint32_t i = 0; i < count; i++) {
+        switch (buttons[i].type) {
+        case PANEL_BTN_TANK_LEVEL:
+        case PANEL_BTN_BATTERY_SUMMARY:
+        case PANEL_BTN_SHORE_POWER:
+        case PANEL_BTN_SOLAR:
+        case PANEL_BTN_SPACER:
+        case PANEL_BTN_SCREEN_SWITCH:
+            break;
+        default:
+            action_n++;
+            break;
+        }
+    }
+
+    /*
      * Two full-width readouts on one portrait screen stack, they don't sit
      * side by side: the battery bank alone needs a 210 px SOC arc and the
      * screen is 480 px wide, so sharing a row would squeeze both into
@@ -782,14 +821,35 @@ static void build_screen2_row(lv_obj_t *parent, const panel_btn_def_t *buttons,
      */
     const bool stack = summary_n > 1;
 
+    int32_t row_h = LV_PCT(75);
+    if (has_summary) {
+        row_h = LV_PCT(89);
+    } else if (action_n > 0) {
+        row_h = LV_PCT(64);   /* leave room for the action row below */
+    }
+
     lv_obj_t *row = lv_obj_create(parent);
     lv_obj_add_style(row, &ui_style_screen, 0);
-    lv_obj_set_size(row, LV_PCT(100), has_summary ? LV_PCT(89) : LV_PCT(75));
+    lv_obj_set_size(row, LV_PCT(100), row_h);
     lv_obj_align(row, LV_ALIGN_TOP_MID, 0, 8);
     lv_obj_remove_flag(row, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_set_flex_flow(row, stack ? LV_FLEX_FLOW_COLUMN : LV_FLEX_FLOW_ROW);
     lv_obj_set_flex_align(row, LV_FLEX_ALIGN_SPACE_EVENLY, LV_FLEX_ALIGN_CENTER,
                           LV_FLEX_ALIGN_CENTER);
+
+    /* Sits between the read-only row and the pinned BACK button. */
+    lv_obj_t *actions = NULL;
+    if (action_n > 0) {
+        actions = lv_obj_create(parent);
+        lv_obj_add_style(actions, &ui_style_screen, 0);
+        lv_obj_set_size(actions, LV_PCT(100), LV_PCT(18));
+        lv_obj_align(actions, LV_ALIGN_BOTTOM_MID, 0, -58);
+        lv_obj_remove_flag(actions, LV_OBJ_FLAG_SCROLLABLE);
+        lv_obj_set_flex_flow(actions, LV_FLEX_FLOW_ROW);
+        lv_obj_set_flex_align(actions, LV_FLEX_ALIGN_SPACE_EVENLY,
+                              LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+        lv_obj_set_style_pad_column(actions, 6, 0);
+    }
 
     for (uint32_t i = 0; i < count; i++) {
         if (buttons[i].type == PANEL_BTN_SPACER) {
@@ -804,6 +864,22 @@ static void build_screen2_row(lv_obj_t *parent, const panel_btn_def_t *buttons,
             out_buttons[i] = btn;
             continue;
         }
+        /* Action buttons go in their own row when there is one; with
+         * action_n == 0 `actions` is NULL and everything lands in `row`
+         * exactly as before. */
+        const bool is_readonly = (buttons[i].type == PANEL_BTN_TANK_LEVEL ||
+                                  buttons[i].type == PANEL_BTN_BATTERY_SUMMARY ||
+                                  buttons[i].type == PANEL_BTN_SHORE_POWER ||
+                                  buttons[i].type == PANEL_BTN_SOLAR);
+        if (actions != NULL && !is_readonly) {
+            lv_obj_t *abtn = ui_dimmer_button_create(actions, &buttons[i],
+                                                     panel_send_cb, NULL);
+            lv_obj_set_height(abtn, LV_PCT(100));
+            lv_obj_set_flex_grow(abtn, 1);
+            out_buttons[i] = abtn;
+            continue;
+        }
+
         lv_obj_t *btn = ui_dimmer_button_create(row, &buttons[i],
                                                 panel_send_cb, NULL);
         if (buttons[i].type == PANEL_BTN_SOLAR && stack) {

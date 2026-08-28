@@ -72,7 +72,7 @@ shared RV-C CAN bus, where every node is a peer.
 
 | Device | Hardware | Role | Talks |
 |---|---|---|---|
-| **`mid_coach`** | Waveshare ESP32-S3-Touch-LCD-4.3B | Lights + tank levels. Also the ESP-NOW bridge and the tank-telemetry producer. | RV-C CAN, ESP-NOW (unicast + broadcast) |
+| **`mid_coach`** | Waveshare ESP32-S3-Touch-LCD-4.3B | Lights, tank levels, battery bank (with solar) and shore power. Also the ESP-NOW bridge and the tank-telemetry producer. | RV-C CAN, ESP-NOW (unicast + broadcast) |
 | **`ent_center`** | Waveshare ESP32-S3-Touch-LCD-4.3B | Lights only | RV-C CAN |
 | **`bedroom_remote`** | Waveshare ESP32-S3-Touch-LCD-4.3B | Lights, battery bank (with the solar readout stacked beneath it), shore power — the latter three entirely from broadcasts. **No CAN wiring, no BLE.** | ESP-NOW |
 | **`main_cabinet`** | Waveshare ESP32-S3-Touch-LCD-7 | Lights, tanks, power and solar on a side-nav rail. Landscape. | RV-C CAN, ESP-NOW (broadcast, listen only) |
@@ -122,7 +122,7 @@ build of each, 2026-08-28.
 | Device | App image | Partition | Used | Free |
 |---|---|---|---|---|
 | `main_cabinet` | 1,280,352 B (1.22 MiB) | 4 MiB | 30.5 % | 2.78 MiB |
-| `mid_coach` | 1,282,144 B (1.22 MiB) | 4 MiB | 30.6 % | 2.78 MiB |
+| `mid_coach` | 1,284,256 B (1.22 MiB) | 4 MiB | 30.6 % | 2.78 MiB |
 | `bedroom_remote` | 1,273,472 B (1.21 MiB) | 4 MiB | 30.4 % | 2.79 MiB |
 | `ent_center` | 739,248 B (0.71 MiB) | 4 MiB | 17.6 % | 3.30 MiB |
 | Bluetooth proxy basement | 1,125,760 B (1.07 MiB) | 3 MiB | 35.8 % | 1.93 MiB |
@@ -175,9 +175,15 @@ failed allocation instead of failing cleanly.
 | Panel | LVGL pool | Measured peak | Headroom |
 |---|---|---|---|
 | `main_cabinet` | 128 KiB | 87,848 B | ~43 KiB |
+| `mid_coach` | 128 KiB | 86,152 B | ~44 KiB |
 | `bedroom_remote` | 128 KiB | 66,088 B | ~65 KiB |
-| `mid_coach` | **64 KiB** (issue #55) | not measured | unknown |
 | `ent_center` | **64 KiB** (issue #56) | not measured | unknown |
+
+`mid_coach` is the clearest illustration of why this is measured rather than
+assumed. Adding its battery and shore screens took it to **71,704 B** — some
+6 KB past the old 64 KiB cap on its own — then the solar strip took it to
+82,968 B and the tank valve controls to 86,152 B. Every one of those steps
+was a few lines in a panel header.
 
 `main_cabinet` overran the 64 KiB default: its four screens cost 78 KiB just to
 build the UI and peaked at 88 KiB while rendering. It still booted — much of
@@ -203,13 +209,12 @@ panel, at a cost of 64 KiB of internal RAM each.
 > it gained the stacked solar readout — enough to matter, small enough that
 > nothing but a measurement would have caught it.
 
-⚠️ **`mid_coach` and `ent_center` are still on 64 KiB** and have not been
-reflashed — tracked as issues #55 and #56. `sdkconfig.defaults` does not
-reach them: IDF applies defaults only when an `sdkconfig` does not already
-exist, so each build dir must be edited **in place** (regenerating wipes the
-real ESP-NOW peer MAC and battery MACs). Neither is in immediate danger —
-`mid_coach` has one secondary screen and `ent_center` has none — but neither
-peak has been measured.
+⚠️ **`ent_center` is still on 64 KiB** and has not been reflashed — tracked as
+issue #56. `sdkconfig.defaults` does not reach it: IDF applies defaults only
+when an `sdkconfig` does not already exist, so each build dir must be edited
+**in place** (regenerating wipes the real ESP-NOW peer MAC and battery MACs).
+It is the least exposed of the four — lights only, no secondary screens — but
+its peak has never been measured.
 
 ## Communication paths
 

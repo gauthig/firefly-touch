@@ -358,6 +358,21 @@ lv_obj_t *ui_dimmer_button_create(lv_obj_t *parent,
     lv_label_set_text(ctx->name, def->label);
     lv_obj_set_style_text_font(ctx->name, &lv_font_montserrat_20, 0);
 
+    if (def->type == PANEL_BTN_LOCAL_TOGGLE) {
+        /* These carry the longest labels on any panel ("BLACK CLOSED"), and
+         * they are the only ones whose text CHANGES at runtime, so a caption
+         * that fits in one phrasing can overflow in the other. Let them wrap
+         * instead of spilling past the button edge.
+         *
+         * Only this type: labels are otherwise unconstrained and sized to
+         * content, and forcing a width on all of them would re-wrap captions
+         * on three installed panels for no reason. On main_cabinet's 800 px
+         * grid these still fit on one line, so nothing changes there. */
+        lv_obj_set_width(ctx->name, LV_PCT(100));
+        lv_label_set_long_mode(ctx->name, LV_LABEL_LONG_WRAP);
+        lv_obj_set_style_text_align(ctx->name, LV_TEXT_ALIGN_CENTER, 0);
+    }
+
     if (def->type == PANEL_BTN_DIMMER) {
         ctx->bar = lv_bar_create(btn);
         lv_obj_set_size(ctx->bar, 90, 5);
