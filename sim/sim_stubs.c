@@ -132,6 +132,49 @@ bool bridge_enqueue_dimmer_cmd(uint8_t instance, rvc_dimmer_cmd_t cmd,
     return twai_enqueue_dimmer_cmd(instance, cmd, level, duration);
 }
 
+/*
+ * Group-addressed command, as the LIGHT MASTER button sends. The real G6
+ * expands one of these into a status frame per load in the group; there are
+ * no real groups here, so the fake bus applies it to every instance it has
+ * ever seen — which is what makes the master button's own state readout
+ * behave in the simulator.
+ *
+ * MEMORY_OFF / RVC_LEVEL_RESTORE are honoured rather than flattened to
+ * off/100 %, because remembering the level is the whole point of the pair
+ * and a sim that ignored it would hide a regression in exactly the thing
+ * this feature exists for.
+ */
+bool bridge_enqueue_dimmer_group_cmd(uint8_t group, rvc_dimmer_cmd_t cmd,
+                                     uint8_t level)
+{
+    printf("[sim] group 0x%02X cmd=%u level=%u\n", group, cmd, level);
+    for (unsigned inst = 0; inst < 256; inst++) {
+        /* "Known" has to include a load that MEMORY_OFF just zeroed, or the
+         * restore half of the cycle would never find it again — note this is
+         * deliberately a looser test than the one for_each_known() uses. */
+        if (s_level[inst] == 0 && !s_on[inst] && s_memory[inst] == 0) {
+            continue;
+        }
+        if (cmd == RVC_DIMMER_CMD_MEMORY_OFF) {
+            if (s_on[inst]) {
+                s_memory[inst] = s_level[inst];   /* remember for the restore */
+            }
+            s_level[inst] = 0;
+            s_on[inst] = false;
+        } else if (level == RVC_LEVEL_RESTORE) {
+            if (s_memory[inst] > 0) {
+                s_level[inst] = s_memory[inst];
+                s_on[inst] = true;
+            }
+        } else {
+            s_level[inst] = level;
+            s_on[inst] = level > 0;
+        }
+        ui_on_status((uint8_t)inst, s_level[inst], s_on[inst]);
+    }
+    return true;
+}
+
 /* Sweeps fake TANK_STATUS readings so the wave gauges and the header's
  * Grey-Black OK/Warn/FULL readout (+ backlight-critical override) are all
  * visible and testable in the simulator without touching real hardware.

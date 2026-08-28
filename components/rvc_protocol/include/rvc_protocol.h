@@ -29,6 +29,23 @@ extern "C" {
 
 /* Desired/operating level is 0..200 in 0.5 % steps (200 = 100 %). */
 #define RVC_LEVEL_MAX   200u
+
+/*
+ * "Restore the level this load had when it was last switched off", the
+ * partner of RVC_DIMMER_CMD_MEMORY_OFF. It is NOT a brightness — the normal
+ * range stops at RVC_LEVEL_MAX (200 = 100 %).
+ *
+ * Bus-confirmed 2026-08-28: this coach's factory LIGHT MASTER rocker sends
+ * exactly this value with SET_LEVEL to bring the lights back, and only the
+ * loads that had been on came back. See docs/instance_map.yaml ->
+ * light_master.
+ */
+#define RVC_LEVEL_RESTORE 251u
+
+/* Instance 0xFF addresses EVERY instance in the frame's group. Same numeric
+ * value as RVC_FIELD_NA; spelled separately because it means "all", not
+ * "unused". */
+#define RVC_INSTANCE_ALL 0xFFu
 /* 0xFF in a level/duration/group field means "no change / not used". */
 #define RVC_FIELD_NA    0xFFu
 

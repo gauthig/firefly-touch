@@ -50,6 +50,10 @@
 #define PANEL_HAS_SCREEN_3 1
 #define PANEL_HAS_SCREEN_4 1
 #define PANEL_HAS_NAV_RAIL 1
+
+/* Carries the MASTER button, so panel_config.h can check it against
+ * PANEL_HAS_CAN. */
+#define PANEL_HAS_LIGHT_MASTER 1
 #define PANEL_DEFAULT_SCREEN 1   /* boot into POWER */
 #define PANEL_GRID_COLS 3        /* 800 px wide minus the rail fits three */
 
@@ -86,16 +90,13 @@ static const panel_btn_def_t PANEL_BUTTONS[] = {
 #define PANEL_BUTTON_COUNT (sizeof(PANEL_BUTTONS) / sizeof(PANEL_BUTTONS[0]))
 
 /*
- * What MASTER turns ON. RV-C has no all-on command and the G6's own LIGHT
- * MASTER DGN has never been captured (docs/instance_map.yaml records the
- * factory rocker as having no instance number), so "on" is this declared
- * scene rather than a broadcast. Turning OFF needs no list: ui.c sweeps
- * every instance the state manager currently reports as on, which reaches
- * lights this panel has no button for.
+ * MASTER needs no scene list any more. It used to declare one because the
+ * factory rocker's frames were unknown; they were captured 2026-08-28, so
+ * ui.c now replays exactly what the rocker sends — six group-addressed
+ * frames, MEMORY_OFF for off and "restore remembered level" for on. The
+ * groups live in main/panel_config.h (PANEL_MASTER_GROUPS) because they are
+ * a property of the coach, not of this panel.
  */
-static const uint8_t PANEL_MASTER_ON[] = { 24, 26, 27, 35, 13, 17 };
-
-#define PANEL_MASTER_ON_COUNT (sizeof(PANEL_MASTER_ON) / sizeof(PANEL_MASTER_ON[0]))
 
 /*
  * Screen 1 — POWER. The battery bank (combined across the three parallel

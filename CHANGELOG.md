@@ -13,6 +13,36 @@ the full UI are verified on both the plain ESP32-S3-Touch-LCD-4.3 (bench,
 command-code/interlock bugs below. Hold-to-dim, the rest of the instance
 map, and the other items in *Unverified* below are still unconfirmed.
 
+### Changed — the light master now sends the real rocker frames (2026-08-28)
+
+Issue #59, **coach-verified**. `main_cabinet`'s MASTER replays exactly what the
+factory rocker sends instead of synthesising the action: six
+`DC_DIMMER_COMMAND_2` frames, groups `0x84`–`0x89` (`PANEL_MASTER_GROUPS` in
+`main/panel_config.h`), instance `0xFF` — `MEMORY_OFF` for off, SET_LEVEL with
+`RVC_LEVEL_RESTORE` (251) for on. `PANEL_MASTER_ON[]` and the state-manager
+sweep are gone.
+
+Group addressing is plumbed as its own path: `bridge_enqueue_dimmer_group_cmd()`
+/ `twai_enqueue_dimmer_group_cmd()`, with `group` added to `dimmer_cmd_msg_t`.
+⚠️ That struct is **main-local** — `espnow_link` mirrors it with its own, whose
+size is pinned by a `_Static_assert` — so the ESP-NOW wire format is untouched.
+
+⚠️ **Caught on the coach, not by any test: the brightness clamp ate the
+sentinel.** `rvc_encode_dc_dimmer_command_2()` clamps levels to
+`RVC_LEVEL_MAX` (200), and `RVC_LEVEL_RESTORE` is 251 — so the first version
+emitted `SET_LEVEL 200`, i.e. "set every light in these groups to 100 %". It
+lit loads that had been off and was indistinguishable from the scene behaviour
+it was meant to replace. The clamp now exempts the sentinels.
+
+The simulator could not have caught this: its fake bus works on semantic
+values and never calls the encoder. `host_test/test_rvc.c` now asserts both
+master frames byte-for-byte against the captured ones, plus that a genuine
+out-of-range brightness still clamps.
+
+Also: `PANEL_HAS_LIGHT_MASTER` replaces the old habit of testing for
+`PANEL_MASTER_ON_COUNT` to detect a master button, with the
+`PANEL_HAS_CAN` consistency check moved into `main/panel_config.h`.
+
 ### Verified — the factory LIGHT MASTER rocker, and `0x0E8FF` (2026-08-28)
 
 Sniffed on `mid_coach` with a temporary `CONFIG_FIREFLY_SNIFFER_MODE=y` build
