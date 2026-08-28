@@ -67,9 +67,9 @@ typedef struct {
 /*
  * The telemetry frame's size is load-bearing for the same reason the
  * control frame's is, and the trap is easier to walk into: every producer
- * is a different physical node (the basement proxy broadcasts shore power
- * and batteries, mid_coach broadcasts tanks), and they are flashed one at a
- * time. Widening the union to fit a new measurement would make every OLDER
+ * is a different physical node (the basement proxy broadcasts shore power,
+ * batteries and solar; mid_coach broadcasts tanks), and they are flashed one
+ * at a time. Widening the union to fit a new measurement would make every OLDER
  * producer's broadcasts fail this receiver's length check -- so adding
  * batteries would silently kill tank display until mid_coach was reflashed
  * too, with nothing logged anywhere.

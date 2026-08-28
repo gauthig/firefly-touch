@@ -81,7 +81,24 @@ menu "Firefly Touch Panel"
             help
                 Same as FIREFLY_BATTERY_1_MAC, for the third battery.
 
-        config FIREFLY_BATTERY_POLL_INTERVAL_MS
+        config FIREFLY_SOLAR_BROADCAST_INTERVAL_MS
+        int "Solar telemetry broadcast interval (ms)"
+        default 30000
+        range 5000 600000
+        help
+            How often the basement proxy re-broadcasts the Renogy MPPT
+            reading. A panel does not poll the controller -- it has no BLE
+            link to it -- so this is not a poll interval here. It exists
+            only so the panel can DERIVE how long silence must last before
+            the readout ages out to "--" (3x this value).
+
+            Keep it in step with the proxy's FIREFLY_SOLAR_POLL_INTERVAL_MS.
+            Setting it shorter than the proxy's actual interval makes the
+            solar readout flicker to "--" between broadcasts -- the same
+            failure the battery packs hit when their staleness window was
+            hardcoded shorter than their poll interval.
+
+    config FIREFLY_BATTERY_POLL_INTERVAL_MS
             int "Battery status poll interval (ms)"
             default 30000
             range 20000 600000

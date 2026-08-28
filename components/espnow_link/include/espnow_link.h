@@ -71,6 +71,7 @@ typedef enum {
     ESPNOW_TELEM_SHORE_POWER = 1,   /* Hughes Power Watchdog, from the proxy */
     ESPNOW_TELEM_TANK        = 2,   /* RV-C TANK_STATUS, relayed by the bridge */
     ESPNOW_TELEM_BATTERY     = 3,   /* one JBD/Xiaoxiang pack, from the proxy */
+    ESPNOW_TELEM_SOLAR       = 4,   /* Renogy MPPT controller, from the proxy */
 } espnow_telem_kind_t;
 
 typedef struct {
@@ -118,12 +119,48 @@ typedef struct {
 #define ESPNOW_BATTERY_FLAG_ONLINE     0x01u
 #define ESPNOW_BATTERY_FLAG_TEMP_VALID 0x02u
 
+/*
+ * The Renogy MPPT charge controller, read over BLE by the proxy.
+ *
+ * ⚠️ EXACTLY 16 BYTES, which is the whole design constraint. The battery
+ * message is the widest existing member, so this one has to fit the same
+ * envelope -- see the _Static_assert on espnow_telem_frame_t in
+ * espnow_link.c. Widening the union would make every telemetry broadcast
+ * from a producer still running older firmware fail this receiver's length
+ * check, silently killing tank and battery display until every node was
+ * reflashed. If a new field will not fit, something else has to go.
+ *
+ * TEMPERATURES ARE IN °F, already converted on the producer. The controller
+ * reports whole °C; the tenths here are load-bearing rather than decorative,
+ * since x9/5 turns 33 °C into 91.4 °F and rounding to whole degrees would
+ * throw that away. Converting once at the source also means a panel never
+ * has to know which unit arrived.
+ *
+ * charge_state distinguishes "0 W because it is dark" from "0 W because the
+ * battery is already full", which a bare wattage cannot express.
+ */
+typedef struct {
+    uint8_t  flags;             /* bit0 = online */
+    uint8_t  charge_state;      /* renogy_charge_state_t: 2 = mppt, 5 = float */
+    uint8_t  battery_soc;       /* % */
+    uint8_t  reserved;          /* explicit, so the u16s below stay aligned */
+    uint16_t battery_volts_cv;  /* V * 100 */
+    uint16_t pv_volts_cv;       /* V * 100 */
+    uint16_t pv_current_ca;     /* A * 100 */
+    uint16_t pv_watts;          /* W */
+    int16_t  controller_temp_df; /* degrees F * 10, signed */
+    int16_t  battery_temp_df;    /* degrees F * 10, signed */
+} espnow_solar_msg_t;
+
+#define ESPNOW_SOLAR_FLAG_ONLINE 0x01u
+
 typedef struct {
     uint8_t kind;               /* espnow_telem_kind_t */
     union {
         espnow_shore_power_t shore;
         espnow_tank_msg_t    tank;
         espnow_battery_msg_t battery;
+        espnow_solar_msg_t   solar;
     };
 } espnow_telem_msg_t;
 

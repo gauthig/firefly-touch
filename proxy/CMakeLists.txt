@@ -28,6 +28,7 @@ set(EXTRA_COMPONENT_DIRS
     "${CMAKE_CURRENT_SOURCE_DIR}/../components/espnow_link"
     "${CMAKE_CURRENT_SOURCE_DIR}/../components/hughes_watchdog"
     "${CMAKE_CURRENT_SOURCE_DIR}/../components/jbd_bms"
+    "${CMAKE_CURRENT_SOURCE_DIR}/../components/renogy_solar"
     "${CMAKE_CURRENT_SOURCE_DIR}/../components/rvc_protocol"
 )
 

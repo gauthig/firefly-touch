@@ -77,6 +77,25 @@
 #endif
 
 /*
+ * PANEL_HAS_SCREEN_4 1 = a fourth screen (PANEL_BUTTONS_4[] /
+ * PANEL_BUTTON_COUNT_4). Same consecutive-numbering rule as screen 3.
+ *
+ * Added for main_cabinet's SOLAR section. The alternative was squeezing the
+ * solar readout into its POWER section beside the battery bank and shore
+ * power, which the simulator showed is genuinely out of room -- the bank's
+ * SOC arc alone is 210 px wide and the pane is under 700. A side-nav panel
+ * pays nothing for another section: the rail already navigates by target
+ * screen rather than by position.
+ */
+#ifndef PANEL_HAS_SCREEN_4
+#define PANEL_HAS_SCREEN_4 0
+#endif
+
+#if PANEL_HAS_SCREEN_4 && !PANEL_HAS_SCREEN_3
+#error "PANEL_HAS_SCREEN_4 requires PANEL_HAS_SCREEN_3 (screens are consecutive)"
+#endif
+
+/*
  * PANEL_WANTS_TELEMETRY 1 = this CAN-connected panel also listens to the
  * ESP-NOW broadcast channel, in the receive-only TELEMETRY role (no unicast
  * peer, no keys, nothing actuable).

@@ -13,6 +13,67 @@ the full UI are verified on both the plain ESP32-S3-Touch-LCD-4.3 (bench,
 command-code/interlock bugs below. Hold-to-dim, the rest of the instance
 map, and the other items in *Unverified* below are still unconfirmed.
 
+### Added — Renogy MPPT solar monitoring (2026-08-28)
+
+Issues #51–#53. The solar charge controller joins the batteries and the
+Power Watchdog on the basement proxy's BLE links, broadcast to any panel
+that wants it. **Confirmed on the coach 2026-08-28**: the proxy holds all
+five BLE links at once and `main_cabinet` shows live PV watts/volts/amps,
+battery volts and SOC, charge state and temperatures.
+
+- **`components/renogy_solar`** (#52) — the controller has no radio of its
+  own: the BT-1/BT-2 module is a transparent BLE-to-RS485 bridge, so this
+  speaks plain **Modbus RTU**, not a vendor frame format. Protocol codec is
+  pure C and host-tested (`host_test/`) like `rvc_protocol` and
+  `jbd_bms_protocol`; the Bluedroid client is separate and never enters the
+  simulator.
+- ⚠️ **Discovery matches the module's EXACT advertised name**, not the
+  `BT-TH-` prefix. In a campground a neighbouring rig's Renogy module
+  advertises the same prefix, and connecting to it produces a perfectly
+  healthy-looking link reporting somebody else's solar. Trailing whitespace
+  is ignored — this coach's module pads its name to a fixed width.
+- ⚠️ **A wrong Modbus device id produces silence, not an error.** The client
+  therefore probes the known candidates (255 stand-alone, 16/17
+  daisy-chained, 96/97 Communication-Hub) and logs whichever answers.
+- **`components/ble_host` arbitrates the single GAP scan** (#51) — Bluedroid
+  allows exactly one GAP callback per node, and both the Watchdog and the
+  solar client discover by name. Clients register a matcher rather than
+  scanning directly.
+- **Solar telemetry over ESP-NOW** (#53). It fits the existing 16-byte
+  envelope **exactly**, so the wire format did not change and older
+  producers keep working. Broadcast even when unreachable, flagged offline,
+  so a panel can tell "the controller dropped" from "the proxy is gone" —
+  the battery contract, not the shore-power one.
+- UI: `PANEL_BTN_SOLAR` readout on `main_cabinet` (its own SOLAR rail
+  section, screen 4) and stacked under the battery bank on
+  `bedroom_remote`. Temperatures are converted to °F **on the producer**, so
+  one producer and several consumers cannot disagree about units.
+
+### Fixed — LVGL heap exhausted on `main_cabinet` (2026-08-28)
+
+`CONFIG_LV_MEM_SIZE_KILOBYTES` 64 → **128** in `sdkconfig.defaults`.
+
+LVGL's pool is fixed at startup and cannot grow (`LV_MEM_POOL_EXPAND_SIZE`
+is 0). `main_cabinet`'s four screens needed 78 KB just to build the UI and
+peaked at 88 KB rendering, against a 64 KB cap. It still booted — much of
+the cost is incurred lazily as each screen is first drawn — then wedged
+after about seven nav-rail taps, with LVGL's renderer spinning on the failed
+allocation instead of failing cleanly.
+
+⚠️ **It presented as three unrelated faults.** `esp_lvgl_port` holds its lock
+across all of `lv_timer_handler()`, so a stuck renderer also blocked the
+ESP-NOW receive task and aged the battery and shore readouts out to blank,
+while the task watchdog reported only that `taskLVGL` was pegging CPU 1.
+
+⚠️ **The simulator could not catch this**: `sim/lv_conf.h` uses
+`LV_STDLIB_CLIB`, an effectively unbounded allocator. Reproducing it needed
+the sim temporarily switched to `LV_STDLIB_BUILTIN` with a matching
+`LV_MEM_SIZE`. `bedroom_remote` measured 66,088 B peak — over the old cap
+too — so it got the same change before being reflashed.
+
+Measured budgets per device are recorded in
+[docs/SYSTEM.md](docs/SYSTEM.md) → *Memory budget*.
+
 ### Added — MAIN CABINET panel on a Waveshare 7", side-nav UI (2026-08-23)
 
 Issues #44–#48. A fourth panel (`main_cabinet`, index 3, source `0x83`),

@@ -7,6 +7,9 @@
  *  1. It SCANS by advertised name instead of connecting to a fixed MAC.
  *     The batteries' MACs were known up front; the Watchdog's was not, and
  *     scanning also survives a unit swap. See CONFIG_FIREFLY_WD_NAME_MATCH.
+ *     The scan itself belongs to ble_host, not to this client: there is one
+ *     GAP scan per node and the solar client needs discovery too, so this
+ *     client only declares WHAT it is looking for and is handed an address.
  *  2. It never polls. The device streams notifications ~1/second on its own
  *     once subscribed; there is no request frame and no way to slow it down.
  *  3. It is RECEIVE-ONLY. Gen 1 has no working command path -- see the

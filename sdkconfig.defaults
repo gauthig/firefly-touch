@@ -44,3 +44,16 @@ CONFIG_LV_FONT_MONTSERRAT_16=y
 CONFIG_LV_FONT_MONTSERRAT_20=y
 CONFIG_LV_FONT_MONTSERRAT_24=y
 CONFIG_LV_FONT_MONTSERRAT_28=y
+
+# LVGL heap. The Kconfig default is 64 KB and cannot grow
+# (LV_MEM_POOL_EXPAND_SIZE is 0), which main_cabinet's four screens overrun:
+# measured 78 KB just to build the UI and an 88 KB peak while rendering. The
+# panel still booted -- much of the cost is incurred lazily as each screen is
+# first drawn -- and then wedged after ~7 nav-rail taps, with LVGL's renderer
+# spinning forever on a failed allocation rather than failing cleanly. Because
+# esp_lvgl_port holds its lock across all of lv_timer_handler(), that also
+# blocked the ESP-NOW rx task and blanked the battery/shore readouts, so it
+# presented as three unrelated faults.
+# 128 KB leaves ~40 KB over the measured peak. Verified in the simulator with
+# its allocator switched to match this one -- see docs/SYSTEM.md.
+CONFIG_LV_MEM_SIZE_KILOBYTES=128

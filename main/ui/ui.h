@@ -77,3 +77,34 @@ typedef struct {
  * explicit invalid call — is what marks a pack offline.
  */
 void ui_on_battery_status(const ui_battery_pack_t *pack);
+
+/*
+ * The Renogy MPPT solar controller's reading, relayed from the basement BLE
+ * proxy. Same contract as ui_shore_power_t: a plain struct rather than the
+ * espnow wire type, so ui.h stays free of espnow_link.h and main.c does the
+ * unscaling.
+ *
+ * TEMPERATURES ARE ALREADY IN DEGREES F -- converted once on the proxy (see
+ * espnow_solar_msg_t), so no consumer has to know the controller itself
+ * reports Celsius.
+ */
+typedef struct {
+    bool    online;            /* false = producer says the controller is not answering */
+    uint8_t charge_state;      /* renogy_charge_state_t: 2 = mppt, 5 = float */
+    uint8_t battery_soc;       /* the controller's own estimate; not displayed --
+                                  see the note in ui_solar_panel.h */
+    float   battery_volts;
+    float   pv_volts;
+    float   pv_amps;
+    float   pv_watts;
+    bool    temp_valid;
+    float   controller_temp_f;
+    float   battery_temp_f;
+} ui_solar_status_t;
+
+/*
+ * Push a solar update into the UI. Takes the LVGL lock internally. Like
+ * shore power, the UI ages these out on its own, so silence -- not an
+ * explicit invalid call -- is what marks the controller gone.
+ */
+void ui_on_solar_status(const ui_solar_status_t *solar);

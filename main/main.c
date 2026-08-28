@@ -112,6 +112,26 @@ static void remote_telem_rx(const espnow_telem_msg_t *msg, void *ctx)
         break;
     }
 
+    case ESPNOW_TELEM_SOLAR: {
+        const espnow_solar_msg_t *sol = &msg->solar;
+        const ui_solar_status_t solar = {
+            .online            = (sol->flags & ESPNOW_SOLAR_FLAG_ONLINE) != 0,
+            .charge_state      = sol->charge_state,
+            .battery_soc       = sol->battery_soc,
+            .battery_volts     = sol->battery_volts_cv / 100.0f,
+            .pv_volts          = sol->pv_volts_cv / 100.0f,
+            .pv_amps           = sol->pv_current_ca / 100.0f,
+            .pv_watts          = (float)sol->pv_watts,
+            /* The producer only sends temperatures with a live reading, so
+             * "online" is also what makes them meaningful. */
+            .temp_valid        = (sol->flags & ESPNOW_SOLAR_FLAG_ONLINE) != 0,
+            .controller_temp_f = sol->controller_temp_df / 10.0f,
+            .battery_temp_f    = sol->battery_temp_df / 10.0f,
+        };
+        ui_on_solar_status(&solar);
+        break;
+    }
+
     default:
         break;   /* newer producer, unknown measurement — ignore quietly */
     }
