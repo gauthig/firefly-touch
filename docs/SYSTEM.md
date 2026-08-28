@@ -306,8 +306,13 @@ knows nothing of its siblings, so bank aggregation happens in our firmware
   and ignored. Only Gen 2 (EPOW models) has a working `SetOpen`.
 - **One remote per bridge.** ESP-NOW pairing is fixed at build time — no
   runtime pairing, no mesh.
-- **There is no all-lights command.** RV-C has none, and the coach's own
-  factory LIGHT MASTER rocker has never been sniffed, so its DGN is
-  unknown. `main_cabinet`'s MASTER button is synthesised: off sweeps every
-  instance the panel has seen reporting on, and on applies a declared
-  scene. Capturing the real rocker would replace both with one frame.
+- **The MASTER button is still synthesised, though it no longer needs to be.**
+  RV-C has no all-lights DGN, but the coach's factory LIGHT MASTER rocker was
+  sniffed 2026-08-28 and does have a real mechanism: six ordinary
+  `DC_DIMMER_COMMAND_2` frames, one per group `0x84`–`0x89`, addressed to
+  instance `0xFF` — `MEMORY_OFF` for off, level 251 ("restore remembered")
+  for on. `main_cabinet`'s MASTER still sweeps the instances it has seen and
+  applies a fixed scene, so it is **not** equivalent: it lights loads that
+  were off and cannot reach a load that has been quiet since boot. Replacing
+  it is open work; the capture is in
+  [instance_map.yaml](instance_map.yaml) → `light_master`.

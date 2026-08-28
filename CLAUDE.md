@@ -999,11 +999,30 @@ field costs no churn at all.
 
 ### Light master
 
-⚠️ **There is no known G6 master command.**
-[docs/instance_map.yaml](docs/instance_map.yaml) records the factory
-"ON / LIGHT MASTER / OFF" rocker (SW1 Entry Door, SW6 Bedroom Wall) as having
-no instance number and an unidentified DGN, never sniffed. Capturing it is a
-separate future job; until then the master is synthesised:
+⚠️ **The real master command IS now known (bus-confirmed 2026-08-28) — the
+implementation below has not caught up yet.** The factory
+"ON / LIGHT MASTER / OFF" rocker (source `0x9F`) sends **six ordinary
+`DC_DIMMER_COMMAND_2` frames**, one per group `0x84`–`0x89`, each addressed to
+**instance `0xFF`** (all):
+
+- **off** — `FF <grp> 00 06 FF 00 FF FF`, command `0x06` =
+  `RVC_DIMMER_CMD_MEMORY_OFF`: off, *remembering* each load's level.
+- **on** — `FF <grp> FB 00 FF 00 FF FF`, command `0x00` = SET_LEVEL with
+  level `0xFB` (251), the RV-C "restore remembered level" value — not a
+  brightness, the normal range is 0–200.
+
+The G6 ACKs each one on `0x0E8FF`, which is **J1939 PGN 59392, the standard
+Acknowledgment PGN** — not the "unidentified proprietary DGN" the docs used to
+call it. Full capture and byte decode:
+[docs/instance_map.yaml](docs/instance_map.yaml) → `light_master`.
+
+⚠️ **The synthesised master below is therefore NOT equivalent to the rocker**,
+and replacing it is open work. Its ON applies a fixed 100 % scene, so it lights
+loads that were off and overrides remembered brightness; its OFF sweeps only
+instances the panel has *seen* report on, so it cannot reach a load that has
+been quiet since boot. The real rocker drove 24 instances off and restored
+exactly the four that had been lit. Until it is replaced, the master is
+synthesised:
 
 - **OFF** sweeps `state_manager_for_each_known()` and sends an explicit OFF
   to every instance currently reporting on — which reaches lights the
@@ -1030,10 +1049,12 @@ on GPIO20/19 — which also confirms the EXIO5 USB/CAN mux polarity, taken
 from ESP3D's notes rather than a schematic — the battery bank and shore
 power arrive as ESP-NOW broadcasts, Master on/off behaves as designed
 against real loads, and the display geometry and colours are correct,
-confirming the RGB timings taken from Espressif's board definition. The
-remaining open question is deliberate: whether the coach's factory LIGHT
-MASTER rocker puts a real all-lights frame on the bus. Sniff it before
-assuming it doesn't.
+confirming the RGB timings taken from Espressif's board definition.
+
+**That last open question is now answered (2026-08-28): the rocker DOES put
+real frames on the bus** — six `DC_DIMMER_COMMAND_2` to instance `0xFF` per
+group. See *Light master* above. Swapping the synthesised master for those
+frames is open work.
 
 ## Panels & source-address allocation
 

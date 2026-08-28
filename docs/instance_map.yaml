@@ -16,7 +16,10 @@
 #   dimmer - DC_DIMMER_COMMAND_2/STATUS_3, supports tap-toggle + hold-to-ramp
 #   switch - same DGN, driven on/off only (no ramp) in current firmware
 #   local  - not RV-C at all; stays on the panel's own MCU (e.g. LCD backlight)
-#   master - factory "LIGHT MASTER" all-panel on/off; DGN not yet identified
+#   master - factory "LIGHT MASTER" all-panel on/off. BUS-CONFIRMED
+#            2026-08-28: it is ordinary DC_DIMMER_COMMAND_2 addressed to
+#            instance 0xFF per group, NOT a separate DGN. See
+#            `light_master` below.
 #
 # instances: a list. Buttons with more than one instance must send the
 # command once per instance (fire-and-forget to each, same as the existing
@@ -282,15 +285,18 @@ loads:
 
   - name: Light Master (all-panel on/off)
     instances: []
+    groups: ["0x84", "0x85", "0x86", "0x87", "0x88", "0x89"]
     type: master
     source: [SW1-E1 Entry Door, SW6-E1 Bedroom Wall]
-    verified: false
+    verified: true
+    verified_date: 2026-08-28
     notes: >
       Factory "ON / LIGHT MASTER / OFF" 3-position rocker, no instance
-      number printed. Almost certainly not a DC_DIMMER_COMMAND_2 target --
-      likely a different DGN or a hardwired master relay. Not implemented in
-      firmware. Capture its frames in sniffer mode before building a button
-      for it.
+      number printed. BUS-CONFIRMED 2026-08-28: the earlier guess here was
+      WRONG -- it is not a different DGN and not a hardwired relay. It is
+      ordinary DC_DIMMER_COMMAND_2 (0x1FEDB) sent to instance 0xFF (all)
+      once per group, six groups 0x84-0x89, from source address 0x9F.
+      Full frame capture and byte decode in `light_master` below.
 
 # Garnet SeeLevel II 709-RVC tank monitor -- 3 sensors on this coach's bus
 # (Fresh, Grey, Black). Read-only TANK_STATUS broadcasts, NOT the
@@ -315,6 +321,68 @@ loads:
 # not a percent-per-count divisor. Correct formula, confirmed against three
 # real captured frames (also used as host_test/test_rvc.c regression
 # vectors): percent = relative_level * 100 / resolution.
+# The factory LIGHT MASTER rocker, BUS-CONFIRMED 2026-08-28 via sniffer mode
+# on mid_coach (COM16). This closes the long-standing "capture the rocker
+# before assuming it has no frame" TODO -- it does have one, and it is a DGN
+# we already speak.
+light_master:
+  name: LIGHT MASTER rocker
+  dgn: "0x1FEDB (DC_DIMMER_COMMAND_2 -- the SAME DGN our panels send)"
+  source_address: "0x9F (a factory switch panel)"
+  verified: 2026-08-28
+  addressing: >
+    instance = 0xFF (all instances), with the GROUP byte selecting which
+    set of loads. The rocker sends SIX frames per press, one for each of
+    groups 0x84..0x89. There is no single all-lights frame.
+  frames:
+    "off":
+      example: "FF 84 00 06 FF 00 FF FF"
+      repeated_for_groups: ["0x84", "0x85", "0x86", "0x87", "0x88", "0x89"]
+      decode:
+        instance: "0xFF = all"
+        group: "0x84..0x89"
+        level: "0x00"
+        command: "0x06 = RVC_DIMMER_CMD_MEMORY_OFF (already in our enum) --
+          off, but REMEMBERING each load's level"
+        interlock: "0x00 (matches what we already send)"
+    "on":
+      example: "FF 84 FB 00 FF 00 FF FF"
+      repeated_for_groups: ["0x84", "0x85", "0x86", "0x87", "0x88", "0x89"]
+      decode:
+        instance: "0xFF = all"
+        group: "0x84..0x89"
+        level: "0xFB = 251, the RV-C 'restore remembered level' value --
+          NOT a brightness (the normal range is 0..200)"
+        command: "0x00 = RVC_DIMMER_CMD_SET_LEVEL"
+        interlock: "0x00"
+  acknowledgement:
+    dgn: "0x0E8FF"
+    example: "00 FF FF FF FF DB FE 01 (from the G6 at sa=0x8F)"
+    notes: >
+      This resolves the "proprietary DGN 0x0E8FF, unidentified" note that
+      sat in the project docs for a long time. It is NOT proprietary: it is
+      J1939 PGN 59392 (0xE800), the standard Acknowledgment PGN. Byte 0
+      0x00 = positive ACK; bytes 5-7 are the acknowledged DGN little-endian
+      (DB FE 01 -> 0x1FEDB). The G6 sent exactly one per command frame.
+  observed_effect: >
+    MEMORY-RESTORE SEMANTICS ARE PROVEN, not inferred. The OFF burst drove
+    24 instances (0x0D-0x24 = 13-36) to level 0, each DC_DIMMER_STATUS_3
+    echoing command 0x06. The ON burst brought back EXACTLY FOUR --
+    instances 25, 26, 27 and 34 at 0xC8 (100%) -- which are precisely the
+    four observed lit at 0xC8 earlier in the same capture. Loads that were
+    already off stayed off.
+  differs_from_our_master: >
+    main_cabinet's synthesised MASTER is not equivalent. Its ON applies the
+    fixed PANEL_MASTER_ON[] scene at 100%, so it lights loads that were off
+    and overrides remembered brightness; its OFF sweeps only instances the
+    panel has actually SEEN report on, so it cannot reach a load that has
+    been quiet since boot.
+  caveat: >
+    The group list 0x84-0x89 is only known to be COMPLETE in the sense that
+    it is what this rocker sends. A load in some other group would not be
+    covered by replaying these six frames. Confirm before deleting the
+    state-sweep fallback.
+
 tank_dgn:
   name: TANK_STATUS
   dgn: "0x1FFB7"

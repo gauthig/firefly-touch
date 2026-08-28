@@ -13,6 +13,33 @@ the full UI are verified on both the plain ESP32-S3-Touch-LCD-4.3 (bench,
 command-code/interlock bugs below. Hold-to-dim, the rest of the instance
 map, and the other items in *Unverified* below are still unconfirmed.
 
+### Verified — the factory LIGHT MASTER rocker, and `0x0E8FF` (2026-08-28)
+
+Sniffed on `mid_coach` with a temporary `CONFIG_FIREFLY_SNIFFER_MODE=y` build
+(since reverted). Docs only — no firmware change yet.
+
+**It is not an unknown DGN.** The rocker (source `0x9F`) sends six ordinary
+`DC_DIMMER_COMMAND_2` (`0x1FEDB`) frames, one per group `0x84`–`0x89`, each
+addressed to instance `0xFF`:
+
+- **off** — level `0x00`, command `0x06` = `RVC_DIMMER_CMD_MEMORY_OFF`
+- **on** — command `0x00` SET_LEVEL with level `0xFB` (251), the RV-C
+  "restore remembered level" value
+
+**Memory-restore semantics are proven.** The OFF burst drove 24 instances
+(13–36) to zero; the ON burst restored exactly four — 25, 26, 27, 34 — which
+are precisely the four observed lit earlier in the same capture.
+
+**`0x0E8FF` is resolved**: it is J1939 PGN 59392, the standard Acknowledgment
+PGN (byte 0 = ACK, bytes 5-7 = the acknowledged DGN little-endian), not the
+"unidentified proprietary DGN" the docs had carried. The G6 sends one per
+command frame.
+
+⚠️ **`main_cabinet`'s synthesised MASTER is therefore not equivalent to the
+rocker** — its ON applies a fixed 100 % scene rather than restoring remembered
+levels, and its OFF can only reach instances it has seen report. Replacing it
+is tracked separately.
+
 ### Added — MID COACH gains battery, solar, shore power and valve controls (2026-08-28)
 
 Issues #57 and #55. **Coach-verified 2026-08-28.**
