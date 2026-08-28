@@ -49,8 +49,9 @@ installed equipment →](docs/SYSTEM.md)**
 
 Five nodes: four touchscreen panels and one headless BLE proxy. They reach
 the coach over RV-C CAN and each other over ESP-NOW. Everything reached over
-BLE — the battery packs and the shore-power monitor, all of which live in the
-basement bay — is held by the proxy in that bay and broadcast to the panels.
+BLE — the battery packs, the shore-power monitor and the solar charge
+controller, all of which live in the basement bay — is held by the proxy in
+that bay and broadcast to the panels.
 
 | Node | Board | Talks |
 |---|---|---|

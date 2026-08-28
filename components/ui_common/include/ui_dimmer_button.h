@@ -29,6 +29,7 @@
 #include "rvc_protocol.h"
 #include "ui_battery_summary.h"
 #include "ui_shore_panel.h"
+#include "ui_solar_panel.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -87,6 +88,13 @@ void ui_dimmer_button_update_bank(lv_obj_t *btn, const jbd_bms_bank_t *bank,
  * any other button type. `valid` false shows "--" everywhere. Caller must
  * hold the LVGL lock.
  */
+/*
+ * Feed a solar reading to a PANEL_BTN_SOLAR widget. No-op for any other
+ * button type, so callers can sweep every button without checking.
+ */
+void ui_dimmer_button_update_solar(lv_obj_t *btn, const ui_solar_reading_t *r,
+                                   bool valid);
+
 void ui_dimmer_button_update_shore(lv_obj_t *btn, const ui_shore_reading_t *r,
                                    bool valid);
 

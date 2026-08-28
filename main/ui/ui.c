@@ -85,6 +85,16 @@ static const char *TAG = "ui";
 #define SHORE_POWER_STALE_MS  20000
 #define SHORE_POWER_TIMER_MS  1000
 
+/*
+ * Derived from the broadcast interval, never hardcoded -- the same rule the
+ * battery window follows above, and for the same reason: a fixed window
+ * silently becomes SHORTER than the producer's interval the moment that
+ * interval is raised, and every reading then reads as permanently stale
+ * between broadcasts.
+ */
+#define SOLAR_STALE_MS (3 * CONFIG_FIREFLY_SOLAR_BROADCAST_INTERVAL_MS)
+#define SOLAR_TIMER_MS 1000
+
 /* Upper bound on main-grid rows (PANEL_GRID_COLS columns each). */
 #define GRID_MAX_ROWS 6
 
@@ -129,6 +139,13 @@ static ui_shore_power_t s_shore;
 static bool             s_shore_seen;
 static uint32_t         s_shore_last_ms;
 
+/* Solar cache, same shape and same reasoning as the shore-power one above:
+ * ui_on_solar_status() only caches, and solar_timer_cb owns the staleness
+ * decision, so exactly one place decides what the readout says. */
+static ui_solar_status_t s_solar;
+static bool              s_solar_seen;
+static uint32_t          s_solar_last_ms;
+
 #if PANEL_HAS_SCREEN_2
 static lv_obj_t *s_buttons_2[PANEL_BUTTON_COUNT_2];
 static lv_obj_t *s_tank_status_label;
@@ -141,6 +158,9 @@ static bool      s_screen2_is_battery;
 #if PANEL_HAS_SCREEN_3
 static lv_obj_t *s_buttons_3[PANEL_BUTTON_COUNT_3];
 #endif
+#if PANEL_HAS_SCREEN_4
+static lv_obj_t *s_buttons_4[PANEL_BUTTON_COUNT_4];
+#endif
 
 #if PANEL_HAS_SCREEN_2
 /*
@@ -149,7 +169,8 @@ static lv_obj_t *s_buttons_3[PANEL_BUTTON_COUNT_3];
  * battery and shore power), and every screen is built up front and kept
  * updated even while hidden, so switching to one never shows stale state.
  */
-#define UI_SCREEN_COUNT (1 + PANEL_HAS_SCREEN_2 + PANEL_HAS_SCREEN_3)
+#define UI_SCREEN_COUNT \
+    (1 + PANEL_HAS_SCREEN_2 + PANEL_HAS_SCREEN_3 + PANEL_HAS_SCREEN_4)
 
 typedef struct {
     lv_obj_t              *root;
@@ -434,6 +455,53 @@ static void shore_power_timer_cb(lv_timer_t *t)
     lv_obj_set_style_text_color(s_shore_label,
                                 s_shore.error_code != 0 ? UI_COLOR_ERR : UI_COLOR_TEXT, 0);
 }
+/* -------------------------------------------------------------- solar --- */
+
+/*
+ * Guarded on PANEL_HAS_SCREEN_2, not on "does this panel have a solar
+ * button": the sweep walks s_screens[], which only exists when the panel has
+ * secondary screens at all. ent_center has none, and without this the
+ * function would fail to compile there rather than simply going unused.
+ */
+#if PANEL_HAS_SCREEN_2
+/*
+ * Repaints every PANEL_BTN_SOLAR widget once a second from the cache.
+ *
+ * Staleness is decided here rather than at receive time so there is exactly
+ * one answer to "is this reading live", and so a controller that simply goes
+ * quiet ages out to "--" instead of leaving the last good numbers on screen
+ * looking current. A frame the proxy explicitly flagged offline counts the
+ * same way -- it means the BLE link is down, which is not a reading.
+ */
+static void solar_timer_cb(lv_timer_t *t)
+{
+    (void)t;
+
+    const bool stale = !s_solar_seen ||
+                       (lv_tick_get() - s_solar_last_ms) > SOLAR_STALE_MS;
+    const bool valid = !stale && s_solar.online;
+
+    const ui_solar_reading_t reading = {
+        .charge_state      = s_solar.charge_state,
+        .battery_volts     = s_solar.battery_volts,
+        .pv_volts          = s_solar.pv_volts,
+        .pv_amps           = s_solar.pv_amps,
+        .pv_watts          = s_solar.pv_watts,
+        .temp_valid        = s_solar.temp_valid,
+        .controller_temp_f = s_solar.controller_temp_f,
+        .battery_temp_f    = s_solar.battery_temp_f,
+    };
+
+    for (uint8_t sc = 0; sc < UI_SCREEN_COUNT; sc++) {
+        for (uint32_t i = 0; i < s_screens[sc].count; i++) {
+            if (s_screens[sc].buttons[i] != NULL) {
+                ui_dimmer_button_update_solar(s_screens[sc].buttons[i], &reading, valid);
+            }
+        }
+    }
+}
+#endif /* PANEL_HAS_SCREEN_2 */
+
 /* --------------------------------------------------------- screen nav --- */
 
 #if PANEL_HAS_SCREEN_2
@@ -680,6 +748,10 @@ static void build_button_grid(lv_obj_t *parent, const panel_btn_def_t *buttons,
  * buttons. PANEL_BTN_SPACER entries, if any, are skipped -- the row layout
  * doesn't need manual gap positioning.
  */
+/* Height of the solar strip when it shares a portrait screen with another
+ * full-width readout. */
+#define SOLAR_STRIP_H 200
+
 static void build_screen2_row(lv_obj_t *parent, const panel_btn_def_t *buttons,
                               uint32_t count, lv_obj_t **out_buttons)
 {
@@ -688,21 +760,34 @@ static void build_screen2_row(lv_obj_t *parent, const panel_btn_def_t *buttons,
      * stacked sections -- at 75% it leaves an obvious dead band above the
      * BACK button. Give it the extra height instead of padding the widget
      * out internally. */
-    bool has_summary = false;
+    uint32_t summary_n = 0;
     for (uint32_t i = 0; i < count; i++) {
         if (buttons[i].type == PANEL_BTN_BATTERY_SUMMARY ||
-            buttons[i].type == PANEL_BTN_SHORE_POWER) {
-            has_summary = true;
-            break;
+            buttons[i].type == PANEL_BTN_SHORE_POWER ||
+            buttons[i].type == PANEL_BTN_SOLAR) {
+            summary_n++;
         }
     }
+    const bool has_summary = summary_n > 0;
+
+    /*
+     * Two full-width readouts on one portrait screen stack, they don't sit
+     * side by side: the battery bank alone needs a 210 px SOC arc and the
+     * screen is 480 px wide, so sharing a row would squeeze both into
+     * uselessness. This is what puts SOLAR under the bank on
+     * bedroom_remote's battery screen.
+     *
+     * Single-readout screens keep the row flow they have always had, so the
+     * shore-power and tank screens on the installed panels are untouched.
+     */
+    const bool stack = summary_n > 1;
 
     lv_obj_t *row = lv_obj_create(parent);
     lv_obj_add_style(row, &ui_style_screen, 0);
     lv_obj_set_size(row, LV_PCT(100), has_summary ? LV_PCT(89) : LV_PCT(75));
     lv_obj_align(row, LV_ALIGN_TOP_MID, 0, 8);
     lv_obj_remove_flag(row, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_set_flex_flow(row, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_flow(row, stack ? LV_FLEX_FLOW_COLUMN : LV_FLEX_FLOW_ROW);
     lv_obj_set_flex_align(row, LV_FLEX_ALIGN_SPACE_EVENLY, LV_FLEX_ALIGN_CENTER,
                           LV_FLEX_ALIGN_CENTER);
 
@@ -721,12 +806,26 @@ static void build_screen2_row(lv_obj_t *parent, const panel_btn_def_t *buttons,
         }
         lv_obj_t *btn = ui_dimmer_button_create(row, &buttons[i],
                                                 panel_send_cb, NULL);
-        if (buttons[i].type == PANEL_BTN_BATTERY_SUMMARY ||
-            buttons[i].type == PANEL_BTN_SHORE_POWER) {
+        if (buttons[i].type == PANEL_BTN_SOLAR && stack) {
+            /* Fixed height, so whatever it is stacked with keeps the rest.
+             * The solar tiles are a caption/value/unit stack roughly 70 px
+             * tall plus a header; more than this is wasted on it and comes
+             * straight out of the battery bank, which has no slack to give
+             * (arc 210 + grid 200 + strip 30). */
+            lv_obj_set_size(btn, LV_PCT(100), SOLAR_STRIP_H);
+        } else if (buttons[i].type == PANEL_BTN_BATTERY_SUMMARY ||
+                   buttons[i].type == PANEL_BTN_SHORE_POWER ||
+                   buttons[i].type == PANEL_BTN_SOLAR) {
             /* One combined readout owning the full area, rather than
              * sharing the row -- unlike the tank gauges, which really are
-             * three separate things side by side. */
-            lv_obj_set_size(btn, LV_PCT(100), LV_PCT(100));
+             * three separate things side by side. When stacked, height is
+             * whatever the fixed-size sibling left over. */
+            lv_obj_set_width(btn, LV_PCT(100));
+            if (stack) {
+                lv_obj_set_flex_grow(btn, 1);
+            } else {
+                lv_obj_set_height(btn, LV_PCT(100));
+            }
         } else {
             lv_obj_set_size(btn, 140, LV_PCT(100));
         }
@@ -760,6 +859,7 @@ static void build_content_pane(lv_obj_t *parent, const panel_btn_def_t *buttons,
         case PANEL_BTN_TANK_LEVEL:
         case PANEL_BTN_BATTERY_SUMMARY:
         case PANEL_BTN_SHORE_POWER:
+        case PANEL_BTN_SOLAR:
             readonly_n++;
             break;
         case PANEL_BTN_SPACER:
@@ -806,7 +906,8 @@ static void build_content_pane(lv_obj_t *parent, const panel_btn_def_t *buttons,
 
         const bool readonly = (def->type == PANEL_BTN_TANK_LEVEL ||
                                def->type == PANEL_BTN_BATTERY_SUMMARY ||
-                               def->type == PANEL_BTN_SHORE_POWER);
+                               def->type == PANEL_BTN_SHORE_POWER ||
+                               def->type == PANEL_BTN_SOLAR);
         lv_obj_t *btn = ui_dimmer_button_create(readonly ? top : bottom, def,
                                                 panel_send_cb, NULL);
 
@@ -871,6 +972,9 @@ static const screen_defs_t k_screen_defs[] = {
 #endif
 #if PANEL_HAS_SCREEN_3
     { PANEL_BUTTONS_3, PANEL_BUTTON_COUNT_3 },
+#endif
+#if PANEL_HAS_SCREEN_4
+    { PANEL_BUTTONS_4, PANEL_BUTTON_COUNT_4 },
 #endif
 };
 
@@ -1017,6 +1121,18 @@ static void build_screen(void)
 #endif
     s_screens[2] = (ui_screen_t){ grid3, s_buttons_3, PANEL_BUTTONS_3,
                                   PANEL_BUTTON_COUNT_3 };
+
+#if PANEL_HAS_SCREEN_4
+    lv_obj_t *grid4 = make_screen_pane(scr, logical_h);
+    lv_obj_add_flag(grid4, LV_OBJ_FLAG_HIDDEN);
+#if PANEL_HAS_NAV_RAIL
+    build_content_pane(grid4, PANEL_BUTTONS_4, PANEL_BUTTON_COUNT_4, s_buttons_4);
+#else
+    build_screen2_row(grid4, PANEL_BUTTONS_4, PANEL_BUTTON_COUNT_4, s_buttons_4);
+#endif
+    s_screens[3] = (ui_screen_t){ grid4, s_buttons_4, PANEL_BUTTONS_4,
+                                  PANEL_BUTTON_COUNT_4 };
+#endif
 #endif
 #endif
 
@@ -1041,6 +1157,14 @@ static void build_screen(void)
     if (s_shore_label != NULL || panel_has_button_type(PANEL_BTN_SHORE_POWER)) {
         lv_timer_create(shore_power_timer_cb, SHORE_POWER_TIMER_MS, NULL);
     }
+#if PANEL_HAS_SCREEN_2
+    /* Created from what the panel actually carries, like every other
+     * optional timer -- and only under PANEL_HAS_SCREEN_2, since
+     * solar_timer_cb sweeps s_screens[], which only exists then. */
+    if (panel_has_button_type(PANEL_BTN_SOLAR)) {
+        lv_timer_create(solar_timer_cb, SOLAR_TIMER_MS, NULL);
+    }
+#endif
     if (s_master_btn != NULL) {
         lv_timer_create(master_timer_cb, MASTER_TIMER_MS, NULL);
         master_timer_cb(NULL);   /* prime it; don't show "off" for a second */
@@ -1144,6 +1268,21 @@ void ui_on_battery_status(const ui_battery_pack_t *pack)
 #else
     (void)pack;
 #endif
+}
+
+void ui_on_solar_status(const ui_solar_status_t *solar)
+{
+    if (!s_ui_ready || solar == NULL) {
+        return;
+    }
+    /* Cache only. solar_timer_cb owns the staleness decision and the
+     * repaint, mirroring ui_on_shore_power() -- so exactly one place decides
+     * what the readout says. */
+    lvgl_port_lock(0);
+    s_solar = *solar;
+    s_solar_seen = true;
+    s_solar_last_ms = lv_tick_get();
+    lvgl_port_unlock();
 }
 
 void ui_on_tank_status(uint8_t instance, uint8_t percent, bool valid)

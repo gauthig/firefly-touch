@@ -6,6 +6,7 @@
 
 #include "ui_battery_summary.h"
 #include "ui_shore_panel.h"
+#include "ui_solar_panel.h"
 #include "ui_tank_wave.h"
 #include "ui_theme.h"
 
@@ -55,6 +56,7 @@ typedef struct {
     lv_obj_t *tank_wave;      /* PANEL_BTN_TANK_LEVEL only: animated gauge */
     lv_obj_t *battery_summary;/* PANEL_BTN_BATTERY_SUMMARY only: bank readout */
     lv_obj_t *shore_panel;    /* PANEL_BTN_SHORE_POWER only: L1/L2 readout */
+    lv_obj_t *solar_panel;    /* PANEL_BTN_SOLAR only: MPPT readout */
 } btn_ctx_t;
 
 static bool any_on(const btn_ctx_t *ctx)
@@ -170,7 +172,8 @@ static void handle_tap(btn_ctx_t *ctx)
         return;
     }
     if (ctx->def->type == PANEL_BTN_TANK_LEVEL ||
-        ctx->def->type == PANEL_BTN_SHORE_POWER) {
+        ctx->def->type == PANEL_BTN_SHORE_POWER ||
+        ctx->def->type == PANEL_BTN_SOLAR) {
         /* Read-only display, no command, no confirm timer. */
         return;
     }
@@ -253,6 +256,7 @@ static bool acts_on_click(const btn_ctx_t *ctx)
     case PANEL_BTN_SCREEN_SWITCH:
     case PANEL_BTN_BATTERY_SUMMARY:
     case PANEL_BTN_SHORE_POWER:
+    case PANEL_BTN_SOLAR:
     case PANEL_BTN_TANK_LEVEL:
     case PANEL_BTN_LOCAL_TOGGLE:
     case PANEL_BTN_LIGHT_MASTER:
@@ -385,6 +389,15 @@ lv_obj_t *ui_dimmer_button_create(lv_obj_t *parent,
         ctx->shore_panel = ui_shore_panel_create(btn);
     }
 
+    if (def->type == PANEL_BTN_SOLAR) {
+        lv_obj_add_flag(ctx->name, LV_OBJ_FLAG_HIDDEN);
+        /* Transparent for the same reason as the shore readout: the tiles
+         * carry their own backgrounds, so a card behind them is just noise. */
+        lv_obj_set_style_bg_opa(btn, LV_OPA_TRANSP, LV_PART_MAIN);
+        lv_obj_set_style_pad_all(btn, 0, 0);
+        ctx->solar_panel = ui_solar_panel_create(btn);
+    }
+
     lv_obj_add_event_cb(btn, event_cb, LV_EVENT_ALL, ctx);
     refresh_visuals(ctx);
     return btn;
@@ -401,6 +414,7 @@ void ui_dimmer_button_update(lv_obj_t *btn, uint8_t instance,
     if (ctx == NULL || ctx->def->type == PANEL_BTN_TANK_LEVEL ||
         ctx->def->type == PANEL_BTN_BATTERY_SUMMARY ||
         ctx->def->type == PANEL_BTN_SHORE_POWER ||
+        ctx->def->type == PANEL_BTN_SOLAR ||
         ctx->def->type == PANEL_BTN_LOCAL_TOGGLE ||
         ctx->def->type == PANEL_BTN_LIGHT_MASTER ||
         ctx->def->type == PANEL_BTN_SCREEN_SWITCH) {
@@ -464,6 +478,16 @@ void ui_dimmer_button_update_bank(lv_obj_t *btn, const jbd_bms_bank_t *bank,
     if (packs != NULL) {
         ui_battery_summary_set_packs(ctx->battery_summary, packs, packs_len);
     }
+}
+
+void ui_dimmer_button_update_solar(lv_obj_t *btn, const ui_solar_reading_t *r,
+                                   bool valid)
+{
+    btn_ctx_t *ctx = lv_obj_get_user_data(btn);
+    if (ctx == NULL || ctx->def->type != PANEL_BTN_SOLAR) {
+        return;
+    }
+    ui_solar_panel_set(ctx->solar_panel, r, valid);
 }
 
 void ui_dimmer_button_update_shore(lv_obj_t *btn, const ui_shore_reading_t *r,

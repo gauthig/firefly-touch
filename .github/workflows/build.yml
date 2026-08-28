@@ -74,6 +74,11 @@ jobs:
         run: |
           gcc -Wall -Wextra -Werror -I../include ../hughes_wd_protocol.c test_hughes_wd.c -lm -o test_hughes_wd
           ./test_hughes_wd
+      - name: Compile and run renogy_solar tests
+        working-directory: components/renogy_solar/host_test
+        run: |
+          gcc -Wall -Wextra -Werror -I../include ../renogy_solar_protocol.c test_renogy_solar.c -lm -o test_renogy_solar
+          ./test_renogy_solar
 
   # The basement BLE proxy is a separate project on a different chip
   # (classic ESP32, not the panels' S3), so the panel matrix above cannot

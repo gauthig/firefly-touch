@@ -12,6 +12,7 @@
 #include "board.h"
 #include "bridge_tx.h"
 #include "lvgl.h"
+#include "renogy_solar_protocol.h"   /* RENOGY_CHARGE_* for the fake sweep */
 #include "rvc_protocol.h"
 #include "state_manager.h"
 #include "twai_tasks.h"
@@ -278,6 +279,58 @@ static void shore_power_timer_cb(lv_timer_t *t)
     ui_on_shore_power(&sp);
 }
 
+/*
+ * Fakes the Renogy MPPT telemetry the basement proxy broadcasts, so the
+ * solar readout is reviewable without a controller (or the proxy) present.
+ *
+ * Sweeps through a plausible day rather than sitting on one value: PV output
+ * rises and falls, and the charging state follows it (boost while there is
+ * real current, float once it tails off, off in the dark). That is what
+ * exercises the state colouring and the "0 W because it is dark" vs "0 W
+ * because it is full" distinction the widget exists to show.
+ *
+ * SIM_SOLAR_START_TICK=<n> jumps the sweep to a chosen point -- same trick
+ * and same reason as SIM_TANK_START_TICK, since a --shot capture only runs
+ * about 2 s of real time and would never reach the dark end naturally.
+ */
+static void solar_sweep_timer_cb(lv_timer_t *t)
+{
+    (void)t;
+    static uint32_t tick = UINT32_MAX;
+    if (tick == UINT32_MAX) {
+        const char *env = getenv("SIM_SOLAR_START_TICK");
+        tick = (env != NULL) ? (uint32_t)atoi(env) : 0;
+    }
+    tick++;
+
+    /* 0..100..0 over the cycle: a day's arc, compressed. */
+    const uint32_t phase = tick % 120u;
+    const float frac = (phase < 60u) ? (float)phase / 60.0f
+                                     : (float)(120u - phase) / 60.0f;
+
+    ui_solar_status_t sol = {
+        .online            = true,
+        .battery_soc       = 100,
+        .battery_volts     = 13.2f + frac * 1.5f,
+        .pv_volts          = frac > 0.02f ? 17.0f + frac * 4.0f : 0.0f,
+        .pv_amps           = frac * 5.2f,
+        .temp_valid        = true,
+        .controller_temp_f = 95.0f + frac * 30.0f,
+        .battery_temp_f    = 88.0f + frac * 20.0f,
+    };
+    sol.pv_watts = sol.pv_volts * sol.pv_amps;
+
+    if (sol.pv_amps > 2.0f) {
+        sol.charge_state = RENOGY_CHARGE_BOOST;
+    } else if (sol.pv_amps > 0.1f) {
+        sol.charge_state = RENOGY_CHARGE_FLOATING;
+    } else {
+        sol.charge_state = RENOGY_CHARGE_DEACTIVATED;
+    }
+
+    ui_on_solar_status(&sol);
+}
+
 /* Called from main_sim to make the screen look alive at startup. */
 void sim_seed_demo_state(void)
 {
@@ -294,4 +347,5 @@ void sim_seed_demo_state(void)
     lv_timer_create(tank_sweep_timer_cb, 500, NULL);
     lv_timer_create(battery_sweep_timer_cb, 500, NULL);
     lv_timer_create(shore_power_timer_cb, 500, NULL);
+    lv_timer_create(solar_sweep_timer_cb, 500, NULL);
 }

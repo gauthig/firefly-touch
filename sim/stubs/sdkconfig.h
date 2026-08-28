@@ -22,3 +22,6 @@
  * at the firmware default so the sim ages packs out on the same schedule
  * the hardware does. */
 #define CONFIG_FIREFLY_BATTERY_POLL_INTERVAL_MS 30000
+/* ui.c derives its solar staleness window (3x) from this, the same way
+ * it does for the battery packs. */
+#define CONFIG_FIREFLY_SOLAR_BROADCAST_INTERVAL_MS 30000

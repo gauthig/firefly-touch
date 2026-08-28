@@ -212,6 +212,32 @@ enqueuing locally, and status arrives the same way in reverse (see below).
   and records the app-ID allocation for the third. Any new BLE client goes
   through it — never call `esp_ble_gap_register_callback()` /
   `esp_ble_gattc_register_callback()` directly.
+  As of issue #51 it also **arbitrates the single GAP scan**: there is one
+  scan per node, and both the Watchdog and the solar controller discover by
+  advertised name. Clients register a matcher
+  (`ble_host_scan_add_matcher()`) plus a found-callback and ask for scanning
+  with `ble_host_scan_want()`; nobody calls `esp_ble_gap_start_scanning()`
+  directly. The found-callback fires once scanning has actually **stopped**,
+  which is what makes it safe to open a connection from it.
+- `components/renogy_solar` — Renogy MPPT charge controller (issue #52).
+  Same pure-C-codec / ESP-client split as `jbd_bms`:
+  `renogy_solar_protocol.c` is host-testable (`host_test/`) and
+  `renogy_solar_client.c` is Bluedroid-only.
+  ⚠️ **The controller has no radio.** The BT-1/BT-2 module is a transparent
+  BLE-to-RS485 bridge, so this speaks plain **Modbus RTU** — not a vendor
+  frame format like JBD's or the Watchdog's. Don't go looking for one.
+  ⚠️ **Name matching is EXACT, not a prefix** (the opposite of
+  `hughes_wd_name_matches()`, and deliberately so). A neighbouring rig's
+  Renogy module advertises the same `BT-TH-` prefix, and connecting to it
+  gives a perfectly healthy-looking link reporting somebody else's solar.
+  Trailing whitespace is ignored because the module pads its advertised name
+  to a fixed width (this coach's sends four trailing spaces). An empty name
+  falls back to prefix matching, for first bring-up only.
+  ⚠️ **A wrong Modbus device id produces SILENCE, not an error**, so the
+  client probes the known candidates (255 stand-alone, 16/17 daisy-chained,
+  96/97 Communication-Hub) and logs whichever answers. Pin it afterwards.
+  Bench-verified on the coach 2026-08-28: the proxy holds **five** BLE links
+  at once (3 packs + Watchdog + solar).
 
 ## ESP-NOW remote-panel bridge
 
@@ -1106,6 +1132,35 @@ Hard-won during setup — check here before re-debugging:
 - **LVGL's default 64 KB internal heap is too small for `lv_snapshot_take()`**
   on an 800×480 screen. The simulator's `lv_conf.h` sets
   `LV_USE_STDLIB_MALLOC = LV_STDLIB_CLIB`; the firmware keeps LVGL's allocator.
+- ⚠️ **That same 64 KB pool is a hard ceiling on how much UI a panel can
+  carry, and overrunning it does not fail cleanly** (2026-08-28).
+  `LV_MEM_POOL_EXPAND_SIZE` is 0, so the pool cannot grow; when it fills,
+  LVGL's renderer spins on the failed allocation. `main_cabinet`'s four
+  screens needed 78 KB to build the UI and peaked at 88 KB rendering — it
+  booted anyway (much of the cost is lazy, incurred as each screen is first
+  drawn) and then wedged after ~7 nav-rail taps.
+  **It presented as three unrelated faults**: `esp_lvgl_port` holds its lock
+  across all of `lv_timer_handler()`, so the stuck renderer also blocked the
+  ESP-NOW rx task and blanked the battery/shore readouts, while the task
+  watchdog only reported `taskLVGL` pegging CPU 1. If a panel ever freezes
+  needing a manual reboot, suspect this first.
+  `sdkconfig.defaults` now sets `CONFIG_LV_MEM_SIZE_KILOBYTES=128`.
+  ⚠️ **IDF applies `sdkconfig.defaults` only when an `sdkconfig` does not yet
+  exist**, so every existing `build_<panel>/sdkconfig` must be edited **in
+  place** — regenerating one wipes its real ESP-NOW peer MAC and battery
+  MACs. As of 2026-08-28 only `main_cabinet` and `bedroom_remote` have been
+  raised and reflashed; `mid_coach` and `ent_center` are still on 64 KB.
+  Per-device budgets: [docs/SYSTEM.md](docs/SYSTEM.md) → *Memory budget*.
+- ⚠️ **The simulator cannot reproduce that class of bug by default**, because
+  its allocator is unbounded CLIB. To reproduce one, temporarily set
+  `sim/lv_conf.h` to `LV_STDLIB_BUILTIN` with a matching `LV_MEM_SIZE` plus
+  `LV_USE_LOG 1` / `LV_LOG_PRINTF 1`, and replay the steps with
+  `--shot out.bmp "section:A,B,C,..."` — the comma-separated form is a tap
+  **sequence**, which is what reproduces a cumulative failure. Failure shows
+  as `lv_realloc: couldn't reallocate memory` then a hang. A
+  `lv_mem_monitor()` print per tap separates a leak (growing `used`) from a
+  too-large baseline (flat `used`). Revert both files afterwards — they are
+  committed sources, not scratch.
 - **The simulator needs `managed_components/` populated**, so run one
   `idf.py build` on a fresh clone before building `sim/`.
 - Long ESP-IDF operations (clone, `install.ps1`, first build) take many

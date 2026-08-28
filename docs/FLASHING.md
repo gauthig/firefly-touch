@@ -257,9 +257,10 @@ but cannot exercise the real ESP-NOW link — no radio in a PC build.
 A **separate ESP-IDF project** (`proxy/`) on a **classic ESP32**, not an
 ESP32-S3 — different target, different sdkconfig, and a genuinely different
 BLE API in places (see `CLAUDE.md` → *Chip portability trap*). It holds every
-BLE link in the coach: the three Vatrer/JBD battery packs and the Hughes
-Power Watchdog, all of which sit in the same bay it does. It has no display
-and no CAN wiring; it only broadcasts.
+BLE link in the coach: the three Vatrer/JBD battery packs, the Hughes
+Power Watchdog and the Renogy MPPT solar charge controller, all of which sit
+in the same bay it does. It has no display and no CAN wiring; it only
+broadcasts.
 
 It uses a CP210x USB bridge, so it auto-resets — **no BOOT/RESET button
 dance needed**, unlike the panels.
@@ -278,6 +279,23 @@ Under *Firefly BLE Proxy*, set:
 | `FIREFLY_BATTERY_1_MAC` / `_2_MAC` / `_3_MAC` | each pack's BLE MAC |
 | `FIREFLY_BATTERY_POLL_INTERVAL_MS` | 30000 (floor is 20000 — see below) |
 | `FIREFLY_WD_ENABLED` | `y` |
+| `FIREFLY_SOLAR_ENABLED` | `y` |
+| `FIREFLY_SOLAR_NAME` | the module's **exact** advertised name, e.g. `BT-TH-B00E7B91` |
+| `FIREFLY_SOLAR_MAC` | optional; leave at `00:00:00:00:00:00` to discover by name |
+| `FIREFLY_SOLAR_DEVICE_ID` | 255 for a stand-alone controller |
+| `FIREFLY_SOLAR_POLL_INTERVAL_MS` | 30000 |
+
+⚠️ **Match the solar module's exact name, not the `BT-TH-` prefix.** In a
+campground a neighbouring rig's Renogy module advertises the same prefix, and
+connecting to it yields a perfectly healthy-looking link reporting somebody
+else's solar. Trailing whitespace is ignored on purpose — this coach's module
+pads its name with four trailing spaces. Leaving the name empty falls back to
+prefix matching, which is for first bring-up only.
+
+A wrong `FIREFLY_SOLAR_DEVICE_ID` produces **silence, not an error**, so the
+client probes the other known addresses (16/17 daisy-chained, 96/97 for
+Communication-Hub wiring) and logs whichever answers. Set it to that value
+afterwards to skip the probing on later boots.
 
 Find a pack's MAC with a phone BLE scanner (e.g. nRF Connect) — look for the
 Xiaoxiang/JBD module's advertised name. A slot left at `00:00:00:00:00:00`
@@ -291,9 +309,16 @@ The proxy needs no peer MAC and no keys — it broadcasts, and ESP-NOW cannot
 encrypt broadcast frames at all. That is acceptable only because everything
 it sends is read-only telemetry; commands stay on the encrypted unicast link.
 
-Verify from its serial log: it prints one battery line per configured pack
-and one Watchdog line roughly every 30 s. `battery N: offline` means that
-pack is configured but not answering — the panel will show it that way too.
+Verify from its serial log: it prints one battery line per configured pack,
+one Watchdog line and one solar line roughly every 30 s. `battery N: offline`
+means that pack is configured but not answering — the panel will show it that
+way too, and `solar: offline` reads the same.
+
+⚠️ On the bench, away from the coach, **every one of those reads offline** and
+the battery packs' connect attempts time out at ~30 s each with `status 133` /
+`reason 0x100`. That is expected, not a fault. A bench boot can prove the image
+boots, every GATTC app registers, ESP-NOW comes up on the right channel and the
+shared scan starts — nothing more. Real readings need the coach.
 
 ## If the board will not enter download mode
 

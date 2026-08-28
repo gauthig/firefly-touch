@@ -44,6 +44,13 @@ typedef enum {
                                   relayed from the basement proxy): Line 1 / Line 2
                                   volts, amps, frequency and watts. Takes no instances */
     /*
+     * Read-only Renogy MPPT solar readout, relayed from the basement proxy
+     * the same way shore power is: PV watts/volts/amps, battery volts, and
+     * controller/battery temperature in F. Takes no instances -- the
+     * controller is a BLE peer, not an RV-C node.
+     */
+    PANEL_BTN_SOLAR,
+    /*
      * Purely local two-state button: shows `label` when off and `label_alt`
      * when on, and sends NOTHING to the bus. Used for controls whose real
      * actuation isn't built yet (the grey/black dump valves and the

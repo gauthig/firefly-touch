@@ -43,8 +43,12 @@ add_executable(sim
     ${REPO}/components/ui_common/ui_tank_wave.c
     ${REPO}/components/ui_common/ui_battery_summary.c
     ${REPO}/components/ui_common/ui_shore_panel.c
+    ${REPO}/components/ui_common/ui_solar_panel.c
     ${REPO}/components/rvc_protocol/rvc_protocol.c
     ${REPO}/components/jbd_bms/jbd_bms_protocol.c
+    # The Renogy CODEC only -- renogy_solar_client.c is ESP/Bluedroid and has
+    # no place here, same split as jbd_bms above.
+    ${REPO}/components/renogy_solar/renogy_solar_protocol.c
 )
 # Order matters: stubs/ must shadow the real ESP headers in main/.
 target_include_directories(sim PRIVATE
@@ -55,6 +59,7 @@ target_include_directories(sim PRIVATE
     ${REPO}/components/ui_common/include
     ${REPO}/components/rvc_protocol/include
     ${REPO}/components/jbd_bms/include
+    ${REPO}/components/renogy_solar/include
 )
 target_compile_definitions(sim PRIVATE
     PANEL_CONFIG_HEADER="${PANEL}.h"

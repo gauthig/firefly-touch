@@ -118,4 +118,86 @@ menu "Firefly BLE Proxy"
             Scan for and subscribe to a Gen 1 (Bluetooth-only) Power
             Watchdog, and broadcast its per-line volts/amps/watts.
 
+    config FIREFLY_SOLAR_ENABLED
+        bool "Connect to a Renogy MPPT charge controller"
+        default y
+        help
+            Hold a BLE link to a Renogy solar charge controller through its
+            BT-1/BT-2 module and broadcast battery volts, PV current and
+            power, and temperatures.
+
+            The controller has no radio of its own: the BT-2 is a
+            transparent BLE-to-RS485 bridge, so this speaks plain Modbus RTU
+            rather than a vendor frame format. See
+            components/renogy_solar/include/renogy_solar_protocol.h.
+
+    config FIREFLY_SOLAR_NAME
+        string "Renogy module BLE advertised name"
+        depends on FIREFLY_SOLAR_ENABLED
+        default "BT-TH-B00E7B91"
+        help
+            Exact advertised name of the BT-1/BT-2 module, e.g.
+            BT-TH-B00E7B91. Enter it as printed on the device -- trailing
+            whitespace is ignored when matching, because the module pads its
+            advertised name to a fixed width (this coach's sends
+            "BT-TH-B00E7B91    ", four trailing spaces).
+
+            Matching the exact name rather than the generic "BT-TH-" prefix
+            matters in a campground: a neighbouring rig's Renogy module
+            advertises the same prefix, and connecting to it would produce a
+            perfectly healthy-looking link reporting somebody else's solar.
+
+            Leave EMPTY to fall back to matching any known Renogy prefix --
+            useful for a first bring-up when the name is not known yet, since
+            the client logs whatever it finds.
+
+    config FIREFLY_SOLAR_MAC
+        string "Renogy module BLE MAC (optional override)"
+        depends on FIREFLY_SOLAR_ENABLED
+        default "00:00:00:00:00:00"
+        help
+            Optional. Set a real address to connect directly and skip
+            discovery entirely, the way the battery packs do.
+
+            The all-zero placeholder means "not set": discover by name
+            instead. Worth pinning once the address is known from the log --
+            it removes the scan, and with it the only part of bring-up that
+            depends on the module happening to advertise at the right moment.
+
+    config FIREFLY_SOLAR_DEVICE_ID
+        int "Modbus device id of the charge controller"
+        depends on FIREFLY_SOLAR_ENABLED
+        default 255
+        range 1 255
+        help
+            The RS485 address the controller answers on behind the BT-2.
+            255 is the broadcast address and is what a stand-alone
+            controller responds to; daisy-chained wiring uses 16/17 and
+            Communication-Hub wiring 96/97.
+
+            A wrong value produces SILENCE, not an error -- so the client
+            does not simply sit there: after a couple of unanswered polls it
+            moves to the next known candidate and logs the one that finally
+            answers. Set this to that value afterwards to skip the probing on
+            every later boot.
+
+    config FIREFLY_SOLAR_POLL_INTERVAL_MS
+        int "Solar poll / broadcast interval (ms)"
+        depends on FIREFLY_SOLAR_ENABLED
+        default 30000
+        range 5000 600000
+        help
+            How often the controller is asked for a fresh reading, and
+            therefore how often its values are re-broadcast.
+
+            No JBD-style vendor limitation applies here -- Modbus polling is
+            what these controllers are built for -- but there is nothing to
+            gain from polling a charge controller faster than the batteries:
+            it shares the radio with four other BLE links plus ESP-NOW.
+
+            Note renogy_solar_client.c DERIVES its staleness window from this
+            value (3x) rather than hardcoding one. Hardcoding it is what made
+            every battery pack read as permanently offline when the JBD poll
+            interval moved to 30 s.
+
 endmenu

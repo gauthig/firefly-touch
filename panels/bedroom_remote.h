@@ -63,9 +63,17 @@ static const panel_btn_def_t PANEL_BUTTONS[] = {
  * presents it. Tapping the readout reveals per-pack detail (MAC, SOC, volts,
  * amps, temp) for telling which physical pack is which. The summary takes no
  * instances: it aggregates every configured battery slot itself.
+ *
+ * The Renogy MPPT readout sits underneath it, on the same screen rather than
+ * a screen of its own: solar is what is PUTTING energy into that bank, so
+ * the two belong side by side — seeing 74 W coming in above a bank that says
+ * "Fully Charged In 3h" is the whole story in one glance. build_screen2_row()
+ * stacks them (two full-width readouts can't share a 480 px row) and gives
+ * the bank whatever height the solar strip does not take.
  */
 static const panel_btn_def_t PANEL_BUTTONS_2[] = {
     { .label = "BANK", .type = PANEL_BTN_BATTERY_SUMMARY, .instances = {0}, .instance_count = 0 },
+    { .label = "SOLAR", .type = PANEL_BTN_SOLAR, .instances = {0}, .instance_count = 0 },
     { .label = "BACK", .type = PANEL_BTN_SCREEN_SWITCH, .instances = {0}, .instance_count = 1 },
 };
 

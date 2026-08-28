@@ -18,8 +18,14 @@
  * can stay on screen 0 where build_button_grid() handles it):
  *
  *   POWER  -> screen 1   battery bank + shore power   (PANEL_DEFAULT_SCREEN)
+ *   SOLAR  -> screen 3   Renogy MPPT readout
  *   TANKS  -> screen 2   fresh/grey/black + valves
  *   LIGHTS -> screen 0   the button grid
+ *
+ * SOLAR is its own section rather than a third card on POWER: the simulator
+ * shows POWER is already full at 800x480 minus the rail, and the battery
+ * bank's SOC arc alone is 210 px wide. A rail panel pays nothing for another
+ * section, since the rail navigates by target screen, not by position.
  *
  * Instances come from docs/instance_map.yaml. Loads it lists as `switch`
  * (cargo, both awnings, the hitch pair) are PANEL_BTN_SWITCH here rather
@@ -42,6 +48,7 @@
 
 #define PANEL_HAS_SCREEN_2 1
 #define PANEL_HAS_SCREEN_3 1
+#define PANEL_HAS_SCREEN_4 1
 #define PANEL_HAS_NAV_RAIL 1
 #define PANEL_DEFAULT_SCREEN 1   /* boot into POWER */
 #define PANEL_GRID_COLS 3        /* 800 px wide minus the rail fits three */
@@ -52,6 +59,7 @@
  */
 static const panel_btn_def_t PANEL_NAV_RAIL[] = {
     { .label = "POWER", .type = PANEL_BTN_SCREEN_SWITCH, .instances = {1}, .instance_count = 1 },
+    { .label = "SOLAR", .type = PANEL_BTN_SCREEN_SWITCH, .instances = {3}, .instance_count = 1 },
     { .label = "TANKS", .type = PANEL_BTN_SCREEN_SWITCH, .instances = {2}, .instance_count = 1 },
     { .label = "LIGHTS", .type = PANEL_BTN_SCREEN_SWITCH, .instances = {0}, .instance_count = 1 },
 };
@@ -121,3 +129,19 @@ static const panel_btn_def_t PANEL_BUTTONS_3[] = {
 };
 
 #define PANEL_BUTTON_COUNT_3 (sizeof(PANEL_BUTTONS_3) / sizeof(PANEL_BUTTONS_3[0]))
+
+/*
+ * Screen 3 — SOLAR. The Renogy MPPT charge controller: PV watts/volts/amps,
+ * battery volts, and controller/battery temperature in F, with the charging
+ * state (mppt / boost / float) in the header.
+ *
+ * Arrives as an ESP-NOW broadcast from the basement proxy, which holds the
+ * BLE link to the controller's BT-2 module — this panel has no link to it
+ * and needs none, exactly like the battery bank and shore power above.
+ * Takes no instances: the controller is a BLE peer, not an RV-C node.
+ */
+static const panel_btn_def_t PANEL_BUTTONS_4[] = {
+    { .label = "SOLAR", .type = PANEL_BTN_SOLAR, .instances = {0}, .instance_count = 0 },
+};
+
+#define PANEL_BUTTON_COUNT_4 (sizeof(PANEL_BUTTONS_4) / sizeof(PANEL_BUTTONS_4[0]))
