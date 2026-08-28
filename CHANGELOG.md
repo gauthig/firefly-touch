@@ -13,6 +13,58 @@ the full UI are verified on both the plain ESP32-S3-Touch-LCD-4.3 (bench,
 command-code/interlock bugs below. Hold-to-dim, the rest of the instance
 map, and the other items in *Unverified* below are still unconfirmed.
 
+### Added — MID COACH gains battery, solar, shore power and valve controls (2026-08-28)
+
+Issues #57 and #55. **Coach-verified 2026-08-28.**
+
+- **Screen 1 is now a 2×5 grid**, which is what shrank the buttons —
+  `build_button_grid()` derives its row count from the button count, so going
+  from 8 entries to 10 re-sized it with no layout code change. The seven light
+  buttons and TANK LEVELS kept their cells; BATTERY and SHORE POWER are the
+  new bottom row.
+- **Two new screens**: the combined battery bank with the solar strip stacked
+  beneath it (same as `bedroom_remote`), and Line 1 / Line 2 shore power.
+- **Tank screen gains the three dump-valve controls** from `main_cabinet` —
+  GREY/BLACK CLOSED↔OPEN and GRAVITY↔MACERATOR. As there, they are
+  `PANEL_BTN_LOCAL_TOGGLE`: they flip their caption and **send nothing**,
+  because the valves' actuation is not built yet.
+- ⚠️ **Nav buttons now carry explicit targets.** TANK LEVELS used
+  `instance_count = 0`, meaning "toggle between screen 0 and 1" — which only
+  works when those are the only two screens.
+
+**`main.c`: the bridge never registered the telemetry callback.** The role
+chain is `#if PANEL_IS_BRIDGE … #elif !PANEL_HAS_CAN … #elif
+PANEL_WANTS_TELEMETRY`, so the bridge branch never reached
+`espnow_link_set_telem_rx_cb()`. Being the bridge grants no access to the
+proxy's BLE data — it arrives as an ordinary broadcast — so both new screens
+would have sat at `--` forever. The broadcast peer is registered for every
+role, so the frames were already arriving with nowhere to go.
+
+**`build_screen2_row()` gained an action row**, gated on there being any
+action buttons. Six items across a 480 px portrait row would squash the
+gauges to nothing. ⚠️ The gate matters: every secondary screen on the three
+installed panels has `action_n == 0` and takes the identical path it always
+did, which was verified by capture rather than by reading.
+
+### Fixed — battery bank readout never updated off screen 2 (2026-08-28)
+
+`battery_status_timer_cb()` swept `s_buttons_2[]` / `PANEL_BUTTON_COUNT_2`
+only, silently assuming the bank readout lives on screen 2 — true while
+`bedroom_remote` was the only panel with one. With the bank on `mid_coach`'s
+screen 3 it built correctly and then never updated: `--` forever, nothing
+logged. The shore and solar timers already swept `s_screens[]`; this one had
+never been converted.
+
+Caught because the simulator's battery screen stayed blank while shore
+populated — same cache-then-repaint path, so it could not have been a timing
+artifact.
+
+Also: `PANEL_BTN_LOCAL_TOGGLE` labels now wrap instead of spilling past the
+button edge. They carry the longest captions on any panel ("BLACK CLOSED")
+and are the only ones whose text changes at runtime, so a caption that fits
+in one phrasing can overflow in the other. Scoped to that one type —
+`main_cabinet`'s 800 px grid still renders them on one line, unchanged.
+
 ### Added — Renogy MPPT solar monitoring (2026-08-28)
 
 Issues #51–#53. The solar charge controller joins the batteries and the

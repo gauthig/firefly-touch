@@ -27,21 +27,45 @@ a hidden widget can't be hit-tested, so the section has to be opened first.
 
 ## `mid_coach` — "MID COACH"
 
-Replaces the Entegra SW2-E8 panel. CAN-connected, and the ESP-NOW bridge for
-the remote panels.
+Replaces the Entegra SW2-E8 panel. CAN-connected, the ESP-NOW bridge for the
+remote panels, and — since issue #57 — a display for the proxy's telemetry
+too. Four screens.
 
 | Lights | Tank levels |
 |---|---|
 | ![mid_coach lights](images/mid-coach-lights.png) | ![mid_coach tanks](images/mid-coach-tanks.png) |
 
-Left: the main 2×4 button grid. A lit button means a `DC_DIMMER_STATUS_3`
-frame from the bus says that load is on — never that you pressed it. The
-amber bar is the reported brightness level.
+| Battery bank | Shore power |
+|---|---|
+| ![mid_coach battery](images/mid-coach-battery.png) | ![mid_coach shore](images/mid-coach-shore.png) |
 
-Right: screen 2, fed by the Garnet SeeLevel II over `TANK_STATUS`. The
-status bar carries a Grey/Black summary that turns amber at 80 % and blinks
-red at 89 %, where it also pins the backlight on — a "go empty the tank"
-alert should not dim out of view.
+**Lights.** A 2×5 grid. A lit button means a `DC_DIMMER_STATUS_3` frame from
+the bus says that load is on — never that you pressed it. The amber bar is
+the reported brightness level. The bottom row navigates to the two telemetry
+screens; the buttons are smaller than they used to be simply because
+`build_button_grid()` derives its row count from the button count, so going
+from 8 entries to 10 re-sized the grid on its own.
+
+**Tank levels**, fed by the Garnet SeeLevel II over `TANK_STATUS`. The status
+bar carries a Grey/Black summary that turns amber at 80 % and blinks red at
+89 %, where it also pins the backlight on — a "go empty the tank" alert
+should not dim out of view.
+
+⚠️ The three controls beneath the gauges are **deliberately inert**, exactly
+as on `main_cabinet`: they flip their own caption and send nothing. The dump
+valves and the gravity/macerator selector aren't wired yet; the control
+surface is here so the layout is settled when they are. State is in memory
+only, so it shows what someone last tapped rather than what the valve is
+doing, and it does not survive a reboot. They are coloured like any other
+on-state rather than with the warn colour on purpose — an alarm colour on a
+button that actuates nothing would announce an open dump valve that does not
+exist.
+
+**Battery bank and shore power** arrive as ESP-NOW broadcasts from the
+basement proxy. Being the bridge grants no special access to that data: it is
+an ordinary broadcast, and `main.c` had to start registering the telemetry
+callback for the bridge role before either screen could populate. The bank
+carries the solar strip beneath it, same as `bedroom_remote`.
 
 ---
 

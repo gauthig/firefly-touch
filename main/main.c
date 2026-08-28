@@ -51,7 +51,7 @@ static void remote_status_rx(const espnow_status_msg_t *msg, void *ctx)
 }
 #endif
 
-#if !PANEL_HAS_CAN || PANEL_WANTS_TELEMETRY
+#if !PANEL_HAS_CAN || PANEL_WANTS_TELEMETRY || PANEL_IS_BRIDGE
 /*
  * Read-only telemetry broadcast by some other node — the basement BLE proxy
  * (shore power) or the bridge panel (tank levels). Unlike status frames
@@ -69,6 +69,12 @@ static void remote_status_rx(const espnow_status_msg_t *msg, void *ctx)
  * having its own bus. Such a panel gets tank readings from both CAN and
  * these broadcasts; they carry the same numbers, so whichever arrives last
  * simply wins.
+ *
+ * And by the BRIDGE, for the same reason (issue #57). Being the bridge
+ * grants no access to the proxy's BLE data — that arrives as an ordinary
+ * broadcast like it does anywhere else. The bridge is additionally the tank
+ * telemetry PRODUCER, so it may now see tank frames it broadcast itself;
+ * that is harmless for exactly the reason above, the numbers are identical.
  */
 static void remote_telem_rx(const espnow_telem_msg_t *msg, void *ctx)
 {
@@ -225,6 +231,11 @@ void app_main(void)
 #if PANEL_IS_BRIDGE
     ESP_ERROR_CHECK(espnow_link_init(ESPNOW_ROLE_BRIDGE));
     espnow_link_set_cmd_rx_cb(bridge_cmd_rx, NULL);
+    /* The bridge listens to the broadcast channel too, for the battery bank
+     * and shore power that exist only on the proxy's BLE links. The
+     * broadcast peer is registered for every role, so these frames were
+     * already arriving — they just had nowhere to go until now. */
+    espnow_link_set_telem_rx_cb(remote_telem_rx, NULL);
     state_manager_register_status_sink(bridge_forward_status, NULL);
     TimerHandle_t resync_timer = xTimerCreate(
         "espnow_resync", pdMS_TO_TICKS(ESPNOW_RESYNC_PERIOD_MS), pdTRUE, NULL,
