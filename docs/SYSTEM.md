@@ -22,7 +22,7 @@ graph TB
     MID["<b>mid_coach</b> · 0x80<br/>ESP32-S3 panel<br/><i>CAN + ESP-NOW bridge</i>"]
     ENT["<b>ent_center</b> · 0x81<br/>ESP32-S3 panel<br/><i>CAN only</i>"]
     BED["<b>bedroom_remote</b> · 0x82<br/>ESP32-S3 panel<br/><i>no CAN wiring</i>"]
-    MAIN["<b>main_cabinet</b> · 0x83<br/>ESP32-S3 7\" panel<br/><i>CAN + listens to broadcasts</i>"]
+    MAIN["<b>main_cabinet</b> · 0x83<br/>ESP32-S3 7-inch panel<br/><i>CAN + listens to broadcasts</i>"]
     PROXY["<b>Bluetooth proxy basement</b><br/>classic ESP32 · headless<br/><i>in the bay</i>"]
 
     subgraph bay["Basement bay"]
@@ -123,7 +123,7 @@ build of each, 2026-08-28.
 |---|---|---|---|---|
 | `main_cabinet` | 1,280,352 B (1.22 MiB) | 4 MiB | 30.5 % | 2.78 MiB |
 | `mid_coach` | 1,282,144 B (1.22 MiB) | 4 MiB | 30.6 % | 2.78 MiB |
-| `bedroom_remote` | 1,273,456 B (1.21 MiB) | 4 MiB | 30.4 % | 2.79 MiB |
+| `bedroom_remote` | 1,273,472 B (1.21 MiB) | 4 MiB | 30.4 % | 2.79 MiB |
 | `ent_center` | 739,248 B (0.71 MiB) | 4 MiB | 17.6 % | 3.30 MiB |
 | Bluetooth proxy basement | 1,125,760 B (1.07 MiB) | 3 MiB | 35.8 % | 1.93 MiB |
 
@@ -147,9 +147,19 @@ Measured on hardware from the boot log, `main_cabinet` on 2026-08-28 with the
 | `ent_center` | not measured | — | 8 MiB fitted |
 | Bluetooth proxy basement | not measured | — | **none fitted** |
 
-Only `main_cabinet` has been measured since the LVGL change; the others are
-left blank rather than guessed. Capture the `heap_init` lines from each
-board's boot log when it is next flashed.
+Only `main_cabinet` has been measured; the others are left blank rather than
+guessed. For reference, raising its LVGL pool by 64 KiB moved its internal
+heap from 256 KiB to 192 KiB — the pool is carved straight out of internal
+RAM, so the cost is exactly the size of the increase.
+
+⚠️ **Reading a panel's boot log needs its UART port, not its USB port.** The
+console is on UART0 (GPIO43/44), which on the 4.3B is the CH343 **UART**
+USB-C connector; the native USB port enumerates and flashes fine but carries
+no console, so a capture there is silent and looks like a dead board. (On
+`main_cabinet`, the 7", CAN is muxed onto the native USB pins anyway, so its
+CH343 port is the only option.) `bedroom_remote` was flashed over its native
+USB port, which is why its row is still blank. Capture the `heap_init` lines
+over UART next time any board is connected.
 
 ⚠️ The proxy has **no PSRAM at all**, so its BLE + WiFi stacks and five GATTC
 connections come entirely out of internal RAM. It is the node with the least
@@ -164,8 +174,10 @@ failed allocation instead of failing cleanly.
 
 | Panel | LVGL pool | Measured peak | Headroom |
 |---|---|---|---|
-| `main_cabinet` | 128 KiB | 87.9 KiB | ~40 KiB |
-| others | 64 KiB (LVGL's Kconfig default) | not measured | unknown |
+| `main_cabinet` | 128 KiB | 87,848 B | ~43 KiB |
+| `bedroom_remote` | 128 KiB | 66,088 B | ~65 KiB |
+| `mid_coach` | **64 KiB** (issue #55) | not measured | unknown |
+| `ent_center` | **64 KiB** (issue #56) | not measured | unknown |
 
 `main_cabinet` overran the 64 KiB default: its four screens cost 78 KiB just to
 build the UI and peaked at 88 KiB while rendering. It still booted — much of
@@ -187,8 +199,17 @@ panel, at a cost of 64 KiB of internal RAM each.
 > comma-separated form is a tap *sequence*. Revert both files afterwards.
 
 > ⚠️ Any panel gaining a screen or a full-width readout should have its peak
-> re-measured. `bedroom_remote` is the one to watch: it now carries the solar
-> readout stacked under the battery bank and is still built at 64 KiB.
+> re-measured. `bedroom_remote` overran the old cap by only ~550 bytes once
+> it gained the stacked solar readout — enough to matter, small enough that
+> nothing but a measurement would have caught it.
+
+⚠️ **`mid_coach` and `ent_center` are still on 64 KiB** and have not been
+reflashed — tracked as issues #55 and #56. `sdkconfig.defaults` does not
+reach them: IDF applies defaults only when an `sdkconfig` does not already
+exist, so each build dir must be edited **in place** (regenerating wipes the
+real ESP-NOW peer MAC and battery MACs). Neither is in immediate danger —
+`mid_coach` has one secondary screen and `ent_center` has none — but neither
+peak has been measured.
 
 ## Communication paths
 

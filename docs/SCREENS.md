@@ -56,8 +56,8 @@ Replaces the Entegra SW4-E1 panel. CAN-connected, lights only.
 ## `bedroom_remote` — "BED REMOTE"
 
 No CAN wiring and no BLE. Relays button presses to `mid_coach` over ESP-NOW;
-everything else on this panel — battery bank, shore power — arrives as
-ESP-NOW broadcasts from the basement proxy, which holds those BLE links.
+everything else on this panel — battery bank, solar, shore power — arrives
+as ESP-NOW broadcasts from the basement proxy, which holds those BLE links.
 Three screens.
 
 | Lights | Battery bank | Shore power |
@@ -76,6 +76,12 @@ drops off. Aggregation happens on the panel (`jbd_bms_combine()`) from
 per-pack broadcasts, not on the proxy — there is no bank-level reading to
 fetch from a BMS, and keeping the combining in one host-tested place is what
 lets the per-pack detail popup stay honest.
+
+**Solar shares that screen**, stacked underneath the bank rather than beside
+it: the SOC arc alone is 210 px wide on a 480 px-wide portrait panel, so a
+side-by-side row would squeeze both into uselessness. The solar strip takes a
+fixed height and the bank keeps the rest. Same six readings as the 7" panel's
+own SOLAR section below, in a tighter 3×2 grid.
 
 **Shore power.** Line 1 / Line 2 volts, amps, frequency and watts, laid out
 like the Hughes Autoformers phone app. Data arrives as an ESP-NOW broadcast
@@ -103,8 +109,9 @@ the sections and the selected one fills the rest of the screen, instead of
 the whole-screen swap the 4.3B panels use. It boots into POWER.
 
 Hardwired to the RV-C bus, and additionally listens to the ESP-NOW broadcast
-channel — the battery packs and the Power Watchdog are on BLE links held by
-the basement proxy, which no amount of CAN wiring reaches.
+channel — the battery packs, the Power Watchdog and the solar charge
+controller are on BLE links held by the basement proxy, which no amount of
+CAN wiring reaches.
 
 ### Power (the default section)
 
@@ -112,6 +119,33 @@ Battery bank and shore power side by side: everything you'd want to know
 about the coach's electrical state without touching anything.
 
 ![main cabinet power](images/main-cabinet-power.png)
+
+### Solar
+
+The Renogy MPPT charge controller, read over BLE by the basement proxy and
+broadcast. PV watts, volts and amps on the top row; battery volts and the
+controller/battery temperatures beneath.
+
+![main cabinet solar](images/main-cabinet-solar.png)
+
+The charge state sits top-right (`float` here; also `mppt`, `boost`,
+`equalize`, `current-limit`, `on`, `off`). It earns its place because a bare
+wattage cannot distinguish **0 W because it is dark** from **0 W because the
+battery is already full** — the first is night, the second is a healthy
+array with nothing left to do.
+
+PV amps carry two decimals where everything else carries one: near dawn and
+dusk the whole reading lives below 1 A, where a single decimal would round a
+real trickle to a flat `0.00`. Temperatures are °F, converted **on the
+proxy** rather than here — one producer and several consumers, so converting
+once at the source is the only arrangement in which two panels cannot
+disagree about units.
+
+Solar gets its own rail section rather than a third card on POWER because
+the simulator showed POWER is genuinely out of room: the battery bank's SOC
+arc alone is 210 px and the content pane is under 700. A side-nav panel pays
+nothing for another section — the rail navigates by target screen, not by
+position.
 
 ### Tanks
 
