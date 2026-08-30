@@ -9,6 +9,10 @@ controller) are reached over BLE by the node physically closest to them — all
 three live in the basement bay, so all three are held by the proxy sitting in
 that bay — then re-broadcast to everyone else.
 
+The same principle puts the dump valves on their own node: they are wired in
+the bay, not on the RV-C bus, so a relay board in the bay drives them and
+takes its commands over ESP-NOW.
+
 ## Architecture
 
 ```mermaid
@@ -24,6 +28,7 @@ graph TB
     BED["<b>bedroom_remote</b> · 0x82<br/>ESP32-S3 panel<br/><i>no CAN wiring</i>"]
     MAIN["<b>main_cabinet</b> · 0x83<br/>ESP32-S3 7-inch panel<br/><i>CAN + listens to broadcasts</i>"]
     PROXY["<b>Bluetooth proxy basement</b><br/>classic ESP32 · headless<br/><i>in the bay</i>"]
+    VALVE["<b>valve_node</b><br/>ESP32-S3-ETH-8DI-8RO<br/><i>in the bay · planned</i>"]
 
     subgraph bay["Basement bay"]
         BAT1["Pack 1 · Vatrer 300 Ah<br/>JBD/Xiaoxiang BMS"]
@@ -31,6 +36,8 @@ graph TB
         BAT3["Pack 3 · Vatrer 300 Ah<br/>JBD/Xiaoxiang BMS"]
         WD["Hughes Power Watchdog<br/>Gen 1 · APMD1CB0DE309<br/><i>at the shore inlet</i>"]
         SOL["Renogy MPPT controller<br/>BT-TH-B00E7B91<br/><i>solar charge controller</i>"]
+        VGY["Grey dump valve<br/>DrainMaster Premium 5197"]
+        VBK["Black dump valve<br/>DrainMaster Premium 5197"]
     end
 
     G6A === MID
@@ -42,6 +49,7 @@ graph TB
     FSW === G6A
 
     MID <-->|"ESP-NOW unicast<br/>encrypted · ch 1"| BED
+    MID <-.->|"ESP-NOW unicast<br/>valve cmd + position<br/><i>planned</i>"| VALVE
 
     MID -.->|"ESP-NOW broadcast<br/>tank levels"| BED
     PROXY -.->|"ESP-NOW broadcast<br/>shore power + batteries + solar"| BED
@@ -54,13 +62,16 @@ graph TB
     PROXY --> WD
     PROXY --> SOL
 
+    VALVE -->|"4 relays + 1 sense each"| VGY
+    VALVE --> VBK
+
     BAT1 -.->|"RS-485 daisy-chain<br/><i>not used by this project</i>"| BAT2
     BAT2 -.-> BAT3
 
     classDef panel fill:#0D1B3A,stroke:#5DADE2,color:#EDE4D3
     classDef coach fill:#1A1F2E,stroke:#8A8375,color:#EDE4D3
-    class MID,ENT,BED,MAIN,PROXY panel
-    class G6A,SEE,FSW,BAT1,BAT2,BAT3,WD,SOL coach
+    class MID,ENT,BED,MAIN,PROXY,VALVE panel
+    class G6A,SEE,FSW,BAT1,BAT2,BAT3,WD,SOL,VGY,VBK coach
 ```
 
 Solid lines are wired buses. Dashed lines are wireless. Double lines are the
@@ -77,6 +88,7 @@ shared RV-C CAN bus, where every node is a peer.
 | **`bedroom_remote`** | Waveshare ESP32-S3-Touch-LCD-4.3B | Lights, battery bank (with the solar readout stacked beneath it), shore power — the latter three entirely from broadcasts. **No CAN wiring, no BLE.** | ESP-NOW |
 | **`main_cabinet`** | Waveshare ESP32-S3-Touch-LCD-7 | Lights, tanks, power and solar on a side-nav rail. Landscape. | RV-C CAN, ESP-NOW (broadcast, listen only) |
 | **Bluetooth proxy basement** | ESP32-D0WD-V3 (classic ESP32, 4 MB, no PSRAM) | Headless. Holds every BLE link in the coach and re-broadcasts what it reads. | BLE (5 links), ESP-NOW broadcast |
+| **`valve_node`** *(planned)* | Waveshare ESP32-S3-ETH-8DI-8RO | Headless. Drives the two DrainMaster dump valves and reports their position. **No BLE, no CAN, no Ethernet.** | ESP-NOW unicast |
 
 Panel boards: ESP32-S3-WROOM-1, 16 MB flash / 8 MB octal PSRAM, 800×480 RGB
 LCD, GT911 capacitive touch on I²C, CH422G IO expander, onboard TJA1051 CAN
@@ -107,6 +119,7 @@ node regardless of role.
 | **3 × Vatrer 300 Ah LiFePO4** | BLE GATT (JBD/Xiaoxiang) | Wired **in parallel**. Each BMS is its own BLE peripheral. |
 | **Hughes Power Watchdog Gen 1** | BLE GATT | Surge protector / power monitor at the shore inlet. Receive-only. |
 | **Renogy MPPT charge controller** | BLE GATT (`BT-TH-` module) | Solar charge controller in the bay. Polled for PV watts/volts/amps, battery volts and SOC, charge state, and controller/battery temperature. Read-only. |
+| **2 × DrainMaster Premium valves** | 12 V motor + NC magnetic reed | Grey and black dump valves, PN 5197. Driven by relay contacts wired **in parallel with the factory wall rockers**, which stay fully functional. See [DRAINMASTER-VALVES.md](DRAINMASTER-VALVES.md). |
 
 ## Memory budget
 
@@ -238,8 +251,9 @@ the bus — never by the command you just sent.
 Two distinct traffic classes, deliberately kept separate.
 
 **Encrypted unicast** carries commands and status between `bedroom_remote`
-and `mid_coach`. These frames actuate real loads, so they use a PMK plus a
-per-peer LMK.
+and `mid_coach`, and — once built — valve commands and position between
+`mid_coach` and `valve_node`. These frames actuate real loads, so they use a
+PMK plus a per-peer LMK.
 
 **Unencrypted broadcast** carries read-only telemetry — shore power, per-pack
 battery readings and the solar controller from the proxy, tank levels from the
@@ -305,7 +319,12 @@ knows nothing of its siblings, so bank aggregation happens in our firmware
   has recovered the wire framing, and writes are accepted at the GATT layer
   and ignored. Only Gen 2 (EPOW models) has a working `SetOpen`.
 - **One remote per bridge.** ESP-NOW pairing is fixed at build time — no
-  runtime pairing, no mesh.
+  runtime pairing, no mesh. ⚠️ `valve_node` needs a **second** unicast peer,
+  which is the single largest piece of work in that feature — see
+  [DRAINMASTER-VALVES.md](DRAINMASTER-VALVES.md#8-panel-side).
+- **Dump valves have no full-open sensor.** The DrainMaster reed senses
+  *fully closed* only, so closing is closed-loop and opening is a timed run
+  under a hard 2 s ceiling. Nothing in the valve has an end-of-travel cutout.
 - **The MASTER button drives the real thing, but "on" depends on the G6's
   memory.** RV-C has no all-lights DGN; the coach's factory rocker was sniffed
   2026-08-28 and uses group addressing — six `DC_DIMMER_COMMAND_2` frames,

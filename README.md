@@ -47,11 +47,11 @@ installed equipment →](docs/SYSTEM.md)**
 
 ## Hardware
 
-Five nodes: four touchscreen panels and one headless BLE proxy. They reach
-the coach over RV-C CAN and each other over ESP-NOW. Everything reached over
-BLE — the battery packs, the shore-power monitor and the solar charge
-controller, all of which live in the basement bay — is held by the proxy in
-that bay and broadcast to the panels.
+Six nodes: four touchscreen panels, one headless BLE proxy, and one headless
+valve controller. They reach the coach over RV-C CAN and each other over
+ESP-NOW. Everything reached over BLE — the battery packs, the shore-power
+monitor and the solar charge controller, all of which live in the basement
+bay — is held by the proxy in that bay and broadcast to the panels.
 
 | Node | Board | Talks |
 |---|---|---|
@@ -59,7 +59,8 @@ that bay and broadcast to the panels.
 | `ent_center` | Waveshare ESP32-S3-Touch-LCD-4.3B | RV-C CAN |
 | `bedroom_remote` | Waveshare ESP32-S3-Touch-LCD-4.3B | ESP-NOW only |
 | `main_cabinet` | Waveshare ESP32-S3-Touch-LCD-7 | RV-C CAN + ESP-NOW telemetry (listen only) |
-| Bluetooth proxy basement | ESP32-D0WD-V3, 4 MB | BLE (3 battery packs + Power Watchdog) + ESP-NOW broadcast |
+| Bluetooth proxy basement | ESP32-D0WD-V3, 4 MB | BLE (3 battery packs + Power Watchdog + Renogy solar) + ESP-NOW broadcast |
+| `valve_node` *(planned)* | Waveshare ESP32-S3-ETH-8DI-8RO | ESP-NOW unicast — drives the two dump valves |
 
 Panel boards are ESP32-S3-WROOM-1 with 16 MB flash / 8 MB octal PSRAM, GT911
 touch, CH422G expander, onboard TJA1051 CAN transceiver and 7–36 V input.
@@ -73,8 +74,13 @@ fails silently, so `BOARD` is derived from `PANEL` in the root
 `CMakeLists.txt` and validated by `tools/check_panels.py`; there is no
 `-DBOARD=` to get wrong.
 
+The two headless nodes are not panels: they carry no display, no LVGL and no
+`PANEL_INDEX`, and each is its own ESP-IDF project pulling shared components
+individually.
+
 📖 **Full equipment list, protocols and architecture diagram:
-[docs/SYSTEM.md](docs/SYSTEM.md)**
+[docs/SYSTEM.md](docs/SYSTEM.md)** · **Dump-valve build spec:
+[docs/DRAINMASTER-VALVES.md](docs/DRAINMASTER-VALVES.md)**
 
 ## Repository layout
 
@@ -93,9 +99,13 @@ firefly-touch/
 │   └── TEMPLATE.h            #   copy this to add a panel
 ├── proxy/                    # basement BLE proxy — SEPARATE project,
 │                             #   classic ESP32 target, no display
+│                             #   (valves/ will join it: dump-valve relay
+│                             #    controller, also headless — see
+│                             #    docs/DRAINMASTER-VALVES.md)
 ├── sim/                      # PC simulator (see the UI without hardware)
 ├── tools/check_panels.py     # enforces unique indices + registry sync
-├── docs/                     # SYSTEM.md, SCREENS.md, FLASHING.md, images
+├── docs/                     # SYSTEM.md, SCREENS.md, FLASHING.md,
+│                             #   DRAINMASTER-VALVES.md, images
 ├── .github/workflows/        # CI: lint, host tests, every panel + the proxy
 └── CLAUDE.md                 # architecture, DGN tables, pinout, TODOs
 ```

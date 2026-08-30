@@ -17,6 +17,10 @@ RV-C instances, and its **RV-C source address** (a unique bus identity).
 every panel, its `PANEL_INDEX`, and its RV-C source address. It is not
 duplicated here so the two can't drift apart.
 
+The two **headless** nodes — the basement BLE proxy and the planned valve
+controller — are not panels and have no index or source address. They are
+separate ESP-IDF projects with their own sections below.
+
 The build directory convention is `build_<PANEL>` — one per panel, so the
 cached `PANEL` value can never be mismatched.
 
@@ -319,6 +323,38 @@ the battery packs' connect attempts time out at ~30 s each with `status 133` /
 `reason 0x100`. That is expected, not a fault. A bench boot can prove the image
 boots, every GATTC app registers, ESP-NOW comes up on the right channel and the
 shared scan starts — nothing more. Real readings need the coach.
+
+## Valve node
+
+> **Planned, not built.** The board is ordered; no firmware exists yet. This
+> section is a placeholder so the flash procedure lands next to the others
+> when it does. Full build spec:
+> [DRAINMASTER-VALVES.md](DRAINMASTER-VALVES.md).
+
+A Waveshare **ESP32-S3-ETH-8DI-8RO** in the basement bay driving the two
+DrainMaster dump valves. Like the proxy it will be a separate ESP-IDF project
+(`valves/`), headless, with its own `sdkconfig`.
+
+Expected shape, once it exists:
+
+```powershell
+idf.py -C valves -B valves/build set-target esp32s3      # once
+idf.py -C valves -B valves/build build
+idf.py -C valves -B valves/build -p COM5 flash monitor
+```
+
+Notes that already apply:
+
+- It is an **ESP32-S3**, unlike the classic-ESP32 proxy — so the BLE
+  chip-portability guard is irrelevant here (there is no BLE at all).
+- `FIREFLY_ESPNOW_CHANNEL` **must** match every other node (default 1).
+- Unlike the proxy's telemetry role, this node needs a **real unicast peer**,
+  so its `sdkconfig` will carry a genuine `FIREFLY_ESPNOW_PEER_MAC` — treat
+  it with the same care as the panels' (never regenerate the file; re-apply
+  by hand if you must).
+- ⚠️ **Do not flash it with a valve connected.** Work through the bring-up
+  order in [DRAINMASTER-VALVES.md](DRAINMASTER-VALVES.md#10-bring-up-order);
+  the interlock and watchdog tests come before any motor is wired.
 
 ## If the board will not enter download mode
 

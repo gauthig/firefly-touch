@@ -1,0 +1,419 @@
+# DrainMaster dump-valve control
+
+Panel-commanded grey and black waste valves, driven by a sixth node: a
+Waveshare **ESP32-S3-ETH-8DI-8RO** relay board in the basement bay.
+
+> **Status: designed and specified. Nothing built, no firmware written.**
+> Wiring fully measured on the coach 2026-08-30; the controller board is
+> ordered. This document is the build spec — it is what an engineer needs to
+> wire the thing, plus the control requirements the firmware must satisfy.
+>
+> Printable build sheet (same content, laid out for the shop):
+> <https://claude.ai/code/artifact/01894ed7-d3c0-406d-a280-95fa14862e6f>
+
+See also: [SYSTEM.md](SYSTEM.md) for where this node sits in the coach,
+[FLASHING.md](FLASHING.md#valve-node) for the flash procedure, and
+[../CLAUDE.md](../CLAUDE.md) for project-wide conventions.
+
+---
+
+## 1. Scope
+
+| | |
+|---|---|
+| **Valves** | 2 × DrainMaster Premium, PN 5197 (grey + black) |
+| **Controller** | Waveshare `ESP32-S3-ETH-8DI-8RO`, non-PoE |
+| **Location** | Basement bay, DIN rail |
+| **Power** | Coach 12 V, board's own 7–36 V screw terminal |
+| **Comms** | ESP-NOW only. No BLE, no CAN, no Ethernet. |
+| **Existing wall rockers** | Stay wired and fully functional |
+
+**Nothing about the basement BLE proxy changes.** It keeps its five BLE links
+and its telemetry broadcasts; this is a separate board on the same ESP-NOW
+channel.
+
+---
+
+## 2. Measured valve behaviour
+
+Probed on the coach 2026-08-30. These are measurements, not datasheet values,
+and several contradict the harness labels.
+
+| Fact | Consequence |
+|---|---|
+| **Motor wires float at rest** — open to both rails with the rocker idle | This is what lets our relays sit in parallel with the wall switch. Everything else depends on it. |
+| **WHITE positive = OPEN** (+12 V on OPEN, −12 V on CLOSE, probed red-on-WHITE) | ⚠️ **Opposite to the harness labels**, which read `+ Red (Motor)` / `− White (Motor)`. Those are wire *names*, not polarity. |
+| `Black (Switch)` is 0 Ω to battery negative | The MAG pair is a single-ended 12 V signal, not a floating pair |
+| Travel just under 1 s, draw ≈ 1 A | 1.0 s nominal drive |
+| MAG reed is **NC and senses FULLY CLOSED** | Magnet present (closed) holds contacts apart → 12 V across the pair, LED dark. Not closed → 0 V, LED lit. |
+| Reed flips **early** in the open stroke | Leaving closed ≠ fully open. Open cannot be closed-loop. |
+| **Nothing has an end-of-travel cutout** | The wall switch stops because a person lets go. DM73: *"do NOT exceed 1 to 2 seconds at most."* |
+
+⚠️ The **black valve's motor polarity has not been probed** — only grey.
+Harnesses were confirmed identical, but confirm polarity before first
+power-up.
+
+### Pigtail conductors
+
+From a spare port on the Wye harness (PN 5603), using a pigtail cut from a DM
+extension cable (PN 5218). Nothing original is cut.
+
+| Conductor | DM label | Function | Lands on |
+|---|---|---|---|
+| **WHITE** | `− White (Motor)` | Motor — **positive to open** | WAGO `W-GY` → `K1·COM`, `K2·COM` |
+| **RED** | `+ Red (Motor)` | Motor — negative to open | WAGO `R-GY` → `K3·COM`, `K4·COM` |
+| **GREEN** | `Red (Switch)` | MAG signal, 12 V ↔ 0 V | `R1`, sense divider |
+| **BLACK** | `Black (Switch)` | MAG return — already battery − | Not used, cap off |
+
+⚠️ **DrainMaster's battery pigtail uses BLACK for +12 V and GREEN for
+ground** — inverted from automotive convention, on the same module being
+worked around. Everything *we* add uses RED = +12 V, BLACK = ground. Label
+both ends of every wire.
+
+---
+
+## 3. Relay map
+
+Four relays per valve, wired as an H-bridge. **All eight channels are
+consumed.**
+
+⚠️ **NC contacts are left unwired on all eight relays.** A Form-C relay's NC
+is connected at rest, so using it would park a motor wire at ground — and the
+moment someone pressed the wall rocker, their +12 V would meet our ground.
+Unwired NC is what makes the rest state a genuine float.
+
+| Relay | EXIO | Valve | COM → | NO → |
+|---|---|---|---|---|
+| `K1` | 1 | grey | motor WHITE | +12 V bus |
+| `K2` | 2 | grey | motor WHITE | ground bus |
+| `K3` | 3 | grey | motor RED | +12 V bus |
+| `K4` | 4 | grey | motor RED | ground bus |
+| `K5` | 5 | black | motor WHITE | +12 V bus |
+| `K6` | 6 | black | motor WHITE | ground bus |
+| `K7` | 7 | black | motor RED | +12 V bus |
+| `K8` | 8 | black | motor RED | ground bus |
+
+### Drive table (grey; black identical on K5–K8)
+
+| Action | K1 | K2 | K3 | K4 | WHITE | RED | Result |
+|---|---|---|---|---|---|---|---|
+| **Rest** | off | off | off | off | float | float | Wall rocker works normally |
+| **Open** | ON | off | off | ON | +12 V | ground | Valve drives open |
+| **Close** | off | ON | ON | off | ground | +12 V | Valve drives closed |
+| ⛔ | ON | ON | — | — | both rails | | **Dead short** |
+| ⛔ | — | — | ON | ON | | both rails | **Dead short** |
+
+The forbidden combinations are prevented in firmware — see
+[§7](#7-control-requirements). This is the one safety property the previous
+two-DPDT design got for free and this one does not.
+
+---
+
+## 4. Position sense
+
+Built twice — one per valve, on `DI 1` (grey) and `DI 2` (black).
+
+```
+DM GREEN (MAG) ──[ R1 100k ]──┬──[ R2 100k ]── G3 (ground)
+                              ├──[ C1 100nF ]── G3
+                              │
+                              └── gate, Q1 (2N7000)
+                                    drain ── DI n
+                                    source ── G3
+
+DI COM ── +12 V (WAGO P1)
+```
+
+- Divider gives **6.0 V at the gate at 12 V**, drawing **60 µA**. At 14.8 V
+  charging the gate sees 7.4 V — well under the 20 V limit, and far above a
+  2N7000's 3 V worst-case threshold.
+- `Q1` **sinks** the digital input; `DI COM` sits at +12 V. The opto's current
+  therefore comes from *our* supply.
+- **DI high = valve fully closed.** DI low = not fully closed (open, or in
+  transit).
+
+⚠️ **Do not wire the reed pair directly to a digital input.** The board's DI
+channels are opto-isolated and want a few milliamps; that current flows
+through DrainMaster's own indicator LED and lights it whenever the valve is
+closed and it should be dark. The 60 µA divider is three orders of magnitude
+below the LED's operating current.
+
+⚠️ This bonds the DI input side to the coach 12 V ground, giving up channel
+isolation on DI 1 and DI 2. Acceptable — it is one battery ground — and the
+optocoupler still keeps the field side off the MCU. Recorded as a deliberate
+choice.
+
+**Verify on the bench:** with the valve closed, look at the wall switch LED in
+a dark bay. Any glow means the divider is loading the LED circuit — step up to
+470 kΩ / 470 kΩ (13 µA), same 6 V. Then run DM73's own test: hold a household
+magnet against the white sensor on the back of the valve and watch the input
+flip without moving anything.
+
+---
+
+## 5. Power distribution
+
+WAGO 221 blocks throughout. **Motor return is kept on a separate branch from
+logic ground.**
+
+```
+Bay 12 V + ──[ 5 A fuse ]── P1 ─┬── board DC +
+                                ├── DI COM  (both sense channels)
+                                └── P2 ── K1·NO  K3·NO  K5·NO  K7·NO
+
+Bay ground ── G1 ─┬── board DC −
+                  ├── G2 ── K2·NO  K4·NO  K6·NO  K8·NO   (motor return)
+                  └── G3 ── Q1·S  Q2·S  R2·low  R4·low   (logic returns)
+```
+
+⚠️ **G2 and G3 are separate branches off G1 on purpose.** An amp of motor
+current returns through G2. Run G1 to the bay ground point with short, thick
+wire. Motor current finding its way back through the logic ground produces a
+brownout on every valve cycle — a fault that looks exactly like a firmware bug
+and is not one.
+
+Our own 5 A fuse is mandatory: motor current no longer passes through
+DrainMaster's.
+
+---
+
+## 6. Complete wire list
+
+Grey valve shown in full. Black is identical with these substitutions:
+`K1→K5 · K2→K6 · K3→K7 · K4→K8 · Q1→Q2 · R1→R3 · R2→R4 · C1→C2 · DI 1→DI 2 ·
+W-GY→W-BK · R-GY→R-BK`.
+
+### Power in
+
+| From | To | Wire | Gauge |
+|---|---|---|---|
+| Bay 12 V + | 5 A fuse, in | red | 16 AWG |
+| 5 A fuse, out | WAGO `P1` | red | 16 AWG |
+| WAGO `P1` | Board `DC +` | red | 18 AWG |
+| WAGO `P1` | WAGO `P2` | red | 16 AWG |
+| WAGO `P1` | Board `DI COM` | red | 22 AWG |
+| Bay ground | WAGO `G1` | black | 16 AWG |
+| WAGO `G1` | Board `DC −` | black | 18 AWG |
+| WAGO `G1` | WAGO `G2` | black | 16 AWG |
+| WAGO `G1` | WAGO `G3` | black | 22 AWG |
+
+### Grey valve — motor drive
+
+| From | To | Wire | Note |
+|---|---|---|---|
+| WAGO `P2` | `K1 · NO` | red | 16 AWG |
+| WAGO `P2` | `K3 · NO` | red | 16 AWG |
+| WAGO `G2` | `K2 · NO` | black | 16 AWG |
+| WAGO `G2` | `K4 · NO` | black | 16 AWG |
+| `K1 · COM` | WAGO `W-GY` | white | 16 AWG |
+| `K2 · COM` | WAGO `W-GY` | white | 16 AWG |
+| WAGO `W-GY` | Pigtail **WHITE** | white | 221-413 |
+| `K3 · COM` | WAGO `R-GY` | red | 16 AWG |
+| `K4 · COM` | WAGO `R-GY` | red | 16 AWG |
+| WAGO `R-GY` | Pigtail **RED** | red | 221-413 |
+
+⛔ `K1·NC`, `K2·NC`, `K3·NC`, `K4·NC` — **leave empty. Do not land anything.**
+
+### Grey valve — position sense
+
+| From | To | Wire | Note |
+|---|---|---|---|
+| Pigtail **GREEN** | `R1` (100 kΩ) leg A | green | 22 AWG |
+| `R1` leg B | `R2` leg A · `C1` · `Q1` gate | blue | divider tap, 6.0 V |
+| `R2` (100 kΩ) leg B | WAGO `G3` | black | 22 AWG |
+| `C1` (100 nF) leg B | WAGO `G3` | black | parallel with R2 |
+| `Q1` source | WAGO `G3` | black | 22 AWG |
+| `Q1` drain | Board `DI 1` | blue | 22 AWG |
+| Pigtail **BLACK** | not used, cap off | black | already at battery − |
+
+---
+
+## 7. Control requirements
+
+### Board access
+
+| Function | Access |
+|---|---|
+| Relays 1–8 | **TCA9554PWR, I²C `0x20`, EXIO1–8** — not direct GPIO |
+| I²C bus | `GPIO41` SCL / `GPIO42` SDA (shared with the PCF85063ATL RTC) |
+| Digital inputs 1–8 | `GPIO4` … `GPIO11` (DI1 = GPIO4, DI2 = GPIO5) |
+| Status RGB LED | `GPIO38` (WS2812) |
+| Buzzer | present; pin not published in the vendor wiki — confirm in the demo |
+
+### Rule 1 — one choke point with an interlock
+
+Every relay change goes through one function that builds the whole 8-bit mask
+and refuses forbidden combinations. Nothing else may touch the expander.
+
+```c
+/* Bit n = relay n+1.  Grey = K1..K4, black = K5..K8. */
+#define GY_W_HI  0x01u   /* K1: white to +12 */
+#define GY_W_LO  0x02u   /* K2: white to gnd */
+#define GY_R_HI  0x04u   /* K3: red   to +12 */
+#define GY_R_LO  0x08u   /* K4: red   to gnd */
+#define BK_W_HI  0x10u
+#define BK_W_LO  0x20u
+#define BK_R_HI  0x40u
+#define BK_R_LO  0x80u
+
+/* A wire tied to both rails is a dead short across the house battery. */
+static bool mask_is_safe(uint8_t m)
+{
+    if ((m & (GY_W_HI | GY_W_LO)) == (GY_W_HI | GY_W_LO)) return false;
+    if ((m & (GY_R_HI | GY_R_LO)) == (GY_R_HI | GY_R_LO)) return false;
+    if ((m & (BK_W_HI | BK_W_LO)) == (BK_W_HI | BK_W_LO)) return false;
+    if ((m & (BK_R_HI | BK_R_LO)) == (BK_R_HI | BK_R_LO)) return false;
+    return true;
+}
+
+static esp_err_t relays_apply(uint8_t m)
+{
+    if (!mask_is_safe(m)) {          /* never "clamp" -- refuse and shout */
+        ESP_LOGE(TAG, "interlock: refused mask 0x%02x", m);
+        tca9554_write(0x00);
+        return ESP_ERR_INVALID_ARG;
+    }
+    return tca9554_write(m);
+}
+```
+
+### Rule 2 — break before make
+
+Relay contacts take 5–10 ms to move. Always drop to `0x00`, wait 50 ms, then
+energise the new pair. Never transition directly between OPEN and CLOSE.
+
+### Rule 3 — a 2 s ceiling that cannot be talked out of
+
+⚠️ Drive 1.0 s nominal, backed by an **independent 2.0 s hardware-timer
+watchdog** that calls `relays_apply(0x00)` regardless of what the state
+machine believes. It must **not** be a `vTaskDelay` inside the drive routine —
+if that task blocks, the motor stays energised.
+
+### Timing
+
+| Parameter | Value | Source |
+|---|---|---|
+| Nominal drive | 1000 ms | Measured travel, "just under 1 second" |
+| Hard ceiling (watchdog) | 2000 ms | DM73 published limit |
+| Break-before-make dead time | 50 ms | Relay pickup/dropout margin |
+| Sense debounce | 50 ms | C1 gives ~5 ms; the rest in software |
+| Re-drive lockout after a cycle | 3000 ms | Stops command spam stalling the motor |
+
+### Close is verified, open is not
+
+- **CLOSE** — drive, confirm DI goes high within the ceiling. If it does not:
+  stop, flag a fault, report to the panel. **Do not retry automatically.**
+- **OPEN** — DI going low confirms the valve *left* closed, which is real
+  evidence the motor ran, but does not prove full travel. Drive the full
+  nominal time and report `OPEN (timed)`, never `OPEN (confirmed)`.
+- **Startup** — read both inputs before any drive and adopt that as the
+  initial state. Never assume closed.
+
+---
+
+## 8. Panel side
+
+Replaces the inert `PANEL_BTN_LOCAL_TOGGLE` placeholders on the tank screens
+(`mid_coach` screen 2, `main_cabinet` TANKS).
+
+- **Arm-then-fire on OPEN only.** First tap changes the button to
+  `TAP AGAIN TO OPEN` and starts a 5 s window; a second tap inside that window
+  sends the command. CLOSE stays a single tap.
+- **Red background while open**, driven by *sensed* state, not by what was
+  last commanded.
+- **Three visual states, not two** — closed, open, unknown/fault.
+- **Stale telemetry reads as unknown**, same ageing contract the shore and
+  solar readouts use.
+
+### ⚠️ The real cost is ESP-NOW, not valve logic
+
+| Constraint | Consequence |
+|---|---|
+| `espnow_frame_t` is pinned at **16 bytes** by a `_Static_assert` | Growing the command union makes an updated panel's commands invisible to a panel still on the old build, silently. A valve command must be designed inside that. |
+| Link layer v1 allows **one fixed unicast peer per node** | A valve node is a *second* peer — a genuine `espnow_link` change. |
+| `main_cabinet` runs the **TELEMETRY role — no unicast peer at all** | And its TANKS section is where the buttons live. |
+| Broadcast is unencrypted | Not available: these frames actuate real loads. |
+
+---
+
+## 9. Parts
+
+### Controller
+
+- Waveshare **`ESP32-S3-ETH-8DI-8RO`** (non-PoE) — ordered
+
+⚠️ **Not the `-8DO` variant.** "8DO" is eight *transistor sinks*, 500 mA, not
+relays — it cannot drive the valve motor. The two boards look identical in
+listing photos; only the part number distinguishes them.
+
+### To buy
+
+| Qty | Part |
+|---|---|
+| 2 | DrainMaster Wye harness **PN 5603** |
+| 2 | DM extension cable **PN 5218** (cut in half for pigtails) |
+| 2 | **2N7000** MOSFET (or BSS138) |
+| 4 | **100 kΩ** ¼ W resistor |
+| 2 | **100 nF** ceramic capacitor |
+| 1 | **5 A** blade fuse + inline holder |
+| 5 | **WAGO 221-415** (5-port) |
+| 4 | **WAGO 221-413** (3-port) |
+| 2 | Bidirectional TVS, e.g. **SMAJ26CA** — recommended |
+| — | 16 AWG red/black, 22 AWG blue/green, DIN rail, small perfboard |
+
+**Arc suppression:** the motor is inductive and the contacts break ~1 A DC with
+the polarity reversing. A bidirectional TVS across each motor pair clamps both
+polarities and survives 14.8 V charging. Not strictly required, but it is what
+buys the relay contacts a long life.
+
+**Headroom:** all 8 relays and 2 of 8 inputs are consumed. A third valve would
+use the board's RS485 relay expansion rather than a second controller.
+
+---
+
+## 10. Bring-up order
+
+Nothing connects to a valve until the interlock has been watched working.
+
+1. **Bench, no valves.** Power from 12 V. Confirm the TCA9554 answers at
+   `0x20` and each relay clicks individually — eight distinct clicks.
+2. **Interlock test.** Deliberately call `relays_apply()` with a forbidden
+   mask. Confirm it refuses, logs, and drops to `0x00`. **If this does not
+   work, stop here.**
+3. **Watchdog test.** Start a drive and block the state-machine task. The
+   watchdog must still release the relays inside 2 s. *This is the test that
+   matters most.*
+4. **Meter across the COM terminals**, still no valve connected. Command OPEN
+   and CLOSE; confirm polarity reverses and rest is open-circuit on both wires.
+5. **Sense front-end alone.** Connect only the GREEN/BLACK pigtail pair.
+   Confirm DI follows the magnet test and the wall LED stays dark when closed.
+6. **Grey valve, motor connected, finger on the fuse.** One OPEN, one CLOSE.
+7. **Wall rocker still works** — with our board powered, and with it unpowered.
+8. **Black valve**, after confirming its motor polarity matches grey.
+9. **ESP-NOW last.** Everything above is provable without a panel in the loop.
+
+---
+
+## 11. Open items
+
+- [ ] Black valve motor polarity — probe before first power-up
+- [ ] `DI COM` terminal naming — Waveshare does not publish the DI schematic;
+      check the board's own legend before landing the +12 V feed
+- [ ] Buzzer GPIO — not in the wiki pin table, pull from the vendor demo
+- [ ] ESP-NOW valve command frame — design inside the 16-byte limit
+- [ ] Second unicast peer support in `espnow_link`
+- [ ] `main_cabinet` role change (TELEMETRY → also a command sender)
+- [ ] GitHub issue + branch, per [../CLAUDE.md](../CLAUDE.md) workflow, before
+      any firmware is written
+
+## References
+
+- DM50-7 wiring diagrams —
+  <https://www.drainmaster.com/manuals/DM50-WiringDiagramDMPremiuAndStandardValves.pdf>
+  (pg 2 = this coach's 4-pin/4-pin setup; pg 3 = the Wye harness)
+- DM73-7 troubleshooting —
+  <https://drainmaster.com/manuals/DM73-TroubleshootProcDMValves.pdf>
+  (pg 2 = polarity test and the 1–2 s limit; pg 3 = LED and MAG sensor)
+- Waveshare wiki — <https://www.waveshare.com/wiki/ESP32-S3-ETH-8DI-8RO>
+- Part numbers: valve **5197** · switch **5528** · Wye harness **5603** ·
+  extension cable **5218** · replacement mag sensor **5016** · fuse **5778**

@@ -247,6 +247,11 @@ without `_remote` in its ID is **hardwired to the RV-C CAN bus**. `mid_coach`
 is the **ESP-NOW router/bridge** between the RV-C bus and all remotes
 (`PANEL_IS_BRIDGE 1`).
 
+⚠️ This convention covers **panels only**. The headless nodes — `proxy/` and
+the planned `valves/` — are not panels: no display, no LVGL, no
+`PANEL_INDEX`, no row in `panels/REGISTRY.md`, and each is its own ESP-IDF
+project. They are ESP-NOW participants without being `_remote` anything.
+
 `bedroom_remote` (`panels/bedroom_remote.h`) has no CAN wiring — it
 relays button taps to `mid_coach` (`PANEL_IS_BRIDGE 1`) over ESP-NOW, and
 `mid_coach` relays real `DC_DIMMER_STATUS_3` changes back to it, using the
@@ -626,6 +631,55 @@ levels, so read-only remotes can show tanks — previously out of scope).
 ⚠️ **All ESP-NOW nodes must share one WiFi channel** (`FIREFLY_ESPNOW_CHANNEL`,
 default 1) — there is no AP to negotiate one, and a mismatch is silently
 invisible, exactly like a wrong peer MAC.
+
+## Dump-valve node (`valves/`) — designed, NOT built
+
+A **sixth node**: a Waveshare **ESP32-S3-ETH-8DI-8RO** relay board in the
+basement bay, driving the two DrainMaster Premium dump valves from the
+panels' tank screens. Like `proxy/` it is a **separate ESP-IDF project**,
+headless, pulling shared components individually rather than pointing at
+`components/` (which would drag LVGL into a build with no display).
+
+**Status: wiring measured and specified, board ordered, no firmware written
+and no GitHub issue opened.** Full build spec, wire list and bring-up order:
+[docs/DRAINMASTER-VALVES.md](docs/DRAINMASTER-VALVES.md).
+
+⚠️ **Nothing about `proxy/` changes.** The proxy keeps its five BLE links and
+its telemetry broadcasts. This is a second board on the same ESP-NOW channel,
+deliberately separate: the proxy was already swapped once for running hot,
+and a hung proxy today means stale telemetry, whereas a hung node mid-drive
+would mean a valve motor left energised.
+
+The facts most likely to be re-derived the hard way:
+
+- ⚠️ **The `-8DO` sibling board is NOT relays.** "8DO" is eight Darlington
+  *transistor sinks*, 500 mA, sink-only — it cannot reverse polarity and
+  cannot drive the motor. `-8RO` is the relay one. The listing photos are
+  identical; only the part number distinguishes them.
+- ⚠️ **Relays are behind a TCA9554PWR at I²C `0x20`** (EXIO1–8), not direct
+  GPIO. I²C is GPIO41/42, shared with the RTC. DI 1–8 are GPIO4–11.
+- ⚠️ **Four relays per valve, NC contacts unwired, all 8 channels consumed.**
+  A Form-C NC is connected at rest; using it would park a motor wire at
+  ground and short the factory wall rocker when someone pressed it. Unwired
+  NC is what makes the rest state a true float, which is the property the
+  whole parallel-with-the-rocker design rests on. An earlier two-DPDT design
+  was short-proof *by construction*; this one is not, so a **firmware
+  interlock refusing "one wire on both rails" is mandatory**.
+- ⚠️ **WHITE positive opens** — measured, and the opposite of what the
+  DrainMaster harness labels imply. Those labels are wire names, not polarity.
+- ⚠️ **The MAG reed senses FULLY CLOSED, not open**, and nothing has an
+  end-of-travel cutout. Close is closed-loop; open is a timed run under a
+  hard **2 s** ceiling enforced by an independent timer, never a
+  `vTaskDelay` inside the drive routine.
+- ⚠️ **Do not land the reed pair on a digital input directly.** The DI optos
+  want milliamps, which lights DrainMaster's own indicator LED when it should
+  be dark. Sense is a 100 kΩ/100 kΩ divider → 2N7000 sinking the DI, 60 µA.
+
+**The real work is ESP-NOW, not valve logic.** `espnow_frame_t` is pinned at
+16 bytes by a `_Static_assert`; the link layer allows one fixed unicast peer
+per node and this needs a second; and `main_cabinet` — whose TANKS section
+hosts the buttons — runs the peerless TELEMETRY role. Broadcast is not
+available: it is unencrypted and these frames actuate real loads.
 
 ## RV-C protocol
 
@@ -1142,6 +1196,9 @@ project owner first.
   general questions about the code that don't change anything.
 
 ## Repo hygiene — what belongs in git
+
+Two separate ESP-IDF projects live alongside the panel app and follow the
+same rules: `proxy/` (built) and `valves/` (planned).
 
 Committed: C/H sources, `CMakeLists.txt`, `idf_component.yml`,
 `dependencies.lock` (pins component versions — do **not** delete it),

@@ -13,6 +13,31 @@ the full UI are verified on both the plain ESP32-S3-Touch-LCD-4.3 (bench,
 command-code/interlock bugs below. Hold-to-dim, the rest of the instance
 map, and the other items in *Unverified* below are still unconfirmed.
 
+### Added — dump-valve control specified (2026-08-30, docs only)
+
+Design and full wiring spec for panel-commanded DrainMaster dump valves on a
+**sixth node**: a Waveshare `ESP32-S3-ETH-8DI-8RO` relay board in the basement
+bay. **No firmware, no hardware built** — the board is ordered and the coach
+wiring has been measured. New doc:
+[docs/DRAINMASTER-VALVES.md](docs/DRAINMASTER-VALVES.md).
+
+Nothing in `proxy/`, `main/`, `components/` or `panels/` changed; this release
+is documentation only.
+
+Facts worth carrying, all measured rather than assumed:
+
+- **WHITE positive opens** — the opposite of what the DrainMaster harness
+  labels imply.
+- **Motor wires float at rest**, which is the property that lets our relays
+  parallel the factory wall rocker.
+- **The MAG reed senses fully closed, not open**, so closing can be
+  closed-loop and opening must be a timed run under a hard 2 s ceiling.
+- **Four relays per valve** (H-bridge, NC contacts unwired) rather than the
+  two DPDT relays first designed — forced by the board's Form-C contacts, and
+  it trades construction-guaranteed short-proofing for a firmware interlock.
+- ⚠️ The `-8DO` sibling board is **transistor sinks, not relays**, and cannot
+  drive the valve.
+
 ### Changed — the light master now sends the real rocker frames (2026-08-28)
 
 Issue #59, **coach-verified**. `main_cabinet`'s MASTER replays exactly what the

@@ -48,6 +48,22 @@ boots, lights up, and never sees the bus.
 - `mid_coach` is the **ESP-NOW router/bridge** between the RV-C bus and all
   remote panels (`PANEL_IS_BRIDGE 1`).
 
+### Non-panel nodes are not allocated here
+
+Headless nodes have no display, no `PANEL_INDEX` and no RV-C source address,
+so they get no row in this table and `tools/check_panels.py` never sees them.
+Each is its own ESP-IDF project:
+
+| Node | Project | Hardware | Talks |
+|---|---|---|---|
+| Bluetooth proxy basement | `proxy/` | ESP32-D0WD-V3 (classic) | BLE ×5, ESP-NOW broadcast |
+| Dump-valve controller *(planned)* | `valves/` | Waveshare ESP32-S3-ETH-8DI-8RO | ESP-NOW unicast |
+
+They are still ESP-NOW participants and must share
+`FIREFLY_ESPNOW_CHANNEL` with every panel. See
+[../docs/SYSTEM.md](../docs/SYSTEM.md) and
+[../docs/DRAINMASTER-VALVES.md](../docs/DRAINMASTER-VALVES.md).
+
 ## Rules
 
 1. **Updating an existing panel** (new buttons, renamed labels, changed
