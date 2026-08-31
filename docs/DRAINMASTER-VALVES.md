@@ -24,7 +24,7 @@ See also: [SYSTEM.md](SYSTEM.md) for where this node sits in the coach,
 | **Valves** | 2 × DrainMaster Premium, PN 5197 (grey + black) |
 | **Controller** | Waveshare `ESP32-S3-ETH-8DI-8RO`, non-PoE |
 | **Location** | Basement bay, DIN rail |
-| **Power** | Coach 12 V, board's own 7–36 V screw terminal |
+| **Power** | Spliced from the DrainMaster push-button 12 V feed (WAGO P1/G1) into the board's 7–36 V screw terminal |
 | **Comms** | ESP-NOW only. No BLE, no CAN, no Ethernet. |
 | **Existing wall rockers** | Stay wired and fully functional |
 
@@ -120,12 +120,12 @@ two-DPDT design got for free and this one does not.
 Built twice — one per valve, on `DI 1` (grey) and `DI 2` (black).
 
 ```
-DM GREEN (MAG) ──[ R1 100k ]──┬──[ R2 100k ]── G3 (ground)
-                              ├──[ C1 100nF ]── G3
+DM GREEN (MAG) ──[ R1 100k ]──┬──[ R2 100k ]── GND bus
+                              ├──[ C1 100nF ]── GND bus
                               │
                               └── gate, Q1 (2N7000)
                                     drain ── DI n
-                                    source ── G3
+                                    source ── GND bus
 
 DI COM ── +12 V (WAGO P1)
 ```
@@ -152,7 +152,7 @@ and **`DI1`–`DI8`**.
 | Terminal | Wiring | Why |
 |---|---|---|
 | `COM` | → WAGO `P1` (+12 V) | Shared by all 8 channels. Puts the inputs in sinking (NPN) mode, so each FET pulls its own channel down independently. |
-| `DGND` | → WAGO `G3` | Isolated digital ground, bonded to our logic ground so the FET gate reference is valid. |
+| `DGND` | → GND bus | Isolated digital ground, bonded to our logic ground so the FET gate reference is valid. |
 | `DI1` | ← `Q1` drain | Grey valve |
 | `DI2` | ← `Q2` drain | Black valve |
 | `DI3`–`DI8` | unused | |
@@ -172,29 +172,33 @@ flip without moving anything.
 
 ## 5. Power distribution
 
-WAGO 221 blocks throughout. **Motor return is kept on a separate branch from
-logic ground.**
+**The board takes its 12 V from the same two 5-port WAGOs (221-415) that carry
+the DrainMaster push-button's own power leads** — decided 2026-08-31. Cut each
+lead of that feed and land both cut ends in the WAGO, leaving three spare
+ports per block:
 
 ```
-Bay 12 V + ──[ 5 A fuse ]── P1 ─┬── board DC +
-                                ├── DI COM  (both sense channels)
-                                └── P2 ── CH1·NO  CH3·NO  CH5·NO  CH7·NO
+DM push-button +12 V lead (their BLACK!) ── P1 ─┬── on to the push-button
+                                                ├── board 7~36V +
+                                                ├── DI COM  (+12 V, all 8 ch)
+                                                └── +12 V bus → CH1 CH3 CH5 CH7 · NO
 
-Bay ground ── G1 ─┬── board DC −
-                  ├── G2 ── CH2·NO  CH4·NO  CH6·NO  CH8·NO   (motor return)
-                  └── G3 ── Q1·S  Q2·S  R2·low  R4·low   (logic returns)
+DM push-button GND lead (their GREEN!) ──── G1 ─┬── on to the push-button
+                                                ├── board 7~36V −
+                                                ├── DGND
+                                                └── GND bus → CH2 CH4 CH6 CH8 · NO
+                                                              + both sense grounds
 ```
 
-⚠️ **G2 and G3 are separate branches off G1 on purpose.** An amp of motor
-current returns through G2. Run G1 to the bay ground point with short, thick
-wire. Motor current finding its way back through the logic ground produces a
-brownout on every valve cycle — a fault that looks exactly like a firmware bug
-and is not one.
-
-Our own 5 A fuse is mandatory: motor current no longer passes through
-DrainMaster's.
-
----
+- That feed is already fused with **DrainMaster's inline fuse (PN 5778)**.
+  Confirm it is present and rated 5 A at the tap point; if the tap point turns
+  out unfused, add a 5 A inline fuse upstream of `P1`.
+- Run the splice leads **short and thick (16 AWG)**: about an amp of motor
+  current returns through the GND bus, and a long thin ground shows up as a
+  brownout reset on every valve cycle — a fault that looks exactly like a
+  firmware bug and is not one.
+- The buses along the relay strip are daisy-chained 16 AWG between the `NO`
+  screws, not four separate home runs.
 
 ## 6. Complete wire list
 
@@ -202,28 +206,27 @@ Grey valve shown in full. Black is identical with these substitutions:
 `CH1→CH5 · CH2→CH6 · CH3→CH7 · CH4→CH8 · Q1→Q2 · R1→R3 · R2→R4 · C1→C2 · DI 1→DI 2 ·
 W-GY→W-BK · R-GY→R-BK`.
 
-### Power in
+### Power
 
 | From | To | Wire | Gauge |
 |---|---|---|---|
-| Bay 12 V + | 5 A fuse, in | red | 16 AWG |
-| 5 A fuse, out | WAGO `P1` | red | 16 AWG |
-| WAGO `P1` | Board `DC +` | red | 18 AWG |
-| WAGO `P1` | WAGO `P2` | red | 16 AWG |
+| DM push-button +12 V lead (their BLACK ⚠) | cut — both ends into WAGO `P1` | splice | — |
+| DM push-button ground lead (their GREEN ⚠) | cut — both ends into WAGO `G1` | splice | — |
+| WAGO `P1` | Board `7~36V +` | red | 18 AWG |
 | WAGO `P1` | Board `DI COM` | red | 22 AWG |
-| Bay ground | WAGO `G1` | black | 16 AWG |
-| WAGO `G1` | Board `DC −` | black | 18 AWG |
-| WAGO `G1` | WAGO `G2` | black | 16 AWG |
-| WAGO `G1` | WAGO `G3` | black | 22 AWG |
+| WAGO `P1` | +12 V bus → `CH1 CH3 CH5 CH7 · NO` (daisy-chain) | red | 16 AWG |
+| WAGO `G1` | Board `7~36V −` | black | 18 AWG |
+| WAGO `G1` | Board `DGND` | black | 22 AWG |
+| WAGO `G1` | GND bus → `CH2 CH4 CH6 CH8 · NO` (daisy-chain) + both sense grounds | black | 16 AWG |
 
 ### Grey valve — motor drive
 
 | From | To | Wire | Note |
 |---|---|---|---|
-| WAGO `P2` | `CH1 · NO` | red | 16 AWG |
-| WAGO `P2` | `CH3 · NO` | red | 16 AWG |
-| WAGO `G2` | `CH2 · NO` | black | 16 AWG |
-| WAGO `G2` | `CH4 · NO` | black | 16 AWG |
+| +12 V bus | `CH1 · NO` | red | 16 AWG |
+| +12 V bus | `CH3 · NO` | red | 16 AWG |
+| GND bus | `CH2 · NO` | black | 16 AWG |
+| GND bus | `CH4 · NO` | black | 16 AWG |
 | `CH1 · COM` | WAGO `W-GY` | white | 16 AWG |
 | `CH2 · COM` | WAGO `W-GY` | white | 16 AWG |
 | WAGO `W-GY` | Pigtail **WHITE** | white | 221-413 |
@@ -239,9 +242,9 @@ W-GY→W-BK · R-GY→R-BK`.
 |---|---|---|---|
 | Pigtail **GREEN** | `R1` (100 kΩ) leg A | green | 22 AWG |
 | `R1` leg B | `R2` leg A · `C1` · `Q1` gate | blue | divider tap, 6.0 V |
-| `R2` (100 kΩ) leg B | WAGO `G3` | black | 22 AWG |
-| `C1` (100 nF) leg B | WAGO `G3` | black | parallel with R2 |
-| `Q1` source | WAGO `G3` | black | 22 AWG |
+| `R2` (100 kΩ) leg B | GND bus | black | 22 AWG |
+| `C1` (100 nF) leg B | GND bus | black | parallel with R2 |
+| `Q1` source | GND bus | black | 22 AWG |
 | `Q1` drain | Board `DI 1` | blue | 22 AWG |
 | Pigtail **BLACK** | not used, cap off | black | already at battery − |
 
@@ -379,9 +382,9 @@ listing photos; only the part number distinguishes them.
 | 2 | **2N7000** MOSFET (or BSS138) |
 | 4 | **100 kΩ** ¼ W resistor |
 | 2 | **100 nF** ceramic capacitor |
-| 1 | **5 A** blade fuse + inline holder |
-| 5 | **WAGO 221-415** (5-port) |
-| 4 | **WAGO 221-413** (3-port) |
+| 1 | **5 A** inline fuse — only if the DM tap point turns out unfused |
+| 2 | **WAGO 221-415** (5-port) — P1, G1 splices |
+| 4 | **WAGO 221-413** (3-port) — W-GY, R-GY, W-BK, R-BK |
 | 2 | Bidirectional TVS, e.g. **SMAJ26CA** — recommended |
 | — | 16 AWG red/black, 22 AWG blue/green, DIN rail, small perfboard |
 
