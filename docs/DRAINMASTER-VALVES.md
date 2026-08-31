@@ -8,12 +8,22 @@ Waveshare **ESP32-S3-ETH-8DI-8RO** relay board in the basement bay.
 > ordered. This document is the build spec — it is what an engineer needs to
 > wire the thing, plus the control requirements the firmware must satisfy.
 >
-> Printable build sheet (same content, laid out for the shop):
+> Printable build sheet (same content, laid out for the shop, prints
+> letter-landscape with nothing split across a page):
 > <https://claude.ai/code/artifact/01894ed7-d3c0-406d-a280-95fa14862e6f>
 
 See also: [SYSTEM.md](SYSTEM.md) for where this node sits in the coach,
 [FLASHING.md](FLASHING.md#valve-node) for the flash procedure, and
 [../CLAUDE.md](../CLAUDE.md) for project-wide conventions.
+
+## Wiring diagram
+
+![Complete wiring diagram: the ESP32-S3-ETH-8DI-8RO drawn as photographed, every wire landed on its terminal — power spliced from the DrainMaster switch feed, all 8 relay channels, both sense front-ends, both valve harnesses](images/drainmaster-wiring-overview.svg)
+
+Every connection on one drawing, using the board's own terminal names
+(`CH1`–`CH8`, `COM`/`DGND`/`DI1`–`DI8`). A filled dot means wires connect; a
+plain crossing does not. Source of truth for §5–§7 below — if a table and
+this diagram ever disagree, trust the diagram and fix the table.
 
 ---
 
@@ -98,6 +108,12 @@ Unwired NC is what makes the rest state a genuine float.
 | `CH6` | 6 | black | motor WHITE | ground bus |
 | `CH7` | 7 | black | motor RED | +12 V bus |
 | `CH8` | 8 | black | motor RED | ground bus |
+
+![H-bridge detail for the grey valve: CH1 connects motor white to the plus-12 bus and CH2 connects it to ground; CH3 and CH4 do the same for motor red. All NC contacts stay empty so releasing every relay leaves both motor wires floating.](images/drainmaster-relay-detail.svg)
+
+Grey valve on `CH1`–`CH4`; black valve is identical on `CH5`–`CH8`. With
+every relay released, both motor wires are open to everything — the same
+rest state the wall rocker leaves behind.
 
 ### Drive table (grey; black identical on CH5–CH8)
 

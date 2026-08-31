@@ -79,7 +79,7 @@ The two headless nodes are not panels: they carry no display, no LVGL and no
 individually.
 
 📖 **Full equipment list, protocols and architecture diagram:
-[docs/SYSTEM.md](docs/SYSTEM.md)** · **Dump-valve build spec:
+[docs/SYSTEM.md](docs/SYSTEM.md)** · **Dump-valve wiring diagram and build spec:
 [docs/DRAINMASTER-VALVES.md](docs/DRAINMASTER-VALVES.md)**
 
 ## Repository layout
