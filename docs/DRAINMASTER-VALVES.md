@@ -60,8 +60,8 @@ extension cable (PN 5218). Nothing original is cut.
 
 | Conductor | DM label | Function | Lands on |
 |---|---|---|---|
-| **WHITE** | `− White (Motor)` | Motor — **positive to open** | WAGO `W-GY` → `K1·COM`, `K2·COM` |
-| **RED** | `+ Red (Motor)` | Motor — negative to open | WAGO `R-GY` → `K3·COM`, `K4·COM` |
+| **WHITE** | `− White (Motor)` | Motor — **positive to open** | WAGO `W-GY` → `CH1·COM`, `CH2·COM` |
+| **RED** | `+ Red (Motor)` | Motor — negative to open | WAGO `R-GY` → `CH3·COM`, `CH4·COM` |
 | **GREEN** | `Red (Switch)` | MAG signal, 12 V ↔ 0 V | `R1`, sense divider |
 | **BLACK** | `Black (Switch)` | MAG return — already battery − | Not used, cap off |
 
@@ -77,6 +77,12 @@ both ends of every wire.
 Four relays per valve, wired as an H-bridge. **All eight channels are
 consumed.**
 
+The board labels its relays **`CH1`–`CH8`** on the enclosure — not K1–K8.
+Each channel has **three screws: `NO`, `COM`, `NC`**. We use `NO` and `COM`
+only. Confirm the physical screw order against the silkscreen symbol printed
+above each channel, or with a meter on the unpowered board:
+`COM`–`NC` reads 0 Ω, `COM`–`NO` reads open.
+
 ⚠️ **NC contacts are left unwired on all eight relays.** A Form-C relay's NC
 is connected at rest, so using it would park a motor wire at ground — and the
 moment someone pressed the wall rocker, their +12 V would meet our ground.
@@ -84,18 +90,18 @@ Unwired NC is what makes the rest state a genuine float.
 
 | Relay | EXIO | Valve | COM → | NO → |
 |---|---|---|---|---|
-| `K1` | 1 | grey | motor WHITE | +12 V bus |
-| `K2` | 2 | grey | motor WHITE | ground bus |
-| `K3` | 3 | grey | motor RED | +12 V bus |
-| `K4` | 4 | grey | motor RED | ground bus |
-| `K5` | 5 | black | motor WHITE | +12 V bus |
-| `K6` | 6 | black | motor WHITE | ground bus |
-| `K7` | 7 | black | motor RED | +12 V bus |
-| `K8` | 8 | black | motor RED | ground bus |
+| `CH1` | 1 | grey | motor WHITE | +12 V bus |
+| `CH2` | 2 | grey | motor WHITE | ground bus |
+| `CH3` | 3 | grey | motor RED | +12 V bus |
+| `CH4` | 4 | grey | motor RED | ground bus |
+| `CH5` | 5 | black | motor WHITE | +12 V bus |
+| `CH6` | 6 | black | motor WHITE | ground bus |
+| `CH7` | 7 | black | motor RED | +12 V bus |
+| `CH8` | 8 | black | motor RED | ground bus |
 
-### Drive table (grey; black identical on K5–K8)
+### Drive table (grey; black identical on CH5–CH8)
 
-| Action | K1 | K2 | K3 | K4 | WHITE | RED | Result |
+| Action | CH1 | CH2 | CH3 | CH4 | WHITE | RED | Result |
 |---|---|---|---|---|---|---|---|
 | **Rest** | off | off | off | off | float | float | Wall rocker works normally |
 | **Open** | ON | off | off | ON | +12 V | ground | Valve drives open |
@@ -138,10 +144,23 @@ through DrainMaster's own indicator LED and lights it whenever the valve is
 closed and it should be dark. The 60 µA divider is three orders of magnitude
 below the LED's operating current.
 
-⚠️ This bonds the DI input side to the coach 12 V ground, giving up channel
-isolation on DI 1 and DI 2. Acceptable — it is one battery ground — and the
-optocoupler still keeps the field side off the MCU. Recorded as a deliberate
-choice.
+### Digital-input terminal block
+
+Confirmed from the enclosure legend: the DI block carries **`COM`**, **`DGND`**
+and **`DI1`–`DI8`**.
+
+| Terminal | Wiring | Why |
+|---|---|---|
+| `COM` | → WAGO `P1` (+12 V) | Shared by all 8 channels. Puts the inputs in sinking (NPN) mode, so each FET pulls its own channel down independently. |
+| `DGND` | → WAGO `G3` | Isolated digital ground, bonded to our logic ground so the FET gate reference is valid. |
+| `DI1` | ← `Q1` drain | Grey valve |
+| `DI2` | ← `Q2` drain | Black valve |
+| `DI3`–`DI8` | unused | |
+
+⚠️ Tying `COM` to +12 V and `DGND` to our ground bonds the DI input side to the
+coach 12 V system, giving up channel isolation on DI 1 and DI 2. Acceptable —
+it is one battery ground — and the optocoupler still keeps the field side off
+the MCU. Recorded as a deliberate choice.
 
 **Verify on the bench:** with the valve closed, look at the wall switch LED in
 a dark bay. Any glow means the divider is loading the LED circuit — step up to
@@ -159,10 +178,10 @@ logic ground.**
 ```
 Bay 12 V + ──[ 5 A fuse ]── P1 ─┬── board DC +
                                 ├── DI COM  (both sense channels)
-                                └── P2 ── K1·NO  K3·NO  K5·NO  K7·NO
+                                └── P2 ── CH1·NO  CH3·NO  CH5·NO  CH7·NO
 
 Bay ground ── G1 ─┬── board DC −
-                  ├── G2 ── K2·NO  K4·NO  K6·NO  K8·NO   (motor return)
+                  ├── G2 ── CH2·NO  CH4·NO  CH6·NO  CH8·NO   (motor return)
                   └── G3 ── Q1·S  Q2·S  R2·low  R4·low   (logic returns)
 ```
 
@@ -180,7 +199,7 @@ DrainMaster's.
 ## 6. Complete wire list
 
 Grey valve shown in full. Black is identical with these substitutions:
-`K1→K5 · K2→K6 · K3→K7 · K4→K8 · Q1→Q2 · R1→R3 · R2→R4 · C1→C2 · DI 1→DI 2 ·
+`CH1→CH5 · CH2→CH6 · CH3→CH7 · CH4→CH8 · Q1→Q2 · R1→R3 · R2→R4 · C1→C2 · DI 1→DI 2 ·
 W-GY→W-BK · R-GY→R-BK`.
 
 ### Power in
@@ -201,18 +220,18 @@ W-GY→W-BK · R-GY→R-BK`.
 
 | From | To | Wire | Note |
 |---|---|---|---|
-| WAGO `P2` | `K1 · NO` | red | 16 AWG |
-| WAGO `P2` | `K3 · NO` | red | 16 AWG |
-| WAGO `G2` | `K2 · NO` | black | 16 AWG |
-| WAGO `G2` | `K4 · NO` | black | 16 AWG |
-| `K1 · COM` | WAGO `W-GY` | white | 16 AWG |
-| `K2 · COM` | WAGO `W-GY` | white | 16 AWG |
+| WAGO `P2` | `CH1 · NO` | red | 16 AWG |
+| WAGO `P2` | `CH3 · NO` | red | 16 AWG |
+| WAGO `G2` | `CH2 · NO` | black | 16 AWG |
+| WAGO `G2` | `CH4 · NO` | black | 16 AWG |
+| `CH1 · COM` | WAGO `W-GY` | white | 16 AWG |
+| `CH2 · COM` | WAGO `W-GY` | white | 16 AWG |
 | WAGO `W-GY` | Pigtail **WHITE** | white | 221-413 |
-| `K3 · COM` | WAGO `R-GY` | red | 16 AWG |
-| `K4 · COM` | WAGO `R-GY` | red | 16 AWG |
+| `CH3 · COM` | WAGO `R-GY` | red | 16 AWG |
+| `CH4 · COM` | WAGO `R-GY` | red | 16 AWG |
 | WAGO `R-GY` | Pigtail **RED** | red | 221-413 |
 
-⛔ `K1·NC`, `K2·NC`, `K3·NC`, `K4·NC` — **leave empty. Do not land anything.**
+⛔ `CH1·NC`, `CH2·NC`, `CH3·NC`, `CH4·NC` — **leave empty. Do not land anything.**
 
 ### Grey valve — position sense
 
@@ -240,17 +259,22 @@ W-GY→W-BK · R-GY→R-BK`.
 | Status RGB LED | `GPIO38` (WS2812) |
 | Buzzer | present; pin not published in the vendor wiki — confirm in the demo |
 
+**Enclosure terminal names** (what is actually silkscreened, top strip left to
+right): `RS485` · `7~36V` (`−` `+`) · `COM` `DGND` `DI1`…`DI8` · `USB` · `ETH`
+· `ANT`. Bottom strip: `CH1`…`CH8`, three screws each. Only `7~36V`, the DI
+block and `CH1`–`CH8` are used; RS485, Ethernet and USB stay empty.
+
 ### Rule 1 — one choke point with an interlock
 
 Every relay change goes through one function that builds the whole 8-bit mask
 and refuses forbidden combinations. Nothing else may touch the expander.
 
 ```c
-/* Bit n = relay n+1.  Grey = K1..K4, black = K5..K8. */
-#define GY_W_HI  0x01u   /* K1: white to +12 */
-#define GY_W_LO  0x02u   /* K2: white to gnd */
-#define GY_R_HI  0x04u   /* K3: red   to +12 */
-#define GY_R_LO  0x08u   /* K4: red   to gnd */
+/* Bit n = relay n+1.  Grey = CH1..CH4, black = CH5..CH8. */
+#define GY_W_HI  0x01u   /* CH1: white to +12 */
+#define GY_W_LO  0x02u   /* CH2: white to gnd */
+#define GY_R_HI  0x04u   /* CH3: red   to +12 */
+#define GY_R_LO  0x08u   /* CH4: red   to gnd */
 #define BK_W_HI  0x10u
 #define BK_W_LO  0x20u
 #define BK_R_HI  0x40u
@@ -396,9 +420,12 @@ Nothing connects to a valve until the interlock has been watched working.
 
 ## 11. Open items
 
+- [x] ~~`DI COM` terminal naming~~ — resolved from the enclosure legend:
+      the DI block is `COM` / `DGND` / `DI1`–`DI8`
+- [x] ~~Relay nomenclature~~ — resolved: the board says `CH1`–`CH8`
 - [ ] Black valve motor polarity — probe before first power-up
-- [ ] `DI COM` terminal naming — Waveshare does not publish the DI schematic;
-      check the board's own legend before landing the +12 V feed
+- [ ] Per-channel screw order (`NO`/`COM`/`NC`) — confirm with a meter on
+      arrival, then annotate this doc
 - [ ] Buzzer GPIO — not in the wiki pin table, pull from the vendor demo
 - [ ] ESP-NOW valve command frame — design inside the 16-byte limit
 - [ ] Second unicast peer support in `espnow_link`
