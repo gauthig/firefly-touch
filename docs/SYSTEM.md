@@ -119,7 +119,7 @@ node regardless of role.
 | **3 × Vatrer 300 Ah LiFePO4** | BLE GATT (JBD/Xiaoxiang) | Wired **in parallel**. Each BMS is its own BLE peripheral. |
 | **Hughes Power Watchdog Gen 1** | BLE GATT | Surge protector / power monitor at the shore inlet. Receive-only. |
 | **Renogy MPPT charge controller** | BLE GATT (`BT-TH-` module) | Solar charge controller in the bay. Polled for PV watts/volts/amps, battery volts and SOC, charge state, and controller/battery temperature. Read-only. |
-| **2 × DrainMaster Premium valves** | 12 V motor + NC magnetic reed | Grey and black dump valves, PN 5197. Driven by relay contacts wired **in parallel with the factory wall rockers**, which stay fully functional. See [DRAINMASTER-VALVES.md](DRAINMASTER-VALVES.md). |
+| **2 × DrainMaster Premium valves** | 12 V motor + NC magnetic reed | Grey and black dump valves, PN 5197. Driven by relay contacts wired **in parallel with the factory wall rockers**, which stay fully functional. Full wiring diagram and build spec: [DRAINMASTER-VALVES.md](DRAINMASTER-VALVES.md). |
 
 ## Memory budget
 
