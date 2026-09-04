@@ -1,0 +1,13 @@
+# firefly-valves partition table — 16 MB flash (confirmed via `esptool
+# flash-id` against the real board), single factory app.
+#
+# No OTA — same USB-only update decision as the rest of the project (see
+# ../CLAUDE.md "OTA / Wi-Fi update path"). No storage/spiffs partition:
+# this node has no assets or logs to persist beyond NVS.
+#
+# App partitions must start on a 64 KB (0x10000) boundary.
+#
+# Name,     Type, SubType, Offset,   Size
+nvs,        data, nvs,     0x9000,   0x6000
+phy_init,   data, phy,     0xf000,   0x1000
+factory,    app,  factory, 0x10000,  0x300000

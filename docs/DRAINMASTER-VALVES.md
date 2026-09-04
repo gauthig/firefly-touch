@@ -483,8 +483,11 @@ Nothing connects to a valve until the interlock has been watched working.
 - [ ] ESP-NOW valve command frame — design inside the 16-byte limit
 - [ ] Second unicast peer support in `espnow_link`
 - [ ] `main_cabinet` role change (TELEMETRY → also a command sender)
-- [ ] GitHub issue + branch, per [../CLAUDE.md](../CLAUDE.md) workflow, before
-      any firmware is written
+- [x] ~~GitHub issue + branch~~ — [issue #62](https://github.com/gauthig/firefly-touch/issues/62),
+      `feature/62-valve-node-scaffold`. Scaffold covers bring-up steps 1-3
+      only (relay interlock, watchdog, DI reads); ESP-NOW valve commands and
+      the `main_cabinet` UI wiring remain open items below, deliberately
+      deferred to follow-up issues
 
 ## References
 

@@ -1,0 +1,19 @@
+menu "Firefly Valve Node"
+
+    config FIREFLY_VALVE_TEST_MODE
+        bool "Run bench self-test sequence on boot"
+        default y
+        help
+            Runs the DRAINMASTER-VALVES.md bring-up order steps 1-3 on
+            every boot: clicks each of the 8 relays individually, attempts
+            a deliberately unsafe mask and confirms the interlock refuses
+            it, then proves the independent watchdog releases the relays
+            even when the driving code doesn't call release itself.
+
+            Safe with no valve or sense wiring connected — everything here
+            is a relay click and an I2C readback. Turn this off once
+            bring-up is done and real ESP-NOW-driven valve control lands
+            (a later issue), so a production boot doesn't click every
+            relay before going idle.
+
+endmenu
