@@ -1,5 +1,6 @@
 #include "ui_dimmer_button.h"
 
+#include <stdio.h>
 #include <string.h>
 
 #include "esp_log.h"
@@ -18,6 +19,17 @@ static const char *TAG = "ui_dimmer_button";
  * to arbitration and resending once. */
 #define CONFIRM_TIMEOUT_MS  800
 #define CONFIRM_MAX_RETRIES 1
+
+/* PANEL_BTN_VALVE OPEN arm-then-fire window, per docs/DRAINMASTER-VALVES.md
+ * #8: a first tap arms, a second tap inside this window actually sends it. */
+#define VALVE_ARM_WINDOW_MS 5000
+
+/* Mirror espnow_valve_position_t's wire values without pulling in
+ * espnow_link as a dependency -- ui_common stays link-agnostic, same as
+ * ui_shore_reading_t/ui_solar_reading_t already do for their producers. */
+#define VALVE_POS_UNKNOWN 0u
+#define VALVE_POS_CLOSED  1u
+#define VALVE_POS_OPEN    2u
 
 typedef struct {
     const panel_btn_def_t *def;
@@ -43,6 +55,16 @@ typedef struct {
     /* PANEL_BTN_SCREEN_SWITCH used as a nav-rail entry: whether this is the
      * section currently being shown. */
     bool rail_active;
+
+    /* PANEL_BTN_VALVE: position/staleness come ONLY from real
+     * espnow_valve_status_msg_t frames via ui_dimmer_button_update_valve(),
+     * same status-driven-UI invariant as on[]/levels[] above. valve_armed
+     * and valve_arm_timer are the one piece of local UI-only state, for the
+     * OPEN arm-then-fire dance -- not a reflection of the bus/link. */
+    uint8_t   valve_position;   /* espnow_valve_position_t */
+    bool      valve_stale;
+    bool      valve_armed;
+    lv_timer_t *valve_arm_timer;
 
     /* Command confirmation (tap-to-toggle only). */
     lv_timer_t       *confirm_timer;
@@ -100,8 +122,49 @@ static bool visual_on(const btn_ctx_t *ctx)
     }
 }
 
+/*
+ * PANEL_BTN_VALVE has three colors, not two, so it bypasses the shared
+ * visual_on()/on-off color logic entirely rather than trying to force a
+ * third state through a boolean. Armed takes priority over position: a tap
+ * mid-arm-window is asking for confirmation regardless of what the last
+ * known position was.
+ */
+static void refresh_valve_visuals(btn_ctx_t *ctx)
+{
+    char buf[24];
+    lv_color_t bg = UI_COLOR_CARD;
+    lv_color_t fg = UI_COLOR_TEXT_DIM;
+
+    if (ctx->valve_armed) {
+        snprintf(buf, sizeof(buf), "TAP AGAIN TO OPEN");
+        bg = UI_COLOR_WARN;
+        fg = UI_COLOR_TEXT_ON_LIT;
+    } else if (ctx->valve_stale || ctx->valve_position == VALVE_POS_UNKNOWN) {
+        snprintf(buf, sizeof(buf), "%s --", ctx->def->label);
+        bg = UI_COLOR_WARN;
+        fg = UI_COLOR_TEXT_ON_LIT;
+    } else if (ctx->valve_position == VALVE_POS_OPEN) {
+        snprintf(buf, sizeof(buf), "%s OPEN", ctx->def->label);
+        bg = UI_COLOR_ERR;
+        fg = UI_COLOR_TEXT_ON_LIT;
+    } else {
+        snprintf(buf, sizeof(buf), "%s CLOSED", ctx->def->label);
+        bg = UI_COLOR_CARD;
+        fg = UI_COLOR_TEXT_DIM;
+    }
+
+    lv_label_set_text(ctx->name, buf);
+    lv_obj_set_style_bg_color(ctx->btn, bg, LV_PART_MAIN);
+    lv_obj_set_style_text_color(ctx->name, fg, 0);
+}
+
 static void refresh_visuals(btn_ctx_t *ctx)
 {
+    if (ctx->def->type == PANEL_BTN_VALVE) {
+        refresh_valve_visuals(ctx);
+        return;
+    }
+
     const bool on = visual_on(ctx);
 
     if (ctx->def->type == PANEL_BTN_LOCAL_TOGGLE) {
@@ -162,6 +225,17 @@ static void confirm_timer_cb(lv_timer_t *t)
     lv_timer_set_repeat_count(ctx->confirm_timer, 1);
 }
 
+/* PANEL_BTN_VALVE: the arm window expired without a confirming second tap.
+ * Nothing was ever sent, so there's nothing to undo -- just revert the
+ * caption. */
+static void valve_arm_timeout_cb(lv_timer_t *t)
+{
+    btn_ctx_t *ctx = lv_timer_get_user_data(t);
+    ctx->valve_arm_timer = NULL;
+    ctx->valve_armed = false;
+    refresh_visuals(ctx);
+}
+
 static void handle_tap(btn_ctx_t *ctx)
 {
     if (ctx->def->type == PANEL_BTN_SCREEN_SWITCH) {
@@ -182,6 +256,33 @@ static void handle_tap(btn_ctx_t *ctx)
          * frame is sent, so there is nothing to confirm and no retry. */
         ctx->local_on = !ctx->local_on;
         refresh_visuals(ctx);
+        return;
+    }
+    if (ctx->def->type == PANEL_BTN_VALVE) {
+        /* Armed takes priority: a tap while armed always fires the OPEN,
+         * even if a status frame flipped the reported position mid-window. */
+        if (ctx->valve_armed) {
+            if (ctx->valve_arm_timer != NULL) {
+                lv_timer_delete(ctx->valve_arm_timer);
+                ctx->valve_arm_timer = NULL;
+            }
+            ctx->valve_armed = false;
+            send(ctx, RVC_DIMMER_CMD_ON_DELAY);   /* reused to mean "open" */
+            refresh_visuals(ctx);
+            return;
+        }
+        if (ctx->valve_position == VALVE_POS_OPEN) {
+            send(ctx, RVC_DIMMER_CMD_OFF);        /* reused to mean "close" */
+            return;
+        }
+        /* Closed or unknown: arm the OPEN window rather than sending yet. */
+        ctx->valve_armed = true;
+        refresh_visuals(ctx);
+        if (ctx->valve_arm_timer != NULL) {
+            lv_timer_delete(ctx->valve_arm_timer);
+        }
+        ctx->valve_arm_timer = lv_timer_create(valve_arm_timeout_cb, VALVE_ARM_WINDOW_MS, ctx);
+        lv_timer_set_repeat_count(ctx->valve_arm_timer, 1);
         return;
     }
     if (ctx->def->type == PANEL_BTN_LIGHT_MASTER) {
@@ -260,6 +361,7 @@ static bool acts_on_click(const btn_ctx_t *ctx)
     case PANEL_BTN_TANK_LEVEL:
     case PANEL_BTN_LOCAL_TOGGLE:
     case PANEL_BTN_LIGHT_MASTER:
+    case PANEL_BTN_VALVE:
         return true;
     default:
         return false;
@@ -317,6 +419,9 @@ static void event_cb(lv_event_t *e)
         if (ctx->confirm_timer != NULL) {
             lv_timer_delete(ctx->confirm_timer);
         }
+        if (ctx->valve_arm_timer != NULL) {
+            lv_timer_delete(ctx->valve_arm_timer);
+        }
         lv_free(ctx);
         break;
 
@@ -358,13 +463,14 @@ lv_obj_t *ui_dimmer_button_create(lv_obj_t *parent,
     lv_label_set_text(ctx->name, def->label);
     lv_obj_set_style_text_font(ctx->name, &lv_font_montserrat_20, 0);
 
-    if (def->type == PANEL_BTN_LOCAL_TOGGLE) {
-        /* These carry the longest labels on any panel ("BLACK CLOSED"), and
-         * they are the only ones whose text CHANGES at runtime, so a caption
-         * that fits in one phrasing can overflow in the other. Let them wrap
-         * instead of spilling past the button edge.
+    if (def->type == PANEL_BTN_LOCAL_TOGGLE || def->type == PANEL_BTN_VALVE) {
+        /* These carry the longest labels on any panel ("BLACK CLOSED",
+         * "TAP AGAIN TO OPEN"), and they are the only ones whose text
+         * CHANGES at runtime, so a caption that fits in one phrasing can
+         * overflow in the other. Let them wrap instead of spilling past
+         * the button edge.
          *
-         * Only this type: labels are otherwise unconstrained and sized to
+         * Only these types: labels are otherwise unconstrained and sized to
          * content, and forcing a width on all of them would re-wrap captions
          * on three installed panels for no reason. On main_cabinet's 800 px
          * grid these still fit on one line, so nothing changes there. */
@@ -432,11 +538,13 @@ void ui_dimmer_button_update(lv_obj_t *btn, uint8_t instance,
         ctx->def->type == PANEL_BTN_SOLAR ||
         ctx->def->type == PANEL_BTN_LOCAL_TOGGLE ||
         ctx->def->type == PANEL_BTN_LIGHT_MASTER ||
+        ctx->def->type == PANEL_BTN_VALVE ||
         ctx->def->type == PANEL_BTN_SCREEN_SWITCH) {
-        /* None of these track a dimmer instance. SCREEN_SWITCH is in the
-         * list because it reuses instances[0] as a TARGET SCREEN INDEX --
-         * without this guard, a real dimmer on instance 1 would light up a
-         * nav button pointing at screen 1. */
+        /* None of these track a dimmer instance. SCREEN_SWITCH/VALVE are in
+         * the list because they reuse instances[0] as a TARGET SCREEN INDEX
+         * or a valve id, respectively -- without this guard, a real dimmer
+         * on instance 0 or 1 would light up a nav button or a valve card
+         * that has nothing to do with it. */
         return;
     }
 
@@ -538,5 +646,31 @@ void ui_dimmer_button_set_active(lv_obj_t *btn, bool active)
         return;
     }
     ctx->rail_active = active;
+    refresh_visuals(ctx);
+}
+
+void ui_dimmer_button_update_valve(lv_obj_t *btn, uint8_t valve,
+                                   uint8_t position, bool stale)
+{
+    btn_ctx_t *ctx = lv_obj_get_user_data(btn);
+    if (ctx == NULL || ctx->def->type != PANEL_BTN_VALVE) {
+        return;
+    }
+
+    bool hit = false;
+    for (uint8_t i = 0; i < ctx->def->instance_count; i++) {
+        if (ctx->def->instances[i] == valve) {
+            hit = true;
+        }
+    }
+    if (!hit) {
+        return;
+    }
+
+    if (ctx->valve_position == position && ctx->valve_stale == stale) {
+        return;   /* called once a second -- don't repaint for nothing */
+    }
+    ctx->valve_position = position;
+    ctx->valve_stale = stale;
     refresh_visuals(ctx);
 }

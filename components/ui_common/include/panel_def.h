@@ -68,6 +68,21 @@ typedef enum {
      * docs/instance_map.yaml). No dimming or ramp -- tap only.
      */
     PANEL_BTN_LIGHT_MASTER,
+    /*
+     * A DrainMaster dump valve, actuated over ESP-NOW (components/espnow_link)
+     * by the valve node (valves/). instances[0] = valve id, 0 = grey, 1 =
+     * black -- reusing the instances[] slot the same way PANEL_BTN_TANK_LEVEL
+     * does, even though it isn't an RV-C instance.
+     *
+     * CLOSE is a single tap. OPEN is arm-then-fire: a first tap arms a 5 s
+     * window (caption changes to prompt a second tap), which is what a real
+     * valve control needs and PANEL_BTN_LOCAL_TOGGLE never had to consider,
+     * since that type sends nothing at all. Position (closed/open/unknown)
+     * and the red-while-open background are driven ONLY by real
+     * espnow_valve_status_msg_t frames, same status-driven-UI invariant as
+     * every dimmer button -- never by the tap itself.
+     */
+    PANEL_BTN_VALVE,
     PANEL_BTN_SPACER,         /* empty grid cell -- no widget, just holds the layout */
 } panel_btn_type_t;
 

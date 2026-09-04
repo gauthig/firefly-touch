@@ -164,9 +164,47 @@ typedef struct {
     };
 } espnow_telem_msg_t;
 
+/*
+ * ------------------------------------------------------- valve control ---
+ *
+ * A THIRD traffic class, separate from both the dimmer cmd/status frame and
+ * telemetry: mid_coach commands the DrainMaster valve node (valves/) and
+ * gets its position back. Kept as its own frame type for the same reason
+ * telemetry is separate from dimmer cmd/status -- growing an existing
+ * union would silently break compatibility with a node still on older
+ * firmware. This one actuates a real motor, so unlike telemetry it stays
+ * unicast and encrypted, same as the dimmer cmd/status frame.
+ *
+ * Doc's own UX language groups "unknown" and "fault" into one visual state
+ * ("three visual states, not two"), so the wire only needs three position
+ * values, not four -- see docs/DRAINMASTER-VALVES.md #8.
+ */
+typedef enum {
+    ESPNOW_VALVE_ACTION_CLOSE = 0,
+    ESPNOW_VALVE_ACTION_OPEN  = 1,
+} espnow_valve_action_t;
+
+typedef struct {
+    uint8_t valve;   /* 0 = grey, 1 = black */
+    uint8_t action;  /* espnow_valve_action_t */
+} espnow_valve_cmd_msg_t;
+
+typedef enum {
+    ESPNOW_VALVE_POS_UNKNOWN = 0,   /* also covers "fault" -- see above */
+    ESPNOW_VALVE_POS_CLOSED  = 1,
+    ESPNOW_VALVE_POS_OPEN    = 2,   /* timed, never sensor-confirmed */
+} espnow_valve_position_t;
+
+typedef struct {
+    uint8_t valve;
+    uint8_t position;  /* espnow_valve_position_t */
+} espnow_valve_status_msg_t;
+
 typedef void (*espnow_cmd_rx_cb_t)(const espnow_cmd_msg_t *msg, void *ctx);
 typedef void (*espnow_status_rx_cb_t)(const espnow_status_msg_t *msg, void *ctx);
 typedef void (*espnow_telem_rx_cb_t)(const espnow_telem_msg_t *msg, void *ctx);
+typedef void (*espnow_valve_cmd_rx_cb_t)(const espnow_valve_cmd_msg_t *msg, void *ctx);
+typedef void (*espnow_valve_status_rx_cb_t)(const espnow_valve_status_msg_t *msg, void *ctx);
 
 typedef enum {
     /* CAN panel: relays remote commands onto the bus, sends status back,
@@ -179,6 +217,13 @@ typedef enum {
      * only. Has no unicast peer at all, so CONFIG_FIREFLY_ESPNOW_PEER_MAC
      * is not consulted and may stay at its placeholder. */
     ESPNOW_ROLE_TELEMETRY,
+    /* Headless DrainMaster valve controller (valves/): receives valve
+     * commands, sends valve status. Its ONE peer is mid_coach, via the
+     * normal CONFIG_FIREFLY_ESPNOW_PEER_MAC/LMK -- this is a distinct role
+     * only so its own boot log doesn't call itself a "bridge". mid_coach's
+     * side of this relationship is its SECOND peer -- see
+     * espnow_link_add_valve_peer() below, not this enum. */
+    ESPNOW_ROLE_VALVE_NODE,
 } espnow_role_t;
 
 /*
@@ -208,6 +253,30 @@ void espnow_link_set_status_rx_cb(espnow_status_rx_cb_t cb, void *ctx);
 
 /* Any receiving role: called when a telemetry broadcast arrives. */
 void espnow_link_set_telem_rx_cb(espnow_telem_rx_cb_t cb, void *ctx);
+
+/*
+ * ------------------------------------------------------- valve control ---
+ *
+ * mid_coach-side only: adds a SECOND unicast peer (the valve node) on top
+ * of whatever espnow_link_init() already set up as the primary peer
+ * (bedroom_remote). Reads CONFIG_FIREFLY_ESPNOW_VALVE_PEER_MAC and
+ * CONFIG_FIREFLY_ESPNOW_VALVE_LMK -- a separate MAC/LMK pair from the
+ * primary peer's, reusing only the network-wide PMK and channel. Call
+ * after espnow_link_init().
+ */
+esp_err_t espnow_link_add_valve_peer(void);
+
+/* mid_coach -> valve node, over the second peer added above. */
+bool espnow_link_send_valve_cmd(const espnow_valve_cmd_msg_t *msg);
+
+/* Valve node -> mid_coach, over its one (only) peer. */
+bool espnow_link_send_valve_status(const espnow_valve_status_msg_t *msg);
+
+/* Valve node role: called from espnow_rx_task when a command arrives. */
+void espnow_link_set_valve_cmd_rx_cb(espnow_valve_cmd_rx_cb_t cb, void *ctx);
+
+/* mid_coach: called from espnow_rx_task when valve status arrives. */
+void espnow_link_set_valve_status_rx_cb(espnow_valve_status_rx_cb_t cb, void *ctx);
 
 #ifdef __cplusplus
 }

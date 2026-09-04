@@ -174,6 +174,18 @@ static void bridge_resync_timer_cb(TimerHandle_t t)
     state_manager_for_each_known(bridge_forward_status, NULL);
 }
 
+#if PANEL_HAS_VALVE_CONTROL
+/* Valve node -> mid_coach: forward into the UI cache. Runs in
+ * espnow_rx_task context, same as every other rx callback here -- ui.c's
+ * ui_on_valve_status() takes the LVGL lock itself. */
+static void bridge_valve_status_rx(const espnow_valve_status_msg_t *msg, void *ctx)
+{
+    (void)ctx;
+    const ui_valve_status_t vs = { .valve = msg->valve, .position = msg->position };
+    ui_on_valve_status(&vs);
+}
+#endif
+
 #if PANEL_HAS_SCREEN_2
 #define TANK_TELEMETRY_PERIOD_MS 5000
 
@@ -237,6 +249,10 @@ void app_main(void)
      * already arriving — they just had nowhere to go until now. */
     espnow_link_set_telem_rx_cb(remote_telem_rx, NULL);
     state_manager_register_status_sink(bridge_forward_status, NULL);
+#if PANEL_HAS_VALVE_CONTROL
+    ESP_ERROR_CHECK(espnow_link_add_valve_peer());
+    espnow_link_set_valve_status_rx_cb(bridge_valve_status_rx, NULL);
+#endif
     TimerHandle_t resync_timer = xTimerCreate(
         "espnow_resync", pdMS_TO_TICKS(ESPNOW_RESYNC_PERIOD_MS), pdTRUE, NULL,
         bridge_resync_timer_cb);

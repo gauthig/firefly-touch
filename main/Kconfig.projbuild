@@ -49,6 +49,45 @@ menu "Firefly Touch Panel"
 
     endmenu
 
+    menu "ESP-NOW valve control (PANEL_HAS_VALVE_CONTROL only)"
+
+        config FIREFLY_ESPNOW_VALVE_PEER_MAC
+            string "Valve node ESP-NOW MAC address (AA:BB:CC:DD:EE:FF)"
+            default "AA:BB:CC:DD:EE:FF"
+            help
+                MAC address of the DrainMaster valve node (valves/) --
+                mid_coach's SECOND ESP-NOW peer, on top of the remote-panel
+                one above. Must equal the valve node's own
+                CONFIG_FIREFLY_ESPNOW_PEER_MAC. Read the valve board's
+                factory MAC with `idf.py -p COMx read-mac` before flashing
+                either side. Unused (and harmless at the placeholder) on any
+                panel that doesn't set PANEL_HAS_VALVE_CONTROL.
+
+        config FIREFLY_ESPNOW_VALVE_LMK
+            string "Valve node ESP-NOW local master key (16 ASCII chars)"
+            default "firefly-lmk-0002"
+            help
+                Per-peer encryption key for the valve node peer. Must equal
+                the valve node's own CONFIG_FIREFLY_ESPNOW_LMK -- a
+                DIFFERENT key from the remote-panel LMK above, since it's a
+                different peer relationship. CHANGE THIS before deploying.
+                Truncated/zero-padded to 16 bytes if not exactly 16 chars.
+
+        config FIREFLY_VALVE_RESYNC_INTERVAL_MS
+            int "Valve status resync interval (ms, informational)"
+            default 15000
+            help
+                How often the valve node re-broadcasts its current position
+                even without a state change, so a panel reboot or a missed
+                frame self-heals (see CLAUDE.md "ESP-NOW remote-panel
+                bridge" for the same reasoning applied to dimmer status).
+                This panel does not enforce the interval -- it only DERIVES
+                how long silence must last before a valve reads as unknown
+                (3x this value). Keep it in step with the valve node's own
+                setting of the same name.
+
+    endmenu
+
     menu "JBD-BMS battery monitor"
 
         comment "A panel no longer connects to the batteries -- see proxy/"

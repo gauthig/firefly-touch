@@ -114,6 +114,19 @@ void ui_dimmer_button_update_master(lv_obj_t *btn, bool any_light_on);
  */
 void ui_dimmer_button_set_active(lv_obj_t *btn, bool active);
 
+/*
+ * Feed a position update to a PANEL_BTN_VALVE widget matching `valve` (0 =
+ * grey, 1 = black). No-op for any other button type or a non-matching
+ * valve id, so callers can sweep every button unconditionally, same as
+ * ui_dimmer_button_update_shore()/_solar(). `position` is an
+ * espnow_valve_position_t value (0 unknown, 1 closed, 2 open); `stale`
+ * forces the unknown display even if `position` is stale leftover data.
+ * Never touches the local arm-then-fire state -- that's UI-only and
+ * belongs to the tap, not to real status. Caller must hold the LVGL lock.
+ */
+void ui_dimmer_button_update_valve(lv_obj_t *btn, uint8_t valve,
+                                   uint8_t position, bool stale);
+
 #ifdef __cplusplus
 }
 #endif
