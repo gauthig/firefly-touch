@@ -160,6 +160,40 @@ through DrainMaster's own indicator LED and lights it whenever the valve is
 closed and it should be dark. The 60 µA divider is three orders of magnitude
 below the LED's operating current.
 
+### 2N3904 substitution (bench, 2026-09-04)
+
+**Built with a 2N3904 NPN BJT instead of the 2N7000 MOSFET** — no 2N7000 on
+hand. A small-signal NPN works in this same divider circuit: the existing
+100 kΩ/100 kΩ divider (Thevenin ≈ 50 kΩ, ≈6 V open-circuit) supplies roughly
+106 µA of base current once the junction turns on, which is comfortably
+enough for any of these parts (hFE well over 50) to saturate and sink the
+DI input hard. No resistor values changed.
+
+Two things a MOSFET swap doesn't have to think about, that a BJT swap does:
+
+- **Leg order is different and not standardized across parts.** Map by
+  function, not position: Gate→Base, Drain→Collector, Source→Emitter. A
+  2N3904/2N2222/BC337/S8050 in TO-92 is E-B-C left-to-right with the flat
+  (printed) face toward you; a 2SC1815 is **E-C-B** — a different order on
+  an otherwise similar-looking part. Verify against the actual datasheet
+  before landing it, not against this note.
+- **Polarity matters.** Only an NPN belongs here (2N3904, 2N2222, BC337,
+  S8050, 2SC1815). A PNP (2N2907, 2N3906) is the wrong device for this
+  low-side sink role.
+- **Slightly more divider current than the MOSFET case**, because a BJT
+  base draws real current where a FET gate draws none: the base clamps
+  near 0.7 V once conducting, versus the FET gate floating near 6 V, so the
+  draw from the DrainMaster GREEN sense wire is roughly 110–150 µA instead
+  of 60 µA. Still about two orders of magnitude below what would light the
+  factory indicator LED, so the "don't wire the reed pair directly" warning
+  above still holds and the swap is still safe.
+
+Pinout and full point-to-point wiring (no bus bar or breadboard on the
+bench — built as two twisted/soldered/heat-shrunk splices instead of a
+rail):
+
+![2N3904 pinout (E-B-C, flat face toward you) and the point-to-point sense-circuit wiring for the grey valve on DI1: R1 from the GREEN pigtail wire to a twisted splice junction J1, R2 and C1 from J1 to a second twisted splice junction J2, Q1's base from J1, Q1's emitter to J2, J2 continuing to the board's GND bus, and Q1's collector direct to the DI1 terminal. Black valve is identical on Q2/R3/R4/C2/DI2.](images/drainmaster-sense-2n3904-wiring.svg)
+
 ### Digital-input terminal block
 
 Confirmed from the enclosure legend: the DI block carries **`COM`**, **`DGND`**
