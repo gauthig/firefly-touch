@@ -33,7 +33,7 @@ jobs:
             -I panels -DPANEL_CONFIG_HEADER='"mid_coach.h"' \
             main components/rvc_protocol components/ui_common \
             components/board components/ch422g \
-            components/espnow_link
+            components/espnow_link components/valve_control
 
   panels:
     name: Panel registry
@@ -79,6 +79,11 @@ jobs:
         run: |
           gcc -Wall -Wextra -Werror -I../include ../renogy_solar_protocol.c test_renogy_solar.c -lm -o test_renogy_solar
           ./test_renogy_solar
+      - name: Compile and run valve_control tests
+        working-directory: components/valve_control/host_test
+        run: |
+          gcc -Wall -Wextra -Werror -I../include ../valve_control.c test_valve_control.c -o test_valve_control
+          ./test_valve_control
 
   # The basement BLE proxy is a separate project on a different chip
   # (classic ESP32, not the panels' S3), so the panel matrix above cannot
@@ -96,6 +101,22 @@ jobs:
           esp_idf_version: v5.5.5
           target: esp32
           command: idf.py -C proxy -B proxy/build build
+
+  # Basement dump-valve controller — also a separate project (see
+  # valves/CMakeLists.txt), but on the panels' own ESP32-S3 target rather
+  # than proxy's classic ESP32.
+  valves:
+    name: Build valve node
+    needs: [lint, host-tests]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: idf.py build
+        uses: espressif/esp-idf-ci-action@v1
+        with:
+          esp_idf_version: v5.5.5
+          target: esp32s3
+          command: idf.py -C valves -B valves/build build
 
   firmware:
     name: Build ${{ matrix.panel }}

@@ -1,0 +1,18 @@
+# ESP32-S3-ETH-8DI-8RO — confirmed via `esptool flash-id` against the real
+# board: ESP32-S3, 16 MB flash, 8 MB embedded PSRAM. Same chip family as the
+# panels, but this scaffold uses none of PSRAM/TWAI/BLE/Bluetooth — no
+# display, no CAN wiring (ESP-NOW only per docs/DRAINMASTER-VALVES.md §1),
+# no BLE client. Left disabled rather than copied from the panel/proxy
+# defaults so an unused peripheral doesn't quietly cost RAM or flash here.
+CONFIG_IDF_TARGET="esp32s3"
+CONFIG_ESPTOOLPY_FLASHSIZE_16MB=y
+
+# Custom single-factory table (see valves/partitions.csv) — same USB-only
+# update decision as the rest of the project, no OTA partitions.
+CONFIG_PARTITION_TABLE_CUSTOM=y
+CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions.csv"
+
+CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ_240=y
+CONFIG_FREERTOS_HZ=1000
+CONFIG_ESP_MAIN_TASK_STACK_SIZE=8192
+CONFIG_COMPILER_OPTIMIZATION_PERF=y
