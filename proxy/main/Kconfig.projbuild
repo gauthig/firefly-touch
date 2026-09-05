@@ -34,6 +34,21 @@ menu "Firefly BLE Proxy"
         help
             As above — unused by the telemetry-only role.
 
+    config FIREFLY_ESPNOW_VALVE_PEER_MAC
+        string "ESP-NOW valve peer MAC (unused by this node)"
+        default "AA:BB:CC:DD:EE:FF"
+        help
+            Not used. This is mid_coach's SECOND ESP-NOW peer (the valve
+            node) — irrelevant to a telemetry-only broadcaster. The symbol
+            exists because espnow_link.c references it unconditionally.
+            Leave it at the placeholder.
+
+    config FIREFLY_ESPNOW_VALVE_LMK
+        string "ESP-NOW valve peer local master key (16 ASCII chars)"
+        default "firefly-lmk-0001"
+        help
+            As above — unused by the telemetry-only role.
+
     config FIREFLY_TELEMETRY_INTERVAL_MS
         int "Telemetry broadcast interval (ms)"
         default 5000

@@ -54,3 +54,20 @@ bool bridge_enqueue_dimmer_group_cmd(uint8_t group, rvc_dimmer_cmd_t cmd,
 }
 
 #endif
+
+#if PANEL_HAS_VALVE_CONTROL
+/*
+ * Unconditional, unlike the dimmer functions above -- valve traffic never
+ * touches CAN in either build. mid_coach is PANEL_HAS_CAN=1, but the valve
+ * node isn't a CAN device at all; commanding it always goes out over its
+ * own second ESP-NOW peer (espnow_link_add_valve_peer(), wired in
+ * main/main.c).
+ */
+#include "espnow_link.h"
+
+bool bridge_enqueue_valve_cmd(uint8_t valve, uint8_t action)
+{
+    const espnow_valve_cmd_msg_t msg = { .valve = valve, .action = action };
+    return espnow_link_send_valve_cmd(&msg);
+}
+#endif

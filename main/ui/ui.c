@@ -146,6 +146,20 @@ static ui_solar_status_t s_solar;
 static bool              s_solar_seen;
 static uint32_t          s_solar_last_ms;
 
+/*
+ * Valve cache, two slots (0 = grey, 1 = black) -- same shape and reasoning
+ * as shore/solar above, but unicast rather than broadcast: only a panel
+ * with PANEL_HAS_VALVE_CONTROL ever calls ui_on_valve_status() at all (see
+ * main/main.c), so this is inert dead state anywhere else, same as the
+ * battery cache is on a panel with no battery section.
+ */
+#define VALVE_COUNT 2
+#define VALVE_STALE_MS (3 * CONFIG_FIREFLY_VALVE_RESYNC_INTERVAL_MS)
+#define VALVE_TIMER_MS 1000
+static uint8_t  s_valve_position[VALVE_COUNT];
+static bool     s_valve_seen[VALVE_COUNT];
+static uint32_t s_valve_last_ms[VALVE_COUNT];
+
 #if PANEL_HAS_SCREEN_2
 static lv_obj_t *s_buttons_2[PANEL_BUTTON_COUNT_2];
 static lv_obj_t *s_tank_status_label;
@@ -511,6 +525,36 @@ static void solar_timer_cb(lv_timer_t *t)
     }
 }
 #endif /* PANEL_HAS_SCREEN_2 */
+/* -------------------------------------------------------------- valve --- */
+
+#if PANEL_HAS_SCREEN_2
+/*
+ * Repaints every PANEL_BTN_VALVE widget once a second from the cache, same
+ * staleness-decided-once shape as solar_timer_cb() above. Unlike shore/
+ * solar/battery, this cache is unicast rather than a broadcast any panel
+ * could receive -- but the sweep itself doesn't need to know that; it's
+ * simply a no-op sweep on a panel with no PANEL_BTN_VALVE widgets, since
+ * ui_dimmer_button_update_valve() no-ops for any other button type.
+ */
+static void valve_status_timer_cb(lv_timer_t *t)
+{
+    (void)t;
+
+    for (uint8_t v = 0; v < VALVE_COUNT; v++) {
+        const bool stale = !s_valve_seen[v] ||
+                           (lv_tick_get() - s_valve_last_ms[v]) > VALVE_STALE_MS;
+
+        for (uint8_t sc = 0; sc < UI_SCREEN_COUNT; sc++) {
+            for (uint32_t i = 0; i < s_screens[sc].count; i++) {
+                if (s_screens[sc].buttons[i] != NULL) {
+                    ui_dimmer_button_update_valve(s_screens[sc].buttons[i], v,
+                                                  s_valve_position[v], stale);
+                }
+            }
+        }
+    }
+}
+#endif /* PANEL_HAS_SCREEN_2 */
 
 /* --------------------------------------------------------- screen nav --- */
 
@@ -658,10 +702,24 @@ static void panel_send_cb(const panel_btn_def_t *def, rvc_dimmer_cmd_t cmd,
     }
     if (def->type == PANEL_BTN_TANK_LEVEL || def->type == PANEL_BTN_SHORE_POWER ||
         def->type == PANEL_BTN_LOCAL_TOGGLE || def->type == PANEL_BTN_SPACER) {
-        /* Read-only, or local-only (the valve/mode toggles drive nothing
-         * yet) — never reaches the bus. */
+        /* Read-only, or local-only (the gravity/macerator selector drives
+         * nothing yet) — never reaches the bus or the ESP-NOW link. */
         return;
     }
+#if PANEL_HAS_VALVE_CONTROL
+    if (def->type == PANEL_BTN_VALVE) {
+        /* ui_dimmer_button.c reuses ON_DELAY/OFF to mean open/close -- see
+         * its handle_tap() -- so this is the one place that translates back
+         * to a real valve action before it leaves the panel. instances[0]
+         * is the valve id, not an RV-C instance. */
+        const uint8_t action = (cmd == RVC_DIMMER_CMD_ON_DELAY)
+            ? BRIDGE_VALVE_ACTION_OPEN : BRIDGE_VALVE_ACTION_CLOSE;
+        if (def->instance_count > 0) {
+            bridge_enqueue_valve_cmd(def->instances[0], action);
+        }
+        return;
+    }
+#endif
 
     /* ON/OFF/TOGGLE carry an explicit desired level of 100 % rather than
      * 0xFF "no change" — this matches the proven-working frame from
@@ -1238,6 +1296,9 @@ static void build_screen(void)
     if (panel_has_button_type(PANEL_BTN_SOLAR)) {
         lv_timer_create(solar_timer_cb, SOLAR_TIMER_MS, NULL);
     }
+    if (panel_has_button_type(PANEL_BTN_VALVE)) {
+        lv_timer_create(valve_status_timer_cb, VALVE_TIMER_MS, NULL);
+    }
 #endif
     if (s_master_btn != NULL) {
         lv_timer_create(master_timer_cb, MASTER_TIMER_MS, NULL);
@@ -1356,6 +1417,22 @@ void ui_on_solar_status(const ui_solar_status_t *solar)
     s_solar = *solar;
     s_solar_seen = true;
     s_solar_last_ms = lv_tick_get();
+    lvgl_port_unlock();
+}
+
+void ui_on_valve_status(const ui_valve_status_t *vs)
+{
+    if (!s_ui_ready || vs == NULL || vs->valve >= VALVE_COUNT) {
+        return;
+    }
+    /* Cache only. valve_status_timer_cb owns the staleness decision and the
+     * repaint, same split as every other readout above -- and, same as
+     * every dimmer button, the widget's visual state moves ONLY here, never
+     * from the tap that requested it. */
+    lvgl_port_lock(0);
+    s_valve_position[vs->valve] = vs->position;
+    s_valve_seen[vs->valve] = true;
+    s_valve_last_ms[vs->valve] = lv_tick_get();
     lvgl_port_unlock();
 }
 

@@ -197,6 +197,24 @@ group-addressed frames have no room in the ESP-NOW command format."
 #endif
 
 /*
+ * PANEL_HAS_VALVE_CONTROL 1 = this panel carries PANEL_BTN_VALVE buttons and
+ * commands the DrainMaster valve node (valves/) over its own second ESP-NOW
+ * peer. Declared rather than inferred, same reason as PANEL_HAS_LIGHT_MASTER
+ * -- the preprocessor cannot look inside PANEL_BUTTONS[] to see whether one
+ * is there, and main.c's peer setup needs to know at compile time.
+ *
+ * Requires PANEL_IS_BRIDGE: only a bridge panel's main.c wires up a second
+ * ESP-NOW peer at all (see espnow_link_add_valve_peer() in main/main.c).
+ */
+#ifndef PANEL_HAS_VALVE_CONTROL
+#define PANEL_HAS_VALVE_CONTROL 0
+#endif
+
+#if PANEL_HAS_VALVE_CONTROL && !PANEL_IS_BRIDGE
+#error "PANEL_HAS_VALVE_CONTROL needs PANEL_IS_BRIDGE (only a bridge panel adds a second ESP-NOW peer)"
+#endif
+
+/*
  * No panel runs a BLE client any more. The three JBD/Xiaoxiang battery
  * packs sit in the basement bay next to the headless proxy (proxy/), which
  * holds their BLE links and broadcasts the readings over ESP-NOW; a panel

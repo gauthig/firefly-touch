@@ -108,3 +108,20 @@ typedef struct {
  * explicit invalid call -- is what marks the controller gone.
  */
 void ui_on_solar_status(const ui_solar_status_t *solar);
+
+/*
+ * A DrainMaster valve position, relayed from the valve node (valves/) over
+ * ESP-NOW. Plain struct rather than the espnow wire type, same reason as
+ * the readouts above -- ui.h stays free of espnow_link.h.
+ */
+typedef struct {
+    uint8_t valve;      /* 0 = grey, 1 = black */
+    uint8_t position;   /* mirrors espnow_valve_position_t: 0 unknown, 1 closed, 2 open */
+} ui_valve_status_t;
+
+/*
+ * Push a valve position update into the UI. Takes the LVGL lock internally.
+ * Like shore power, the UI ages this out on its own -- silence reads as
+ * unknown, not an explicit invalid call.
+ */
+void ui_on_valve_status(const ui_valve_status_t *vs);
