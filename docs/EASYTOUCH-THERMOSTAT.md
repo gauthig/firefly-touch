@@ -188,13 +188,13 @@ Mode enum, as far as anyone has decoded it:
 | 1 | fan only | all three |
 | 2 | cool | all three |
 | 3 | cool, **compressor running** (`current_mode` only) | mbhewitt, HA |
-| 4 | heat (electric: heat pump **or** heat strip, per zone board config) | all three |
-| 5 | heat, **running** (`current_mode` only) | HA |
+| 4 | ~~heat (electric: heat pump **or** heat strip)~~ → **confirmed on this coach: Aqua-Hot selected** | all three assumed "heat"; §8b bench capture 2026-09-06 corrects to Aqua-Hot |
+| 5 | heat, **running** (`current_mode` only) | HA — not confirmed live; this coach's `current_mode` used 4, not 5, while heating (§8b) |
 | 6 | dry | HA (as a *command*; never seen as status) |
-| 11 | auto (heat/cool with dual setpoints) | all three |
-| ? | **aux heat: Furnace / Aqua** | **unknown — HA issue #32; capture on the bench** |
-| ? | auto with heat pump | unknown — HA issue #28 |
-| ? | 14 = "heat running"? | node-red's older firmware only |
+| **7** | **Heat Pump selected** | **confirmed on this coach, §8b bench capture 2026-09-06 — not in any upstream source, answers HA issue #28** |
+| 11 | auto (heat/cool with dual setpoints) | all three; not yet confirmed live on this coach |
+| ? | auto combined with heat pump specifically | still open — HA issue #28's remaining half; needs a live Auto capture |
+| ? | 14 = "heat running"? | node-red's older firmware only; not seen on this coach |
 
 The 350 touchscreen offers per zone: Off, Fan, Cool, **Heat Pump *or* Heat
 Strip** (whichever the zone board's DIP switches declare — never both; the
@@ -472,6 +472,78 @@ to the sections above, from the actual response:
   This capture only saw Cool; running the touchscreen through Off / Fan /
   Heat / Aqua / Auto per zone (bench plan step 4) while the capture tool's
   serial monitor is attached is the next session.
+
+## 8b. Mode numbers captured (2026-09-06, Front + Mid Coach cycled)
+
+Four more captures, cycling Front and Mid Coach (zones 0 and 1) between
+their two selectable heat sources with the other two zones off:
+
+| capture | zone changed | to | zone idx | `mode` (idx 10) | `current_mode` (idx 15) |
+|---|---|---|---|---|---|
+| 1 | Front | Heat Pump | 0 | **7** | 4 |
+| 2 | (intended Mid, landed on Front — see note) | Aqua-Hot | 0 | **4** | 4 |
+| 3 | Mid Coach | Heat Pump | 1 | **7** | 4 |
+| 4 | Mid Coach | Aqua-Hot | 1 | **4** | 4 |
+
+**Confirmed, updating §3.3's mode table:**
+
+- **`mode = 7` is Heat Pump.** Not documented in any of the three upstream
+  projects (none had a heat-pump zone) — this answers HA integration
+  issue #28 for this protocol revision.
+- **`mode = 4` is Aqua-Hot**, not the generic "heat" the HA integration and
+  mbhewitt assumed. This coach's zone boards apparently offer exactly two
+  selectable heat sources per zone — Heat Pump and Aqua-Hot — with no
+  separate heat-strip button appearing on the touchscreen for either zone
+  tested; the "heat bar" in the A/C unit is most likely the heat pump's own
+  built-in resistive backup rather than an independently switchable
+  EasyTouch mode. If a heat-strip-only mode number turns out to exist, it
+  hasn't been seen yet.
+- **`current_mode = 4` while actively heating, regardless of which mode
+  (4 or 7) is selected.** So `current_mode` on this firmware is a generic
+  "calling for heat" indicator, not a per-source value — it does not
+  distinguish Aqua-Hot from Heat Pump the way `mode` does. (Off zones
+  showed `current_mode = 0` throughout, consistent with §3.3.)
+- **Capture 2 note:** the log shows the change landing on zone index 0
+  (mode 4) rather than index 1, while the change was intended for Mid
+  Coach. Captures 1, 3, and 4 are internally consistent (Front ↔ zone 0,
+  Mid Coach ↔ zone 1, matching the plan's ordering), so this looks like a
+  one-off UI navigation slip during capture — the touchscreen was probably
+  still on the Front zone's screen — rather than a protocol surprise.
+  Treat captures 1/3/4 as authoritative for the zone-index mapping.
+- **Rear (zone 2) not yet directly tested**, but Front and Mid Coach agree
+  exactly on both mode numbers (7 and 4) with identical A/C + Aqua-Hot
+  equipment, and the enum is a firmware constant shared across zones, not
+  something that varies per zone. Extending the same 7/4 pair to Rear is a
+  safe working assumption for building the panel UI; a one-time spot check
+  on Rear before flashing the real gateway is cheap insurance given
+  capture 2's mix-up above, but is not expected to change anything.
+
+**`PRM` still not resolved, but a pattern emerged.** All four values shift
+together depending on which zone (0 or 1) is actively heating:
+
+| captures | `PRM` |
+|---|---|
+| 1, 2 (zone 0 heating) | `[0, 107, 68, 79]` |
+| 3, 4 (zone 1 heating) | `[1, 107, 67, 78]` |
+
+`PRM[0]` flips 0↔1, and `PRM[2]`/`PRM[3]` each drop by exactly 1, based on
+*which zone* is calling for heat rather than a simple system-wide on/off
+bit. Not needed for any command this design sends (commands address a
+zone directly), so it does not block anything — leave as an open curiosity
+rather than a blocker.
+
+Updated mode enum (§3.3), current state of knowledge:
+
+| value | meaning |
+|---|---|
+| 0 | off |
+| 1 | fan only |
+| 2 | cool |
+| 3 | cool, running (`current_mode` only, not yet confirmed live) |
+| **4** | **Aqua-Hot selected** (confirmed) / `current_mode`: generic "heating" |
+| **7** | **Heat Pump selected** (confirmed) |
+| 11 | auto (not yet confirmed live) |
+| — | dry — never seen live |
 
 **How to continue the capture** (per bench plan §8, steps 4-5, 7): run
 
