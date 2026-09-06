@@ -1,0 +1,46 @@
+menu "Firefly EasyTouch Capture"
+
+    config FIREFLY_EASYTOUCH_PASSWORD
+        string "Micro-Air account password"
+        default ""
+        help
+            The password of the Micro-Air account already paired to the
+            coach's EasyTouch thermostat (the same one the phone app uses
+            to connect over Bluetooth). This is the ONLY credential the
+            protocol uses -- there is no separate BLE pairing. See
+            docs/EASYTOUCH-THERMOSTAT.md section 2.
+
+            Set this in THIS project's own sdkconfig only
+            (hvac_capture/sdkconfig) -- never in sdkconfig.defaults, same
+            handling as every other real secret in this repo (battery MACs,
+            ESP-NOW peer MAC/PMK/LMK).
+
+    config FIREFLY_EASYTOUCH_EMAIL
+        string "Micro-Air account e-mail (optional)"
+        default ""
+        help
+            Sent as the "EM" field on a Get Status request if non-empty.
+            The design's recommendation (docs/EASYTOUCH-THERMOSTAT.md
+            section 3.3) is to leave this and the timestamp out, since the
+            thermostat sets its clock from a connecting app's timestamp and
+            this capture tool has no clock to give it. Leave blank unless
+            bench step 2 (status with vs. without EM/TM) needs to compare.
+
+    config FIREFLY_EASYTOUCH_NAME_PREFIX
+        string "Advertised name prefix to scan for"
+        default "EasyTouch"
+        help
+            The thermostat advertises as "EasyTouch <serial>". Prefix match
+            is fine for a single thermostat in range.
+
+    config FIREFLY_EASYTOUCH_POLL_INTERVAL_MS
+        int "Status poll interval (ms)"
+        default 5000
+        range 2000 60000
+        help
+            Bench-capture cadence, deliberately fast (not the eventual
+            gateway's 20-30 s production interval) so a mode change made on
+            the touchscreen shows up in the log quickly during a capture
+            session.
+
+endmenu
