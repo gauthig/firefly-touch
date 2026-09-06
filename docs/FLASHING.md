@@ -34,13 +34,15 @@ python tools/check_panels.py
   mid_coach        index 0   source addr 0x80   board 4_3b   "MID COACH"
   ent_center       index 1   source addr 0x81   board 4_3b   "ENT CENTER"
   bedroom_remote   index 2   source addr 0x82†  board 4_3b   "BED REMOTE"
-  main_cabinet     index 3   source addr 0x83   board lcd7   "MAIN CABINET"
+  main_cabinet     index 3   source addr 0x83   board lcd7b  "MAIN CABINET"
   next free        index 4   source addr 0x84
 ```
 
 ⚠️ **The Board column is not cosmetic.** `4_3b` is the Waveshare 4.3B;
-`lcd7` is the 7". They put CAN on different pins, and a mismatch fails
-silently — the panel boots, lights up, and never sees the bus. `BOARD` is
+`lcd7b` is the 7B (1024×600), `lcd7` its 800×480 non-B predecessor (still in
+the tree, no panel uses it). They put CAN on different pins from the 4.3B,
+and a mismatch fails silently — the panel boots, lights up, and never sees
+the bus. `BOARD` is
 derived from `PANEL` by a mapping in the root `CMakeLists.txt`, so there is
 no `-DBOARD=` to pass or forget; `tools/check_panels.py` checks that mapping
 against the registry.
@@ -97,29 +99,55 @@ idf.py -B build_ent_center -DPANEL=ent_center -p COM5 flash monitor
 idf.py -B build_bedroom_remote -DPANEL=bedroom_remote -p COM5 flash monitor
 ```
 
-### Main cabinet panel (Waveshare 7", landscape)
+### Main cabinet panel (Waveshare 7B, 1024×600 landscape)
 
 ```powershell
-idf.py -B build_main_cabinet -DPANEL=main_cabinet -p COM19 flash monitor
+idf.py -B build_main_cabinet -DPANEL=main_cabinet "-DSDKCONFIG=build_main_cabinet/sdkconfig" -p COM21 flash monitor
 ```
 
 ⚠️ **Flash and monitor this one over its UART port** (the CH343 bridge, e.g.
-`USB-Enhanced-SERIAL CH343 (COM19)`), not its native USB port. On this board
+`USB-Enhanced-SERIAL CH343 (COM21)`), not its native USB port. On this board
 CAN shares GPIO19/20 with USB D-/D+, and the firmware raises CH422G EXIO5 to
 route them to the transceiver — which disables native USB the moment
 `board_twai_init()` runs. It is not a brick risk (ROM download mode runs
 before the app), but a native-USB session goes dead a second into boot.
 
-A correct boot logs:
+The 7B matches the non-B 7" for the CAN pins and GT911 touch, but differs in
+geometry (1024×600), pixel clock (21 MHz — the 7B panel's nominal is 30,
+but the `avoid_tearing` + `full_refresh` buffer scheme here needs it lower),
+the RGB porches, the IO expander
+(register-addressed "IO_EXTENSION" at 0x24, not a CH422G —
+`components/ws_io_expander`), **and it has an extra panel-enable pin**
+(EXIO6 = LCD_VDD_EN — without it the panel stays black with the backlight
+lit). All handled in `components/board/board_lcd7b.{c,h}`; the traps are
+catalogued by `github.com/xtux77/waveshare-esp32s3-lcd7b-esphome`. Its `build_main_cabinet/sdkconfig` carries
+no secrets (telemetry ESP-NOW role, placeholder peer/battery MACs), but it
+does need `CONFIG_LV_FONT_MONTSERRAT_32=y` for the larger UI, so keep the
+explicit `-DSDKCONFIG=` on every `idf.py` call rather than letting a
+regenerate drop it.
+
+A correct boot (COM21 / the CH343 **UART** port — the native USB port dies
+once CAN inits, and it is *also* physically a different jack: use the one
+labelled UART):
 
 ```
-I (...) board_lcd7: display up: 800x480 RGB565 landscape, GT911 touch, LVGL on core 1
+I (...) esp_psram: Found 8MB PSRAM device
+I (...) ws_io_expander: IO_EXTENSION @0x24 initialized (outputs, all low)
+I (...) GT911: TouchPad_ID:0x39,0x31,0x31           (="911", default addr 0x5D)
+I (...) board_lcd7b: heap free after display init: internal 125803 B, PSRAM 4752576 B
+I (...) board_lcd7b: display up: 1024x600 RGB565 landscape, GT911 touch, LVGL on core 1
 I (...) ui: UI ready: MAIN CABINET (11 buttons, +2 on screen 2)
 I (...) main: RV-C source addr 0x83
-W (...) board_lcd7: EXIO5 -> CAN: native USB port is now disabled, use UART
-I (...) board_lcd7: TWAI up at 250 kbps on TX=20 RX=19
+W (...) board_lcd7b: EXIO5 -> CAN: native USB port is now disabled, use UART
+I (...) board_lcd7b: TWAI up at 250 kbps on TX=20 RX=19
 I (...) espnow_link: ESP-NOW up (telemetry), broadcast only, channel 1
 ```
+
+Bench-verified 2026-09-05: boots, all four sections render stably at
+1024×600. The 7B's display bring-up needed three fixes the non-B did not —
+a different IO-expander driver, the extra `EXIO6 = LCD_VDD_EN` pin, and an
+`avoid_tearing`+`full_refresh` RGB buffer scheme at 21 MHz. Details in
+`CLAUDE.md` → *Hard-won during the 7B migration*.
 
 The ESP-NOW line matters: this panel is CAN-connected but still listens to
 the broadcast channel, because the battery packs and the Power Watchdog are

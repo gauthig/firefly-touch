@@ -5,20 +5,28 @@ Firefly Integrations G6A multiplex system. Each panel is an **independent peer
 node** on the coach's RV-C bus (CAN 2.0B, 250 kbps, 29-bit extended IDs).
 There is no hub or gateway — the bus is the shared state mechanism.
 
-Hardware: two board types, both ESP32-S3-WROOM-1 with 16 MB flash / 8 MB
-octal PSRAM, GT911 touch on I2C, CH422G IO expander, TJA1051 CAN
-transceiver, 7-36 V input:
+Hardware: all panels are ESP32-S3-WROOM-1 with 16 MB flash / 8 MB octal
+PSRAM, GT911 touch on I2C, CH422G IO expander, TJA1051 CAN transceiver,
+7-36 V input. Three board configs, two compiled today:
 
 - Waveshare **ESP32-S3-Touch-LCD-4.3B** — 4.3" 800x480, run rotated to
-  portrait. `mid_coach`, `ent_center`, `bedroom_remote`.
-- Waveshare **ESP32-S3-Touch-LCD-7** (non-B) — 7" 800x480 EK9716, run
-  landscape. `main_cabinet`.
+  portrait. `mid_coach`, `ent_center`, `bedroom_remote`. (`board_4_3b`)
+- Waveshare **ESP32-S3-Touch-LCD-7B** — 7" 1024x600, run landscape.
+  `main_cabinet`. (`board_lcd7b`, `BOARD_LCD7B`; issue #66)
+- Waveshare **ESP32-S3-Touch-LCD-7** (non-B) — 7" 800x480 EK9716. Was
+  `main_cabinet`'s board until the 7B swap; `board_lcd7` is kept in the tree
+  as an unused reference. The 7B matches it for the CAN pins, GT911 touch
+  and the EXIO pin map; it differs in geometry, pixel clock (16 MHz non-B;
+  the 7B panel is nominally 30 but this firmware runs it at 21 — see the 7B
+  migration notes below), the RGB porches, **and the IO expander chip** —
+  the 7B is not a CH422G, see
+  `components/ws_io_expander` (`board_lcd7b.h` cites the source).
 
-⚠️ **The boards put CAN on different pins** (4.3B: GPIO15/16; 7": GPIO20/19,
-where the 4.3B has RS485) and a mismatch fails *silently* — the panel boots,
-lights up, and never sees the bus. `BOARD` is therefore **derived from
-`PANEL`** by a mapping in the root `CMakeLists.txt`; there is no `-DBOARD=`
-to forget. `tools/check_panels.py` cross-checks it against
+⚠️ **The 4.3B and 7-inch boards put CAN on different pins** (4.3B: GPIO15/16;
+7"/7B: GPIO20/19, where the 4.3B has RS485) and a mismatch fails *silently* —
+the panel boots, lights up, and never sees the bus. `BOARD` is therefore
+**derived from `PANEL`** by a mapping in the root `CMakeLists.txt`; there is
+no `-DBOARD=` to forget. `tools/check_panels.py` cross-checks it against
 `panels/REGISTRY.md`'s Board column.
 
 Docs for humans: [README.md](README.md) (overview, toolchain install) and
@@ -78,13 +86,16 @@ cd sim
 .\build.ps1 -Shot p.bmp -Screen2 -Popup   # ...with the pack-detail popup open
 ```
 
-**The sim window is 480x800 (portrait), matching the firmware's LOGICAL
-resolution** — `board_4_3b.c` runs the physically-800x480 panel rotated 90°,
-and all UI layout code sizes itself off
-`lv_display_get_vertical_resolution()`. The sim used to create an 800x480
-landscape display, which previewed a screen the hardware never shows; it now
-matches, so no rotation is needed on the sim side at all. Don't "fix" it back
-to the physical dimensions.
+**The sim window matches the firmware's LOGICAL resolution** — 480x800
+portrait for the 4.3B panels (`board_4_3b.c` runs the physically-800x480
+panel rotated 90°), 1024x600 landscape for `main_cabinet` (7B, unrotated).
+All UI layout code sizes itself off
+`lv_display_get_vertical_resolution()` / `_horizontal_`. The size comes from
+`PANEL_LOGICAL_W/H` (`panels/<name>.h`, else a nav-rail vs portrait default
+in `main/panel_config.h`); `sim/main_sim.c` just reads those. The sim used to
+hardcode an 800x480 landscape display for the nav-rail case, which previewed
+a screen the 7B never shows. Don't "fix" it back to the physical dimensions
+or to a constant.
 
 Headless `--shot` renders into a full-size XRGB8888 framebuffer and writes
 that, rather than calling `lv_snapshot_take()` on the active screen — a
@@ -173,12 +184,14 @@ enqueuing locally, and status arrives the same way in reverse (see below).
 - `components/rvc_protocol` — pure C (no ESP deps): 29-bit ID pack/unpack,
   DGN encode/decode. Host-testable (`host_test/`).
 - `components/board` — board bring-up: RGB timings, GT911, esp_lvgl_port
-  glue, TWAI init. One component, one board compiled: `board_4_3b.c` or
-  `board_lcd7.c`, chosen by `BOARD`, both behind `include/board.h` so `main/`
-  and `sim/` never name a board. RGB timing / pin values follow the vendor
-  demos — **merge points are marked in each file; diff against the current
-  Waveshare demo (or Espressif's `ESP32_Display_Panel` board definition) when
-  bringing up hardware, don't invent timings.**
+  glue, TWAI init. One component, one board compiled: `board_4_3b.c`,
+  `board_lcd7b.c` (the 7B, `BOARD=lcd7b`), or `board_lcd7.c` (the non-B 7",
+  no panel selects it now — retained as a reference), chosen by `BOARD`, all
+  behind `include/board.h` so `main/` and `sim/` never name a board. RGB
+  timing / pin values follow the vendor demos — **merge points are marked in
+  each file; diff against the current Waveshare demo (or Espressif's
+  `ESP32_Display_Panel` board definition) when bringing up hardware, don't
+  invent timings.**
   ⚠️ Only the SOURCE selection is conditional in its `CMakeLists.txt`;
   `REQUIRES` is a constant list. IDF resolves the dependency graph in an
   *early expansion* pass that runs before the project's variables exist, so
@@ -186,12 +199,28 @@ enqueuing locally, and status arrives the same way in reverse (see below).
   earlier attempt used two components that each registered empty unless
   selected; every `REQUIRES` silently became nothing and the build failed
   with "board.h: No such file" while the CMake looked correct.
-- `components/ch422g` — the minimal CH422G IO-expander driver, shared by both
-  boards (same chip, same 0x24/0x38 addresses).
+- `components/ch422g` — minimal CH422G IO-expander driver for the 4.3B and
+  the non-B 7" (`board_4_3b`, `board_lcd7`). Register-less: a data byte per
+  fixed address, 0x24 (WR_SET) / 0x38 (WR_IO).
+- `components/ws_io_expander` — the 7B's IO expander (`board_lcd7b`). ⚠️
+  **The 7B is NOT a CH422G** despite the vendor wiki's wording. It is
+  Waveshare's register-addressed "IO_EXTENSION" at 0x24 only: 2-byte
+  `{reg,val}` writes (`0x02` mode / `0x03` output / `0x05` PWM), and it has a
+  real backlight PWM the CH422G lacks. Confirmed by I2C scan of the board:
+  0x24 + GT911@0x5D answer, 0x23/0x38 do not. Same EXIO pin map as the
+  CH422G (IO1 TP_RST, IO2 backlight, IO3 LCD_RST, IO5 USB/CAN).
 - `components/ui_common` — theme (`ui_theme`), shared dimmer-button widget
-  (`ui_dimmer_button`), panel-config types (`panel_def.h`). Buttons show
-  label text only (no icon glyph); background swaps dark blue -> light blue
-  between off/on (see *UI* section below).
+  (`ui_dimmer_button`), the readout widgets (tank/battery/shore/solar),
+  panel-config types (`panel_def.h`), and `ui_metrics.h` — every pixel
+  size / font, with a `UI_METRICS_LARGE` variant. Buttons show label text
+  only (no icon glyph); background swaps dark blue -> light blue between
+  off/on (see *UI* section below).
+  ⚠️ `UI_METRICS_LARGE` is a compile define injected by
+  `components/ui_common/CMakeLists.txt` when `BOARD == lcd7b` (and by
+  `sim/CMakeLists.txt` when `PANEL == main_cabinet`) — **not** a `PANEL_*`
+  macro, because `ui_common/*` only ever include `panel_def.h`, never
+  `panel_config.h` or a panel header. The `#else` branch reproduces the old
+  literals verbatim, so every non-7B build is byte-identical.
 - `components/espnow_link` — ESP-NOW transport for a remote panel with no
   CAN wiring (see *ESP-NOW remote-panel bridge* below). No dependency on
   `main/`; mirrors `dimmer_cmd_msg_t`/`dimmer_status_msg_t` as its own
@@ -984,10 +1013,11 @@ remove it) or small finger drift cancels the long-press before it fires.
 ## Side-nav rail (main_cabinet)
 
 `main_cabinet` presents a **persistent left rail** listing its sections
-(POWER / TANKS / LIGHTS) with the selected one filling the rest of the
-screen, rather than the whole-screen swap the 4.3B panels use. Its 7"
-landscape display is what makes room for it; a portrait panel has none to
-spare.
+(POWER / SOLAR / TANKS / LIGHTS) with the selected one filling the rest of
+the screen, rather than the whole-screen swap the 4.3B panels use. Its 7B
+1024x600 landscape display is what makes room for it; a portrait panel has
+none to spare. The rail width and button height, like every other size on
+this panel, come from `ui_metrics.h`'s large variant.
 
 Opt in with `PANEL_HAS_NAV_RAIL 1` plus a `PANEL_NAV_RAIL[]` array. Rail
 entries are ordinary `PANEL_BTN_SCREEN_SWITCH` defs, reusing the existing
@@ -1005,7 +1035,12 @@ untouched):
   backlight idles off. `main_cabinet` uses 1 (POWER); the grid is just one
   section, not the home screen.
 - `PANEL_GRID_COLS` — columns in the main button grid, 2 by default,
-  3 on `main_cabinet`.
+  3 on `main_cabinet` (wide cells read better than 4 narrow ones for the
+  long load names on the 1024 px panel).
+- `PANEL_LOGICAL_W` / `PANEL_LOGICAL_H` — the panel's post-rotation logical
+  resolution. Firmware reads it from `board.h`; this is for the simulator
+  window. Defaults to 800x480 for a nav-rail panel / 480x800 otherwise;
+  `main_cabinet` overrides to 1024x600.
 - `PANEL_WANTS_TELEMETRY` — see the task map above.
 
 Rail screens are laid out by `build_content_pane()` (read-only widgets in a
@@ -1280,6 +1315,53 @@ Hard-won during setup — check here before re-debugging:
   `idf.py build` on a fresh clone before building `sim/`.
 - Long ESP-IDF operations (clone, `install.ps1`, first build) take many
   minutes — run them in the background rather than blocking on a timeout.
+
+Hard-won during the 7B migration (2026-09-05, `main_cabinet` on COM21,
+issue #66). The best 7B reference by far is
+`github.com/xtux77/waveshare-esp32s3-lcd7b-esphome` (`docs/hardware.md` +
+`panel.yaml`) — bench-verified, and it names every trap the vendor wiki
+hides. Three things bit, in order:
+
+- ⚠️ **The 7B's IO expander is NOT a CH422G**, despite the wiki calling the
+  whole family "CH422G". First flash aborted in `board_display_init` →
+  `ch422g_init` (NACK on the CH422G's 0x38). An I2C scan showed only 0x24
+  and the GT911 at 0x5D. The 7B has Waveshare's register-addressed
+  "IO_EXTENSION" (2-byte `{reg,val}` to 0x24, and a real backlight PWM the
+  CH422G lacks). Fix: `components/ws_io_expander`, used by `board_lcd7b.c`
+  in place of `components/ch422g`. **Scan the bus on any new board in this
+  family — don't trust the wiki or a web-search summary.**
+- ⚠️ **The 7B has a SECOND panel-enable pin: EXIO6 = LCD_VDD_EN** (VCOM
+  supply), which the non-B lacks. Second flash: firmware booted clean but
+  **screen stayed black with the backlight lit**. It must be driven HIGH
+  before the RGB panel comes up. `board_display_init` now does this.
+- ⚠️ **The RGB timings from the NicoEFI "7B demo" repo are wrong** — that
+  fork still carries 800x480 porch values. The panel is the same as
+  ESPHome's WAVESHARE-5-1024X600: hsync pw/bp/fp = 30/145/170, vsync
+  2/23/12, pclk inverted.
+- ⚠️ **RGB buffer mode + pixel clock took real bench iteration.** Every
+  scheme from `board_lcd7.c` (partial + bounce) up through `avoid_tearing` +
+  `direct_mode` flickered on the 1024x600 panel — `direct_mode` kept static
+  content solid but every widget that redrew (1 Hz readouts, the tank-wave
+  animation) blinked, because the two alternating buffers briefly disagree
+  in the redrawn region. **What works: `avoid_tearing` + `full_refresh`**
+  (whole frame re-rendered every refresh, buffers never disagree) **at 21
+  MHz pclk** (higher clocks + full_refresh = the render can't stay ahead of
+  the scanout → whole-panel shake). `CONFIG_LCD_RGB_RESTART_IN_VSYNC=y` made
+  it *worse* (visible horizontal wobble) — left off. Bigger CPU caches
+  (`DATA_CACHE_64KB`) to buy PSRAM bandwidth **blew the internal-RAM budget**
+  → WiFi malloc failure → boot loop; do not. 21 MHz ≈ 24 Hz refresh, which
+  is fine for this UI.
+- ⚠️ **The tank-wave animation is OFF on the 7B** (`UI_TANK_WAVE_ANIMATE 0`).
+  Its ~100 ms self-redraws each force a full-frame render+swap under
+  `full_refresh`, and three of them occasionally overran a frame → a
+  periodic full-screen blink on the TANK screen only. The static water
+  shape stays; only the motion is gone.
+- `avoid_tearing` hands the RGB panel's two framebuffers to LVGL as its draw
+  buffers, so NO separate LVGL draw buffers are allocated — PSRAM free after
+  display init is ~4.75 MiB (vs ~2.16 with the partial-render path).
+- Backlight EXIO2 also gates the panel's DISP line, so `board_backlight_set_
+  percent(0)` on the 7B standbys the panel (xtux77 trap #5); the UI's black
+  idle overlay covers it, but re-verify the 300 s idle-off stage on hardware.
 
 Hard-won during first hardware bring-up (2026-08-05, bench board = plain
 ESP32-S3-Touch-LCD-4.3, **not** the B):

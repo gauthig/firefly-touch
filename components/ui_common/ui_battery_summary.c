@@ -4,6 +4,7 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "ui_metrics.h"
 #include "ui_theme.h"
 
 /* SOC color bands, shared by the arc indicator and the percent label. */
@@ -98,12 +99,12 @@ static lv_obj_t *make_cell(lv_obj_t *parent, uint8_t col, uint8_t row,
 
     lv_obj_t *cap = lv_label_create(cell);
     lv_label_set_text(cap, caption);
-    lv_obj_set_style_text_font(cap, &lv_font_montserrat_14, 0);
+    lv_obj_set_style_text_font(cap, UI_FONT_READOUT_CAPTION, 0);
     lv_obj_set_style_text_color(cap, UI_COLOR_TEXT_DIM, 0);
 
     lv_obj_t *val = lv_label_create(cell);
     lv_label_set_text(val, "--");
-    lv_obj_set_style_text_font(val, &lv_font_montserrat_24, 0);
+    lv_obj_set_style_text_font(val, UI_FONT_BATT_VALUE, 0);
     lv_obj_set_style_text_color(val, UI_COLOR_TEXT, 0);
 
     if (out_caption != NULL) {
@@ -156,16 +157,28 @@ static void refresh_popup_rows(summary_ctx_t *ctx)
         if (row == NULL) {
             continue;
         }
+
+        /* Compose with the C library's snprintf, then set the finished
+         * string -- NOT lv_label_set_text_fmt(). LVGL's built-in vsnprintf
+         * (the firmware default; the simulator overrides it with the CLIB
+         * one) does not implement %f, so a format built here would render
+         * "%.2fV" literally as "fV" on hardware while looking fine in the
+         * sim. Everywhere else in this file already formats into a buffer
+         * for the same reason. */
+        char buf[64];
+
         if (i >= ctx->pack_count || !ctx->packs[i].configured) {
-            lv_label_set_text_fmt(row, "%u  not configured", (unsigned)(i + 1));
+            snprintf(buf, sizeof(buf), "%u  not configured", (unsigned)(i + 1));
+            lv_label_set_text(row, buf);
             lv_obj_set_style_text_color(row, UI_COLOR_TEXT_DIM, 0);
             continue;
         }
 
         const ui_battery_pack_info_t *p = &ctx->packs[i];
         if (!p->online) {
-            lv_label_set_text_fmt(row, "%u  %s\n   offline",
-                                  (unsigned)(i + 1), p->mac);
+            snprintf(buf, sizeof(buf), "%u  %s\n   offline",
+                     (unsigned)(i + 1), p->mac);
+            lv_label_set_text(row, buf);
             lv_obj_set_style_text_color(row, UI_COLOR_ERR, 0);
             continue;
         }
@@ -177,12 +190,13 @@ static void refresh_popup_rows(summary_ctx_t *ctx)
         } else {
             temp[0] = '\0';
         }
-        lv_label_set_text_fmt(row, "%u  %s\n   %u%%  %.2fV  %.1fA%s",
-                              (unsigned)(i + 1), p->mac,
-                              (unsigned)p->status.soc_percent,
-                              (double)p->status.voltage_v,
-                              (double)p->status.current_a,
-                              temp);
+        snprintf(buf, sizeof(buf), "%u  %s\n   %u%%  %.2fV  %.1fA%s",
+                 (unsigned)(i + 1), p->mac,
+                 (unsigned)p->status.soc_percent,
+                 (double)p->status.voltage_v,
+                 (double)p->status.current_a,
+                 temp);
+        lv_label_set_text(row, buf);
         lv_obj_set_style_text_color(row, UI_COLOR_TEXT, 0);
     }
 }
@@ -213,10 +227,10 @@ static void build_popup(summary_ctx_t *ctx)
     lv_obj_set_style_bg_opa(popup, LV_OPA_COVER, 0);
     lv_obj_set_style_border_width(popup, 2, 0);
     lv_obj_set_style_border_color(popup, UI_COLOR_OFF, 0);
-    lv_obj_set_style_radius(popup, 10, 0);
-    lv_obj_set_style_pad_all(popup, 14, 0);
-    lv_obj_set_style_pad_row(popup, 10, 0);
-    lv_obj_set_size(popup, LV_PCT(92), LV_SIZE_CONTENT);
+    lv_obj_set_style_radius(popup, UI_BATT_POPUP_RADIUS, 0);
+    lv_obj_set_style_pad_all(popup, UI_BATT_POPUP_PAD, 0);
+    lv_obj_set_style_pad_row(popup, UI_BATT_POPUP_ROW, 0);
+    lv_obj_set_size(popup, UI_BATT_POPUP_W, LV_SIZE_CONTENT);
     lv_obj_remove_flag(popup, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_set_flex_flow(popup, LV_FLEX_FLOW_COLUMN);
     lv_obj_center(popup);
@@ -227,20 +241,20 @@ static void build_popup(summary_ctx_t *ctx)
 
     lv_obj_t *title = lv_label_create(popup);
     lv_label_set_text(title, "PACK DETAIL");
-    lv_obj_set_style_text_font(title, &lv_font_montserrat_16, 0);
+    lv_obj_set_style_text_font(title, UI_FONT_BATT_SMALL, 0);
     lv_obj_set_style_text_color(title, UI_COLOR_TEXT_DIM, 0);
 
     for (uint8_t i = 0; i < DETAIL_MAX_PACKS; i++) {
         lv_obj_t *row = lv_label_create(popup);
         lv_label_set_text(row, "--");
-        lv_obj_set_style_text_font(row, &lv_font_montserrat_16, 0);
+        lv_obj_set_style_text_font(row, UI_FONT_POPUP_ROW, 0);
         lv_obj_set_style_text_color(row, UI_COLOR_TEXT, 0);
         ctx->popup_rows[i] = row;
     }
 
     lv_obj_t *hint = lv_label_create(popup);
     lv_label_set_text(hint, "tap to close");
-    lv_obj_set_style_text_font(hint, &lv_font_montserrat_14, 0);
+    lv_obj_set_style_text_font(hint, UI_FONT_READOUT_CAPTION, 0);
     lv_obj_set_style_text_color(hint, UI_COLOR_TEXT_DIM, 0);
 
     refresh_popup_rows(ctx);
@@ -271,8 +285,8 @@ lv_obj_t *ui_battery_summary_create(lv_obj_t *parent)
     lv_obj_set_style_bg_opa(wrapper, LV_OPA_TRANSP, 0);
     lv_obj_set_style_border_width(wrapper, 0, 0);
     lv_obj_set_size(wrapper, LV_PCT(100), LV_PCT(100));
-    lv_obj_set_style_pad_all(wrapper, 4, 0);
-    lv_obj_set_style_pad_row(wrapper, 6, 0);
+    lv_obj_set_style_pad_all(wrapper, UI_BATT_WRAP_PAD, 0);
+    lv_obj_set_style_pad_row(wrapper, UI_BATT_WRAP_ROW, 0);
     lv_obj_remove_flag(wrapper, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_remove_flag(wrapper, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_set_flex_flow(wrapper, LV_FLEX_FLOW_COLUMN);
@@ -287,7 +301,7 @@ lv_obj_t *ui_battery_summary_create(lv_obj_t *parent)
 
     /* --- SOC arc, the visual anchor (mirrors the Vatrer ring) --- */
     ctx->arc = lv_arc_create(wrapper);
-    lv_obj_set_size(ctx->arc, 210, 210);
+    lv_obj_set_size(ctx->arc, UI_SOC_ARC_SZ, UI_SOC_ARC_SZ);
     lv_arc_set_range(ctx->arc, 0, 100);
     lv_arc_set_value(ctx->arc, 0);
     lv_arc_set_rotation(ctx->arc, 135);
@@ -296,14 +310,14 @@ lv_obj_t *ui_battery_summary_create(lv_obj_t *parent)
     /* Read-only: the tap must reach the parent button (detail popup), not
      * be swallowed as an arc drag. */
     lv_obj_remove_flag(ctx->arc, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_set_style_arc_width(ctx->arc, 14, LV_PART_MAIN);
-    lv_obj_set_style_arc_width(ctx->arc, 14, LV_PART_INDICATOR);
+    lv_obj_set_style_arc_width(ctx->arc, UI_SOC_ARC_W, LV_PART_MAIN);
+    lv_obj_set_style_arc_width(ctx->arc, UI_SOC_ARC_W, LV_PART_INDICATOR);
     lv_obj_set_style_arc_color(ctx->arc, UI_COLOR_TANK_EMPTY, LV_PART_MAIN);
     lv_obj_set_style_arc_color(ctx->arc, UI_COLOR_OK, LV_PART_INDICATOR);
 
     ctx->pct_label = lv_label_create(ctx->arc);
     lv_label_set_text(ctx->pct_label, "--");
-    lv_obj_set_style_text_font(ctx->pct_label, &lv_font_montserrat_28, 0);
+    lv_obj_set_style_text_font(ctx->pct_label, UI_FONT_SOC_PCT, 0);
     lv_obj_set_style_text_color(ctx->pct_label, UI_COLOR_TEXT, 0);
     lv_obj_center(ctx->pct_label);
 
@@ -315,7 +329,7 @@ lv_obj_t *ui_battery_summary_create(lv_obj_t *parent)
     lv_obj_set_style_bg_opa(grid, LV_OPA_TRANSP, 0);
     lv_obj_set_style_border_width(grid, 0, 0);
     lv_obj_set_style_pad_all(grid, 0, 0);
-    lv_obj_set_size(grid, LV_PCT(100), 200);
+    lv_obj_set_size(grid, LV_PCT(100), UI_BATT_GRID_H);
     lv_obj_remove_flag(grid, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_remove_flag(grid, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_set_grid_dsc_array(grid, col_dsc, row_dsc);
@@ -330,7 +344,7 @@ lv_obj_t *ui_battery_summary_create(lv_obj_t *parent)
      * shown as a magnitude, so this is what carries the sign. */
     ctx->current_word = lv_label_create(current_cell);
     lv_label_set_text(ctx->current_word, "");
-    lv_obj_set_style_text_font(ctx->current_word, &lv_font_montserrat_16, 0);
+    lv_obj_set_style_text_font(ctx->current_word, UI_FONT_BATT_SMALL, 0);
     lv_obj_set_style_text_color(ctx->current_word, UI_COLOR_TEXT_DIM, 0);
 
     /* --- bottom strip: temperature + pack count --- */
@@ -338,7 +352,7 @@ lv_obj_t *ui_battery_summary_create(lv_obj_t *parent)
     lv_obj_set_style_bg_opa(strip, LV_OPA_TRANSP, 0);
     lv_obj_set_style_border_width(strip, 0, 0);
     lv_obj_set_style_pad_all(strip, 0, 0);
-    lv_obj_set_size(strip, LV_PCT(100), 30);
+    lv_obj_set_size(strip, LV_PCT(100), UI_BATT_STRIP_H);
     lv_obj_remove_flag(strip, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_remove_flag(strip, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_set_flex_flow(strip, LV_FLEX_FLOW_ROW);
@@ -347,12 +361,12 @@ lv_obj_t *ui_battery_summary_create(lv_obj_t *parent)
 
     ctx->temp_label = lv_label_create(strip);
     lv_label_set_text(ctx->temp_label, "--");
-    lv_obj_set_style_text_font(ctx->temp_label, &lv_font_montserrat_16, 0);
+    lv_obj_set_style_text_font(ctx->temp_label, UI_FONT_BATT_SMALL, 0);
     lv_obj_set_style_text_color(ctx->temp_label, UI_COLOR_TEXT_DIM, 0);
 
     ctx->packs_label = lv_label_create(strip);
     lv_label_set_text(ctx->packs_label, "--");
-    lv_obj_set_style_text_font(ctx->packs_label, &lv_font_montserrat_16, 0);
+    lv_obj_set_style_text_font(ctx->packs_label, UI_FONT_BATT_SMALL, 0);
     lv_obj_set_style_text_color(ctx->packs_label, UI_COLOR_TEXT_DIM, 0);
 
     return wrapper;

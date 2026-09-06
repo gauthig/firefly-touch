@@ -116,6 +116,22 @@ group-addressed frames have no room in the ESP-NOW command format."
 #endif
 
 /*
+ * PANEL_HAS_LIGHT_SWEEP 1 = this panel carries a PANEL_BTN_LIGHT_SWEEP
+ * button (the sequential all-lights sweep). Declared for the same reason as
+ * PANEL_HAS_LIGHT_MASTER above -- the preprocessor cannot see inside
+ * PANEL_BUTTONS[].
+ */
+#ifndef PANEL_HAS_LIGHT_SWEEP
+#define PANEL_HAS_LIGHT_SWEEP 0
+#endif
+
+#if PANEL_HAS_LIGHT_SWEEP && !PANEL_HAS_CAN
+#error "PANEL_BTN_LIGHT_SWEEP needs a CAN bus: its displayed state reads the \
+local state manager, and it sends per-instance DC_DIMMER_COMMAND_2 frames \
+straight onto the bus."
+#endif
+
+/*
  * The RV-C groups a PANEL_BTN_LIGHT_MASTER button drives.
  *
  * Bus-confirmed 2026-08-28: this coach's factory LIGHT MASTER rocker sends
@@ -212,6 +228,29 @@ group-addressed frames have no room in the ESP-NOW command format."
 
 #if PANEL_HAS_VALVE_CONTROL && !PANEL_IS_BRIDGE
 #error "PANEL_HAS_VALVE_CONTROL needs PANEL_IS_BRIDGE (only a bridge panel adds a second ESP-NOW peer)"
+#endif
+
+/*
+ * Logical (post-rotation) resolution of this panel's display, i.e. what the
+ * UI layout code sees from lv_display_get_horizontal/vertical_resolution().
+ *
+ * The FIRMWARE gets this from board.h (BOARD_LCD_H/V_RES plus any rotation)
+ * and never reads these macros; they exist so the PC simulator can size its
+ * window to the panel it is previewing. The defaults reproduce exactly what
+ * sim/main_sim.c computed before this existed:
+ *   - nav-rail panels are landscape 7" boards, used unrotated: 800x480
+ *   - everyone else is a 4.3B run rotated 90 deg to portrait: 480x800
+ * A panel on a different-sized display overrides them in its own header
+ * (main_cabinet: 1024x600 on the Waveshare 7B).
+ */
+#if !defined(PANEL_LOGICAL_W) || !defined(PANEL_LOGICAL_H)
+#  if PANEL_HAS_NAV_RAIL
+#    define PANEL_LOGICAL_W 800
+#    define PANEL_LOGICAL_H 480
+#  else
+#    define PANEL_LOGICAL_W 480
+#    define PANEL_LOGICAL_H 800
+#  endif
 #endif
 
 /*

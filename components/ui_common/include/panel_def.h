@@ -83,6 +83,16 @@ typedef enum {
      * every dimmer button -- never by the tap itself.
      */
     PANEL_BTN_VALVE,
+    /*
+     * All-lights SEQUENTIAL sweep. Like PANEL_BTN_LIGHT_MASTER it takes no
+     * instances and shows "is any light on?", tap only, no ramp. Unlike the
+     * master (which replays the factory rocker's six group frames at once,
+     * restoring each load's remembered level), this walks every DIMMER/SWITCH
+     * instance on the panel's main grid and sends it an explicit ON/OFF one
+     * at a time, 100 ms apart -- a literal all-on/all-off that also lights
+     * loads that were off. ui.c owns the walk and the spacing.
+     */
+    PANEL_BTN_LIGHT_SWEEP,
     PANEL_BTN_SPACER,         /* empty grid cell -- no widget, just holds the layout */
 } panel_btn_type_t;
 

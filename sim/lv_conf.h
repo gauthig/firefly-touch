@@ -25,6 +25,7 @@
 #define LV_FONT_MONTSERRAT_20 1
 #define LV_FONT_MONTSERRAT_24 1
 #define LV_FONT_MONTSERRAT_28 1
+#define LV_FONT_MONTSERRAT_32 1  /* main_cabinet (7B, 1024x600) readout values */
 
 #define LV_USE_SNAPSHOT 1          /* --shot screenshot mode */
 

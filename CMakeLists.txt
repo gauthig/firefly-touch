@@ -21,7 +21,7 @@ endif()
 # Add a line here when adding a panel on a non-default board;
 # tools/check_panels.py cross-checks this against panels/REGISTRY.md.
 # ---------------------------------------------------------------------------
-set(PANEL_BOARD_main_cabinet "lcd7")
+set(PANEL_BOARD_main_cabinet "lcd7b")
 
 if(DEFINED PANEL_BOARD_${PANEL})
     set(_panel_board "${PANEL_BOARD_${PANEL}}")
