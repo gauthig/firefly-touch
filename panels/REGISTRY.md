@@ -17,7 +17,7 @@ run. If you add a panel header without adding a row here, CI fails.
 | `mid_coach` | 0 | `0x80` | `4_3b` | MID COACH | Mid coach wall — Entegra SW2-E8 (p/n 0291135 / 75570); ESP-NOW bridge/router to the remotes |
 | `ent_center` | 1 | `0x81` | `4_3b` | ENT CENTER | Entertainment center — Entegra SW4-E1 (p/n 0291136 / 75571) |
 | `bedroom_remote` | 2 | `0x82`† | `4_3b` | BED REMOTE | No CAN wiring — relays to `mid_coach` over ESP-NOW, see below |
-| `main_cabinet` | 3 | `0x83` | `lcd7` | MAIN CABINET | Main cabinet — Waveshare 7" landscape, side-nav rail (Power / Tanks / Lights) |
+| `main_cabinet` | 3 | `0x83` | `lcd7b` | MAIN CABINET | Main cabinet — Waveshare 7B 1024×600 landscape, side-nav rail (Power / Solar / Tanks / Lights) |
 
 **Next free index: 4** (source address `0x84`).
 

@@ -3,6 +3,7 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "ui_metrics.h"
 #include "ui_theme.h"
 
 /* Four readouts per line, in the same order the Hughes app uses. */
@@ -36,8 +37,8 @@ static lv_obj_t *make_tile(lv_obj_t *parent, const char *caption, const char *un
     lv_obj_set_style_bg_color(tile, UI_COLOR_CARD, 0);
     lv_obj_set_style_bg_opa(tile, LV_OPA_COVER, 0);
     lv_obj_set_style_border_width(tile, 0, 0);
-    lv_obj_set_style_radius(tile, 8, 0);
-    lv_obj_set_style_pad_all(tile, 4, 0);
+    lv_obj_set_style_radius(tile, UI_TILE_RADIUS, 0);
+    lv_obj_set_style_pad_all(tile, UI_TILE_PAD, 0);
     lv_obj_set_style_pad_row(tile, 0, 0);
     lv_obj_remove_flag(tile, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_remove_flag(tile, LV_OBJ_FLAG_CLICKABLE);
@@ -47,12 +48,12 @@ static lv_obj_t *make_tile(lv_obj_t *parent, const char *caption, const char *un
 
     lv_obj_t *cap = lv_label_create(tile);
     lv_label_set_text(cap, caption);
-    lv_obj_set_style_text_font(cap, &lv_font_montserrat_14, 0);
+    lv_obj_set_style_text_font(cap, UI_FONT_READOUT_CAPTION, 0);
     lv_obj_set_style_text_color(cap, UI_COLOR_TEXT_DIM, 0);
 
     lv_obj_t *val = lv_label_create(tile);
     lv_label_set_text(val, "--");
-    lv_obj_set_style_text_font(val, &lv_font_montserrat_28, 0);
+    lv_obj_set_style_text_font(val, UI_FONT_READOUT_VALUE, 0);
     /* Green digits, echoing the vendor app's segment display -- this is a
      * readout, not a control, and the colour keeps it visually distinct
      * from the light-switch buttons. */
@@ -60,7 +61,7 @@ static lv_obj_t *make_tile(lv_obj_t *parent, const char *caption, const char *un
 
     lv_obj_t *u = lv_label_create(tile);
     lv_label_set_text(u, unit);
-    lv_obj_set_style_text_font(u, &lv_font_montserrat_14, 0);
+    lv_obj_set_style_text_font(u, UI_FONT_READOUT_CAPTION, 0);
     lv_obj_set_style_text_color(u, UI_COLOR_TEXT_DIM, 0);
 
     return val;
@@ -76,8 +77,8 @@ lv_obj_t *ui_shore_panel_create(lv_obj_t *parent)
     lv_obj_set_size(root, LV_PCT(100), LV_PCT(100));
     lv_obj_set_style_bg_opa(root, LV_OPA_TRANSP, 0);
     lv_obj_set_style_border_width(root, 0, 0);
-    lv_obj_set_style_pad_all(root, 4, 0);
-    lv_obj_set_style_pad_column(root, 8, 0);
+    lv_obj_set_style_pad_all(root, UI_SHORE_ROOT_PAD, 0);
+    lv_obj_set_style_pad_column(root, UI_SHORE_COL_GAP, 0);
     lv_obj_remove_flag(root, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_remove_flag(root, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_set_flex_flow(root, LV_FLEX_FLOW_ROW);
@@ -93,7 +94,7 @@ lv_obj_t *ui_shore_panel_create(lv_obj_t *parent)
         lv_obj_set_style_bg_opa(col, LV_OPA_TRANSP, 0);
         lv_obj_set_style_border_width(col, 0, 0);
         lv_obj_set_style_pad_all(col, 0, 0);
-        lv_obj_set_style_pad_row(col, 6, 0);
+        lv_obj_set_style_pad_row(col, UI_SHORE_COL_ROW, 0);
         lv_obj_remove_flag(col, LV_OBJ_FLAG_SCROLLABLE);
         lv_obj_remove_flag(col, LV_OBJ_FLAG_CLICKABLE);
         lv_obj_set_flex_flow(col, LV_FLEX_FLOW_COLUMN);
@@ -103,7 +104,7 @@ lv_obj_t *ui_shore_panel_create(lv_obj_t *parent)
 
         lv_obj_t *title = lv_label_create(col);
         lv_label_set_text_fmt(title, "Line %u", (unsigned)(line + 1));
-        lv_obj_set_style_text_font(title, &lv_font_montserrat_20, 0);
+        lv_obj_set_style_text_font(title, UI_FONT_SECTION_TITLE, 0);
         lv_obj_set_style_text_color(title, UI_COLOR_TEXT, 0);
 
         for (uint8_t c = 0; c < CELL_COUNT; c++) {

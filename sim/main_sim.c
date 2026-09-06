@@ -11,14 +11,15 @@
  *     (board_4_3b.c sets sw_rotate + ROTATION_90), so all layout code sees
  *     480x800 portrait. build_screen() sizes itself off
  *     lv_display_get_vertical_resolution() for exactly this reason.
- *   - The Waveshare 7" (main_cabinet) runs unrotated, so its logical
- *     resolution IS 800x480 landscape -- which is what makes room for the
- *     side-nav rail.
+ *   - The Waveshare 7B (main_cabinet) runs unrotated, so its logical
+ *     resolution IS 1024x600 landscape -- which is what makes room for the
+ *     side-nav rail. (Its predecessor, the non-B 7", was 800x480.)
  *
  * Previewing the wrong one shows a screen the hardware never displays, which
- * is worse than useless for judging a layout. PANEL_HAS_NAV_RAIL is the
- * marker for the landscape case; matching the logical geometry means no
- * rotation is needed on the sim side either way.
+ * is worse than useless for judging a layout. The window is sized from
+ * PANEL_LOGICAL_W/H (panel header, else a nav-rail vs portrait default in
+ * panel_config.h); matching the logical geometry means no rotation is
+ * needed on the sim side either way.
  *
  * `--shot <file.bmp> [screen2|screen3|section:<LABEL>]`: headless mode —
  * renders one frame to an in-memory display, saves a BMP screenshot, and
@@ -41,14 +42,11 @@
 #include "panel_config.h"
 #include "ui.h"
 
-/* Logical geometry of the panel being previewed -- see the file header. */
-#if PANEL_HAS_NAV_RAIL
-#define SIM_W 800
-#define SIM_H 480
-#else
-#define SIM_W 480
-#define SIM_H 800
-#endif
+/* Logical geometry of the panel being previewed -- see the file header.
+ * PANEL_LOGICAL_W/H comes from the panel header or panel_config.h's
+ * nav-rail/portrait default. main_cabinet (Waveshare 7B) is 1024x600. */
+#define SIM_W PANEL_LOGICAL_W
+#define SIM_H PANEL_LOGICAL_H
 
 void sim_seed_demo_state(void);
 
@@ -70,6 +68,7 @@ static uint32_t tick_cb(void)
  */
 #define HEADLESS_W SIM_W
 #define HEADLESS_H SIM_H
+/* Up to 1024*600*4 = ~2.4 MB of static BSS for the 7B; trivial on a PC. */
 static uint8_t s_headless_fb[HEADLESS_W * HEADLESS_H * 4];
 
 static void headless_flush_cb(lv_display_t *disp, const lv_area_t *area,

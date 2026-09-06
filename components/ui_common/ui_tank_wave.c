@@ -4,6 +4,7 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "ui_metrics.h"
 #include "ui_theme.h"
 
 #ifndef M_PI
@@ -11,8 +12,8 @@
 #endif
 
 #define WAVE_ANIM_PERIOD_MS 100
-#define WAVE_AMPLITUDE_PX   4
-#define WAVE_POINT_STEP_PX  6
+#define WAVE_AMPLITUDE_PX   UI_TANK_WAVE_AMP
+#define WAVE_POINT_STEP_PX  UI_TANK_WAVE_STEP
 #define WAVE_PHASE_STEP     0.35f /* radians advanced per animation tick */
 
 typedef struct {
@@ -55,7 +56,7 @@ static void water_draw_event_cb(lv_event_t *e)
     lv_draw_rect(layer, &rect_dsc, &fill_area);
 
     /* Sine-wave surface riding the fill line, phase-animated. */
-    lv_point_precise_t points[32];
+    lv_point_precise_t points[UI_TANK_WAVE_MAX_PTS];
     int32_t point_cnt = (w / WAVE_POINT_STEP_PX) + 2;
     if (point_cnt > (int32_t)(sizeof(points) / sizeof(points[0]))) {
         point_cnt = sizeof(points) / sizeof(points[0]);
@@ -107,12 +108,12 @@ lv_obj_t *ui_tank_wave_create(lv_obj_t *parent)
     memset(ctx, 0, sizeof(*ctx));
 
     lv_obj_t *glass = lv_obj_create(parent);
-    lv_obj_set_size(glass, 90, 90);
+    lv_obj_set_size(glass, UI_TANK_GLASS_W, UI_TANK_GLASS_H);
     lv_obj_set_style_bg_color(glass, UI_COLOR_TANK_EMPTY, 0);
     lv_obj_set_style_bg_opa(glass, LV_OPA_COVER, 0);
-    lv_obj_set_style_border_width(glass, 2, 0);
+    lv_obj_set_style_border_width(glass, UI_TANK_GLASS_BORDER, 0);
     lv_obj_set_style_border_color(glass, UI_COLOR_OFF, 0);
-    lv_obj_set_style_radius(glass, 12, 0);
+    lv_obj_set_style_radius(glass, UI_TANK_GLASS_RADIUS, 0);
     lv_obj_set_style_clip_corner(glass, true, 0);
     lv_obj_set_style_pad_all(glass, 0, 0);
     lv_obj_remove_flag(glass, LV_OBJ_FLAG_SCROLLABLE);
@@ -133,12 +134,21 @@ lv_obj_t *ui_tank_wave_create(lv_obj_t *parent)
 
     lv_obj_t *label = lv_label_create(glass);
     lv_label_set_text(label, "--");
-    lv_obj_set_style_text_font(label, &lv_font_montserrat_20, 0);
+    lv_obj_set_style_text_font(label, UI_FONT_TANK_PCT, 0);
     lv_obj_set_style_text_color(label, UI_COLOR_TEXT, 0);
-    lv_obj_align(label, LV_ALIGN_TOP_MID, 0, 4);
+    lv_obj_align(label, LV_ALIGN_TOP_MID, 0, UI_TANK_PCT_OFS);
     ctx->label = label;
 
+#if UI_TANK_WAVE_ANIMATE
     ctx->anim_timer = lv_timer_create(anim_timer_cb, WAVE_ANIM_PERIOD_MS, ctx);
+#else
+    /* Static wave surface. On the 1024x600 7B every ~100 ms self-redraw
+     * forces a full-frame render+swap (full_refresh RGB mode), and the
+     * three waves' custom line-draw occasionally overran a frame -> a
+     * periodic full-screen blink on the TANK screen. The moving water is
+     * decorative; the shape stays, it just doesn't animate. */
+    (void)anim_timer_cb;   /* keep the fn referenced when the timer is off */
+#endif
 
     return glass;
 }

@@ -58,21 +58,23 @@ bay — is held by the proxy in that bay and broadcast to the panels.
 | `mid_coach` | Waveshare ESP32-S3-Touch-LCD-4.3B | RV-C CAN + ESP-NOW bridge |
 | `ent_center` | Waveshare ESP32-S3-Touch-LCD-4.3B | RV-C CAN |
 | `bedroom_remote` | Waveshare ESP32-S3-Touch-LCD-4.3B | ESP-NOW only |
-| `main_cabinet` | Waveshare ESP32-S3-Touch-LCD-7 | RV-C CAN + ESP-NOW telemetry (listen only) |
+| `main_cabinet` | Waveshare ESP32-S3-Touch-LCD-7B (1024×600) | RV-C CAN + ESP-NOW telemetry (listen only) |
 | Bluetooth proxy basement | ESP32-D0WD-V3, 4 MB | BLE (3 battery packs + Power Watchdog + Renogy solar) + ESP-NOW broadcast |
 | `valve_node` *(planned)* | Waveshare ESP32-S3-ETH-8DI-8RO | ESP-NOW unicast — drives the two dump valves |
 
 Panel boards are ESP32-S3-WROOM-1 with 16 MB flash / 8 MB octal PSRAM, GT911
 touch, CH422G expander, onboard TJA1051 CAN transceiver and 7–36 V input.
 The 4.3B panels run their 800×480 LCD rotated to portrait; `main_cabinet`'s
-7" runs landscape, which is what gives its side-nav rail room to live.
+7B runs landscape at 1024×600, which is what gives its side-nav rail room to
+live. (It was an 800×480 non-B 7" until the 7B swap; that board's config
+survives as `components/board/board_lcd7`, unused.)
 
-⚠️ **The two boards put CAN on different pins** — 4.3B on GPIO15/16, the 7"
-on GPIO20/19, where the 4.3B has RS485 — and on the 7" those pins are muxed
-against native USB, so it is flashed over its UART port. A board mismatch
-fails silently, so `BOARD` is derived from `PANEL` in the root
-`CMakeLists.txt` and validated by `tools/check_panels.py`; there is no
-`-DBOARD=` to get wrong.
+⚠️ **The 4.3B and 7-inch boards put CAN on different pins** — 4.3B on
+GPIO15/16, the 7"/7B on GPIO20/19, where the 4.3B has RS485 — and on the
+7"/7B those pins are muxed against native USB, so it is flashed over its
+UART port. A board mismatch fails silently, so `BOARD` is derived from
+`PANEL` in the root `CMakeLists.txt` and validated by
+`tools/check_panels.py`; there is no `-DBOARD=` to get wrong.
 
 The two headless nodes are not panels: they carry no display, no LVGL and no
 `PANEL_INDEX`, and each is its own ESP-IDF project pulling shared components
@@ -248,8 +250,22 @@ values matching the unit's own display.
 2026-08-23: RV-C CAN works on the 7" board's GPIO20/19 pins, the battery
 bank and shore power arrive as ESP-NOW broadcasts from the proxy, Light
 Master on/off behaves as designed, and the display geometry and colours are
-correct. That settles both bring-up unknowns — the RGB timings and the
-EXIO5 USB/CAN mux polarity.
+correct. That settled both bring-up unknowns for the non-B board — the RGB
+timings and the EXIO5 USB/CAN mux polarity.
+
+The panel was migrated to the **7B (1024×600)** in issue #66:
+`components/board/board_lcd7b` with the 7B's own RGB timings (from
+Waveshare's official 7B demo), and a larger UI variant gated to that panel
+(`components/ui_common/include/ui_metrics.h`). The 7B is pin-identical to
+the non-B for CAN, touch and the EXIO map; what differs is geometry, the
+RGB porches, the IO expander (a register-addressed "IO_EXTENSION" at 0x24,
+not a CH422G — `components/ws_io_expander`), an extra `EXIO6 = LCD_VDD_EN`
+panel-supply pin, and the pixel clock (16 MHz on the non-B; the 7B panel is
+nominally 30 MHz but this firmware runs it at 21 MHz — the
+`avoid_tearing` + `full_refresh` buffer scheme it needs can't keep ahead of
+a faster scanout). Bench-verified 2026-09-05: boots and renders all four
+sections stably at 1024×600. Coach sign-off (touch alignment, CAN to the
+G6, the 300 s idle-off stage) is still pending.
 
 Known open items, all tracked as `TODO(bench)` in code:
 

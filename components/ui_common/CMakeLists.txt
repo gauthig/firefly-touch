@@ -7,3 +7,13 @@ idf_component_register(
     # client compiles to stubs on a panel -- see renogy_solar_client.c.
     REQUIRES rvc_protocol jbd_bms renogy_solar
 )
+
+# ui_metrics.h picks a large-display variant when UI_METRICS_LARGE is defined.
+# BOARD is derived from PANEL in the root CMakeLists.txt and "lcd7b" maps only
+# to main_cabinet (the Waveshare 7B, 1024x600); every other panel keeps the
+# byte-identical small variant. PUBLIC so main/ (ui.c) sees it too -- main
+# REQUIRES ui_common. Same pattern components/board/CMakeLists.txt uses to
+# read BOARD in the real (not early-expansion) registration pass.
+if(BOARD STREQUAL "lcd7b")
+    target_compile_definitions(${COMPONENT_LIB} PUBLIC UI_METRICS_LARGE=1)
+endif()
