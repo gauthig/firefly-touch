@@ -187,11 +187,11 @@ Mode enum, as far as anyone has decoded it:
 | 0 | off | all three |
 | 1 | fan only | all three |
 | 2 | cool | all three |
-| 3 | cool, **compressor running** (`current_mode` only) | mbhewitt, HA |
+| 3 | ~~cool, compressor running~~ → **not observed; §8c shows `current_mode = 2` (same as `mode`) while actively cooling** | mbhewitt, HA assumed 3; corrected 2026-09-06 |
 | 4 | ~~heat (electric: heat pump **or** heat strip)~~ → **confirmed on this coach: Aqua-Hot selected** | all three assumed "heat"; §8b bench capture 2026-09-06 corrects to Aqua-Hot |
 | 5 | heat, **running** (`current_mode` only) | HA — not confirmed live; this coach's `current_mode` used 4, not 5, while heating (§8b) |
 | 6 | dry | HA (as a *command*; never seen as status) |
-| **7** | **Heat Pump selected** | **confirmed on this coach, §8b bench capture 2026-09-06 — not in any upstream source, answers HA issue #28** |
+| **7** | **Electric heat selected — labeled "Heat Pump" or "Heat Strip" per zone**, the touchscreen picking the label from that zone's own A/C board config, same one protocol value either way | **confirmed on this coach, §8b/§8c bench captures 2026-09-06 (Front/Mid Coach show "Heat Pump", Rear shows "Heat Strip", all mode 7) — not in any upstream source, answers HA issue #28** |
 | 11 | auto (heat/cool with dual setpoints) | all three; not yet confirmed live on this coach |
 | ? | auto combined with heat pump specifically | still open — HA issue #28's remaining half; needs a live Auto capture |
 | ? | 14 = "heat running"? | node-red's older firmware only; not seen on this coach |
@@ -539,11 +539,45 @@ Updated mode enum (§3.3), current state of knowledge:
 | 0 | off |
 | 1 | fan only |
 | 2 | cool |
-| 3 | cool, running (`current_mode` only, not yet confirmed live) |
+| 3 | ~~cool, running~~ — see §8c: `current_mode` reads **2**, same as `mode`, while cooling |
 | **4** | **Aqua-Hot selected** (confirmed) / `current_mode`: generic "heating" |
-| **7** | **Heat Pump selected** (confirmed) |
+| **7** | **Electric heat selected** — Heat Pump or Heat Strip, per-zone label (confirmed, see §8c) |
 | 11 | auto (not yet confirmed live) |
 | — | dry — never seen live |
+
+## 8c. Rear spot-check (2026-09-06) — corrects "Heat Pump" to a per-zone label
+
+Three more captures, Rear (zone 2) only, confirming and correcting §8b:
+
+| capture | screen showed | zone idx | `mode` | `current_mode` |
+|---|---|---|---|---|
+| A/C on | (running) | 2 | 2 | **2** |
+| Heat | **"Heat Strip"** | 2 | **7** | 4 |
+| Aqua-Hot | "Aqua Hot" | 2 | 4 | 4 |
+
+**Correction: `mode = 7` is not specifically "Heat Pump".** Rear's
+touchscreen showed **"Heat Strip"** for the same mode value 7 that Front's
+and Mid Coach's showed as "Heat Pump" in §8b. This is exactly the
+per-zone-hardware behavior the manuals describe (*"may be a heat pump or a
+heat strip depending on the factory zone set up"*) — `mode = 7` is the one
+**electric heat** slot, and the touchscreen picks the Heat Pump vs Heat
+Strip label per zone from the underlying A/C control board's own
+configuration, not from anything the protocol communicates as a separate
+value. So Rear's A/C is heat-strip-equipped where Front/Mid Coach's are
+heat-pump-equipped — panel UI should follow whatever label the touchscreen
+already uses per zone rather than assuming one label for all three.
+
+**Correction: `current_mode` while actively cooling is `2`, not `3`.**
+The "A/C on" capture shows `mode = 2, current_mode = 2` while the unit was
+audibly running — the upstream `3 = "cool, compressor running"` value was
+never observed on this firmware; `current_mode` appears to simply mirror
+`mode` once a cycle is actively engaged, for both Cool and either heat
+source (idx 15 = 4 while heating, matching §8b).
+
+With this, **every mode the coach actually has is now captured live**:
+Off, Fan (assumed unchanged from upstream, not separately re-tested), Cool,
+Heat (Pump or Strip, per zone), Aqua-Hot. Auto remains the one mode never
+seen live; not expected to be needed for the panel UI's initial scope.
 
 **How to continue the capture** (per bench plan §8, steps 4-5, 7): run
 
