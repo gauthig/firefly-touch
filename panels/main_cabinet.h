@@ -3,11 +3,13 @@
  * cabinet touchscreen.
  * Build: idf.py -B build_main_cabinet -DPANEL=main_cabinet build
  *
- * FIRST PANEL ON A DIFFERENT BOARD: a Waveshare ESP32-S3-Touch-LCD-7
- * (non-B), not the 4.3B the other three use. The root CMakeLists.txt maps
- * PANEL -> BOARD, so nothing here selects it; see components/board_lcd7 for
- * why that mapping matters (CAN moves to GPIO20/19, where the 4.3B has
- * RS485, and it is muxed against native USB).
+ * FIRST PANEL ON A DIFFERENT BOARD: a Waveshare ESP32-S3-Touch-LCD-7B
+ * (1024x600), not the 4.3B the other three use. The root CMakeLists.txt
+ * maps PANEL -> BOARD, so nothing here selects it; see
+ * components/board/board_lcd7b for why that mapping matters (CAN moves to
+ * GPIO20/19, where the 4.3B has RS485, and it is muxed against native USB).
+ * It was previously the non-B 800x480 7" (components/board/board_lcd7),
+ * kept as an unused reference.
  *
  * FIRST PANEL WITH A SIDE-NAV RAIL: instead of swapping the whole screen,
  * a persistent left rail lists the sections and the selected one fills the
@@ -19,13 +21,15 @@
  *
  *   POWER  -> screen 1   battery bank + shore power   (PANEL_DEFAULT_SCREEN)
  *   SOLAR  -> screen 3   Renogy MPPT readout
- *   TANKS  -> screen 2   fresh/grey/black + valves
+ *   TANKS  -> screen 2   fresh/grey/black gauges (display only)
  *   LIGHTS -> screen 0   the button grid
  *
- * SOLAR is its own section rather than a third card on POWER: the simulator
- * shows POWER is already full at 800x480 minus the rail, and the battery
- * bank's SOC arc alone is 210 px wide. A rail panel pays nothing for another
- * section, since the rail navigates by target screen, not by position.
+ * SOLAR is its own section rather than a third card on POWER: it started
+ * that way when this was the 800x480 non-B panel and the simulator showed
+ * POWER already full minus the rail. On the 1024x600 7B the battery bank
+ * and shore power now sit comfortably side by side, but SOLAR stays its
+ * own section — a rail panel pays nothing for another one, since the rail
+ * navigates by target screen, not by position.
  *
  * Instances come from docs/instance_map.yaml. Loads it lists as `switch`
  * (cargo, both awnings, the hitch pair) are PANEL_BTN_SWITCH here rather
@@ -51,11 +55,20 @@
 #define PANEL_HAS_SCREEN_4 1
 #define PANEL_HAS_NAV_RAIL 1
 
-/* Carries the MASTER button, so panel_config.h can check it against
- * PANEL_HAS_CAN. */
+/* Carries the MASTER and ALL LIGHTS buttons, so panel_config.h can check
+ * both against PANEL_HAS_CAN. */
 #define PANEL_HAS_LIGHT_MASTER 1
+#define PANEL_HAS_LIGHT_SWEEP  1
 #define PANEL_DEFAULT_SCREEN 1   /* boot into POWER */
-#define PANEL_GRID_COLS 3        /* 800 px wide minus the rail fits three */
+#define PANEL_GRID_COLS 3        /* 1024 px minus the rail: 3 wide cells read better
+                                  * than 4 narrow ones for the long load names */
+
+/* Waveshare ESP32-S3-Touch-LCD-7B, run in its native landscape orientation
+ * (no rotation), so logical == physical. Overrides panel_config.h's
+ * nav-rail default of 800x480. Drives the simulator window size; the
+ * firmware reads BOARD_LCD_H/V_RES from board_lcd7b.h. */
+#define PANEL_LOGICAL_W 1024
+#define PANEL_LOGICAL_H 600
 
 /*
  * The rail. Ordinary PANEL_BTN_SCREEN_SWITCH entries — instances[0] names
@@ -71,7 +84,15 @@ static const panel_btn_def_t PANEL_NAV_RAIL[] = {
 #define PANEL_NAV_RAIL_COUNT (sizeof(PANEL_NAV_RAIL) / sizeof(PANEL_NAV_RAIL[0]))
 
 /*
- * Screen 0 — LIGHTS. Three columns x four rows; MASTER leads.
+ * Screen 0 — LIGHTS. Three columns x four rows, full: MASTER leads, ALL
+ * LIGHTS fills the bottom-right cell.
+ *
+ * MASTER (PANEL_BTN_LIGHT_MASTER) replays the coach's factory rocker — six
+ * group frames at once, restoring each load's remembered level. ALL LIGHTS
+ * (PANEL_BTN_LIGHT_SWEEP) is a plain sequential all-on/all-off: ui.c walks
+ * every DIMMER/SWITCH instance below and sends it an explicit ON/OFF 100 ms
+ * apart. The two are deliberately both present — one is the factory
+ * behaviour, the other a literal "everything".
  */
 static const panel_btn_def_t PANEL_BUTTONS[] = {
     { .label = "MASTER", .type = PANEL_BTN_LIGHT_MASTER, .instances = {0}, .instance_count = 0 },
@@ -85,6 +106,7 @@ static const panel_btn_def_t PANEL_BUTTONS[] = {
     { .label = "MIDSHIP", .type = PANEL_BTN_DIMMER, .instances = {35}, .instance_count = 1 },
     { .label = "BEDROOM CEILING", .type = PANEL_BTN_DIMMER, .instances = {17}, .instance_count = 1 },
     { .label = "SECURITY P+H", .type = PANEL_BTN_SWITCH, .instances = {44, 45}, .instance_count = 2 },
+    { .label = "ALL LIGHTS", .type = PANEL_BTN_LIGHT_SWEEP, .instances = {0}, .instance_count = 0 },
 };
 
 #define PANEL_BUTTON_COUNT (sizeof(PANEL_BUTTONS) / sizeof(PANEL_BUTTONS[0]))
@@ -111,10 +133,12 @@ static const panel_btn_def_t PANEL_BUTTONS_2[] = {
 #define PANEL_BUTTON_COUNT_2 (sizeof(PANEL_BUTTONS_2) / sizeof(PANEL_BUTTONS_2[0]))
 
 /*
- * Screen 2 — TANKS. The three SeeLevel gauges, plus three valve controls
- * that are DELIBERATELY INERT for now: PANEL_BTN_LOCAL_TOGGLE flips the
- * caption and sends nothing. The actuation hardware isn't wired yet; the
- * control surface is here so the layout is settled when it is.
+ * Screen 2 — TANKS. The three SeeLevel gauges, display-only.
+ *
+ * The dump-valve / gravity-macerator toggle row that mid_coach carries was
+ * removed here (issue #68): valve actuation will be exposed on mid_coach
+ * only for now, and with no action buttons this screen takes build_
+ * content_pane()'s byte-identical no-action-row path.
  *
  * Tank instances are bus-confirmed: 0 = fresh, 1 = black, 2 = grey. The
  * GREY/BLACK labels are load-bearing — ui.c finds them by name to drive the
@@ -124,9 +148,6 @@ static const panel_btn_def_t PANEL_BUTTONS_3[] = {
     { .label = "FRESH", .type = PANEL_BTN_TANK_LEVEL, .instances = {0}, .instance_count = 1 },
     { .label = "GREY", .type = PANEL_BTN_TANK_LEVEL, .instances = {2}, .instance_count = 1 },
     { .label = "BLACK", .type = PANEL_BTN_TANK_LEVEL, .instances = {1}, .instance_count = 1 },
-    { .label = "GREY CLOSED", .type = PANEL_BTN_LOCAL_TOGGLE, .instances = {0}, .instance_count = 0, .label_alt = "GREY OPEN" },
-    { .label = "BLACK CLOSED", .type = PANEL_BTN_LOCAL_TOGGLE, .instances = {0}, .instance_count = 0, .label_alt = "BLACK OPEN" },
-    { .label = "GRAVITY", .type = PANEL_BTN_LOCAL_TOGGLE, .instances = {0}, .instance_count = 0, .label_alt = "MACERATOR" },
 };
 
 #define PANEL_BUTTON_COUNT_3 (sizeof(PANEL_BUTTONS_3) / sizeof(PANEL_BUTTONS_3[0]))

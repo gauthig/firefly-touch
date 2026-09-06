@@ -5,6 +5,7 @@
 #include "esp_log.h"
 
 #include "ui_battery_summary.h"
+#include "ui_metrics.h"
 #include "ui_shore_panel.h"
 #include "ui_solar_panel.h"
 #include "ui_tank_wave.h"
@@ -92,6 +93,7 @@ static bool visual_on(const btn_ctx_t *ctx)
     case PANEL_BTN_LOCAL_TOGGLE:
         return ctx->local_on;
     case PANEL_BTN_LIGHT_MASTER:
+    case PANEL_BTN_LIGHT_SWEEP:
         return ctx->master_on;
     case PANEL_BTN_SCREEN_SWITCH:
         return ctx->rail_active;
@@ -184,13 +186,15 @@ static void handle_tap(btn_ctx_t *ctx)
         refresh_visuals(ctx);
         return;
     }
-    if (ctx->def->type == PANEL_BTN_LIGHT_MASTER) {
+    if (ctx->def->type == PANEL_BTN_LIGHT_MASTER ||
+        ctx->def->type == PANEL_BTN_LIGHT_SWEEP) {
         /* Signals the tap; ui.c owns both the direction and what "all off"
-         * and "all on" mean, since only it can see the state manager and
-         * the panel's PANEL_MASTER_ON[] list -- and it re-reads that state
-         * at tap time rather than trusting this widget's cached copy. As
-         * everywhere else, the visual state is NOT flipped here; it moves
-         * when the resulting STATUS_3 frames come back. */
+         * and "all on" mean, since only it can see the state manager -- and
+         * it re-reads that state at tap time rather than trusting this
+         * widget's cached copy. MASTER replays the factory group frames;
+         * SWEEP walks the grid one instance at a time. Either way the visual
+         * state is NOT flipped here; it moves when the resulting STATUS_3
+         * frames come back. */
         send(ctx, RVC_DIMMER_CMD_TOGGLE);
         return;
     }
@@ -260,6 +264,7 @@ static bool acts_on_click(const btn_ctx_t *ctx)
     case PANEL_BTN_TANK_LEVEL:
     case PANEL_BTN_LOCAL_TOGGLE:
     case PANEL_BTN_LIGHT_MASTER:
+    case PANEL_BTN_LIGHT_SWEEP:
         return true;
     default:
         return false;
@@ -352,11 +357,26 @@ lv_obj_t *ui_dimmer_button_create(lv_obj_t *parent,
     lv_obj_set_flex_flow(btn, LV_FLEX_FLOW_COLUMN);
     lv_obj_set_flex_align(btn, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER,
                           LV_FLEX_ALIGN_CENTER);
-    lv_obj_set_style_pad_row(btn, 2, 0);
+    lv_obj_set_style_pad_row(btn, UI_BTN_PAD_ROW, 0);
 
     ctx->name = lv_label_create(btn);
     lv_label_set_text(ctx->name, def->label);
-    lv_obj_set_style_text_font(ctx->name, &lv_font_montserrat_20, 0);
+    lv_obj_set_style_text_font(ctx->name, UI_FONT_BTN, 0);
+
+#if UI_BTN_LABEL_WRAP
+    /* Large display: the bigger button font makes long load names
+     * ("BEDROOM CEILING") overflow a grid cell, so wrap any visible label.
+     * Compiled out entirely on the 4.3B / legacy panels (UI_BTN_LABEL_WRAP
+     * is 0 there), so their button layout is untouched. The three readout
+     * types below hide ctx->name and fill the card with their own widget. */
+    if (def->type != PANEL_BTN_BATTERY_SUMMARY &&
+        def->type != PANEL_BTN_SHORE_POWER &&
+        def->type != PANEL_BTN_SOLAR) {
+        lv_obj_set_width(ctx->name, LV_PCT(100));
+        lv_label_set_long_mode(ctx->name, LV_LABEL_LONG_WRAP);
+        lv_obj_set_style_text_align(ctx->name, LV_TEXT_ALIGN_CENTER, 0);
+    }
+#endif
 
     if (def->type == PANEL_BTN_LOCAL_TOGGLE) {
         /* These carry the longest labels on any panel ("BLACK CLOSED"), and
@@ -375,7 +395,7 @@ lv_obj_t *ui_dimmer_button_create(lv_obj_t *parent,
 
     if (def->type == PANEL_BTN_DIMMER) {
         ctx->bar = lv_bar_create(btn);
-        lv_obj_set_size(ctx->bar, 90, 5);
+        lv_obj_set_size(ctx->bar, UI_DIMMER_BAR_W, UI_DIMMER_BAR_H);
         lv_bar_set_range(ctx->bar, 0, RVC_LEVEL_MAX);
         lv_obj_set_style_bg_color(ctx->bar, UI_COLOR_OFF, LV_PART_MAIN);
         lv_obj_set_style_bg_opa(ctx->bar, LV_OPA_40, LV_PART_MAIN);
@@ -432,6 +452,7 @@ void ui_dimmer_button_update(lv_obj_t *btn, uint8_t instance,
         ctx->def->type == PANEL_BTN_SOLAR ||
         ctx->def->type == PANEL_BTN_LOCAL_TOGGLE ||
         ctx->def->type == PANEL_BTN_LIGHT_MASTER ||
+        ctx->def->type == PANEL_BTN_LIGHT_SWEEP ||
         ctx->def->type == PANEL_BTN_SCREEN_SWITCH) {
         /* None of these track a dimmer instance. SCREEN_SWITCH is in the
          * list because it reuses instances[0] as a TARGET SCREEN INDEX --
@@ -518,7 +539,8 @@ void ui_dimmer_button_update_shore(lv_obj_t *btn, const ui_shore_reading_t *r,
 void ui_dimmer_button_update_master(lv_obj_t *btn, bool any_light_on)
 {
     btn_ctx_t *ctx = lv_obj_get_user_data(btn);
-    if (ctx == NULL || ctx->def->type != PANEL_BTN_LIGHT_MASTER) {
+    if (ctx == NULL || (ctx->def->type != PANEL_BTN_LIGHT_MASTER &&
+                        ctx->def->type != PANEL_BTN_LIGHT_SWEEP)) {
         return;
     }
     if (ctx->master_on == any_light_on) {

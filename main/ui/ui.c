@@ -40,6 +40,7 @@
 #include "panel_config.h"
 #include "state_manager.h"
 #include "ui_dimmer_button.h"
+#include "ui_metrics.h"
 #include "ui_theme.h"
 
 #if PANEL_HAS_SCREEN_2
@@ -48,7 +49,7 @@
 
 static const char *TAG = "ui";
 
-#define STATUSBAR_H         36
+#define STATUSBAR_H         UI_STATUSBAR_H
 #define IDLE_DIM_TIMEOUT_MS 120000
 #define IDLE_OFF_TIMEOUT_MS 300000
 #define IDLE_DIM_PERCENT    50
@@ -99,10 +100,11 @@ static const char *TAG = "ui";
 #define GRID_MAX_ROWS 6
 
 #if PANEL_HAS_NAV_RAIL
-/* Width of the persistent section rail. Wide enough for "SHORE POWER" at
- * Montserrat 20 without wrapping, narrow enough to leave the content pane
- * the bulk of an 800 px landscape panel. */
-#define NAV_RAIL_W 168
+/* Width of the persistent section rail. Wide enough for the section names
+ * without wrapping, narrow enough to leave the content pane the bulk of the
+ * landscape panel. Value in ui_metrics.h (168 on the 800x480 non-B 7",
+ * wider on the 1024x600 7B). */
+#define NAV_RAIL_W UI_NAV_RAIL_W
 #endif
 
 /* How often the master light button re-reads "is any light on" from the
@@ -123,6 +125,10 @@ static lv_obj_t *s_dim_overlay;
  * directly rather than re-scanned every tick: master_timer_cb runs once a
  * second and there is at most one of these per panel. */
 static lv_obj_t *s_master_btn;
+
+/* The one PANEL_BTN_LIGHT_SWEEP widget, if this panel has one. master_timer_cb
+ * refreshes its "any light on" display alongside s_master_btn. */
+static lv_obj_t *s_lightsweep_btn;
 
 #if PANEL_HAS_NAV_RAIL
 static lv_obj_t *s_rail_buttons[PANEL_NAV_RAIL_COUNT];
@@ -618,13 +624,74 @@ static void master_apply(bool turn_on)
     }
 }
 
+#if PANEL_HAS_LIGHT_SWEEP
+/*
+ * Sequential all-lights sweep (PANEL_BTN_LIGHT_SWEEP). Where master_apply()
+ * replays the factory rocker's group frames in one shot, this walks every
+ * DIMMER/SWITCH instance on the main grid and sends each an explicit ON or
+ * OFF, one every SWEEP_STEP_MS, so the G6's dimmer engine is never asked to
+ * act on a dozen loads in the same tick. A fresh tap while a sweep is
+ * running restarts it in whatever direction the state now calls for.
+ */
+#define SWEEP_STEP_MS 100
+
+static uint8_t   s_sweep_list[PANEL_BUTTON_COUNT * PANEL_BTN_MAX_INSTANCES];
+static uint16_t  s_sweep_len;
+static uint16_t  s_sweep_idx;
+static bool      s_sweep_on;
+static lv_timer_t *s_sweep_timer;
+
+static void light_sweep_step_cb(lv_timer_t *t)
+{
+    (void)t;
+    if (s_sweep_idx >= s_sweep_len) {
+        lv_timer_delete(s_sweep_timer);
+        s_sweep_timer = NULL;
+        return;
+    }
+    const rvc_dimmer_cmd_t cmd = s_sweep_on ? RVC_DIMMER_CMD_ON_DELAY
+                                            : RVC_DIMMER_CMD_OFF;
+    bridge_enqueue_dimmer_cmd(s_sweep_list[s_sweep_idx++], cmd,
+                              RVC_LEVEL_MAX, RVC_FIELD_NA);
+}
+
+static void light_sweep_start(bool turn_on)
+{
+    /* Rebuild the instance list every time: it is tiny and this keeps the
+     * grid layout the single source of truth for what "all lights" means. */
+    s_sweep_len = 0;
+    for (uint32_t i = 0; i < PANEL_BUTTON_COUNT; i++) {
+        const panel_btn_def_t *d = &PANEL_BUTTONS[i];
+        if (d->type != PANEL_BTN_DIMMER && d->type != PANEL_BTN_SWITCH) {
+            continue;
+        }
+        for (uint8_t j = 0; j < d->instance_count &&
+                            s_sweep_len < sizeof(s_sweep_list); j++) {
+            s_sweep_list[s_sweep_len++] = d->instances[j];
+        }
+    }
+
+    s_sweep_on = turn_on;
+    s_sweep_idx = 0;
+    if (s_sweep_timer != NULL) {
+        lv_timer_delete(s_sweep_timer);   /* re-tap: restart cleanly */
+    }
+    ESP_LOGI(TAG, "light sweep %s: %u loads @ %u ms",
+             turn_on ? "on" : "off", (unsigned)s_sweep_len, SWEEP_STEP_MS);
+    s_sweep_timer = lv_timer_create(light_sweep_step_cb, SWEEP_STEP_MS, NULL);
+}
+#endif /* PANEL_HAS_LIGHT_SWEEP */
+
 static void master_timer_cb(lv_timer_t *t)
 {
     (void)t;
-    if (s_master_btn == NULL) {
-        return;
+    const bool any_on = master_any_light_on();
+    if (s_master_btn != NULL) {
+        ui_dimmer_button_update_master(s_master_btn, any_on);
     }
-    ui_dimmer_button_update_master(s_master_btn, master_any_light_on());
+    if (s_lightsweep_btn != NULL) {
+        ui_dimmer_button_update_master(s_lightsweep_btn, any_on);
+    }
 }
 
 /* ------------------------------------------------------- commands ------- */
@@ -656,6 +723,14 @@ static void panel_send_cb(const panel_btn_def_t *def, rvc_dimmer_cmd_t cmd,
         master_apply(!master_any_light_on());
         return;
     }
+#if PANEL_HAS_LIGHT_SWEEP
+    if (def->type == PANEL_BTN_LIGHT_SWEEP) {
+        /* Same fresh-read rationale as MASTER above; the sweep itself is
+         * spaced out over the following second-ish. */
+        light_sweep_start(!master_any_light_on());
+        return;
+    }
+#endif
     if (def->type == PANEL_BTN_TANK_LEVEL || def->type == PANEL_BTN_SHORE_POWER ||
         def->type == PANEL_BTN_LOCAL_TOGGLE || def->type == PANEL_BTN_SPACER) {
         /* Read-only, or local-only (the valve/mode toggles drive nothing
@@ -723,9 +798,9 @@ static void build_button_grid(lv_obj_t *parent, const panel_btn_def_t *buttons,
     row_dsc[rows] = LV_GRID_TEMPLATE_LAST;
 
     lv_obj_set_grid_dsc_array(parent, col_dsc, row_dsc);
-    lv_obj_set_style_pad_all(parent, 3, 0);
-    lv_obj_set_style_pad_column(parent, 3, 0);
-    lv_obj_set_style_pad_row(parent, 3, 0);
+    lv_obj_set_style_pad_all(parent, UI_GRID_PAD, 0);
+    lv_obj_set_style_pad_column(parent, UI_GRID_PAD, 0);
+    lv_obj_set_style_pad_row(parent, UI_GRID_PAD, 0);
 
     for (uint32_t i = 0; i < count; i++) {
         if (buttons[i].type == PANEL_BTN_SPACER) {
@@ -739,6 +814,9 @@ static void build_button_grid(lv_obj_t *parent, const panel_btn_def_t *buttons,
                              LV_GRID_ALIGN_STRETCH, i / PANEL_GRID_COLS, 1);
         if (buttons[i].type == PANEL_BTN_LIGHT_MASTER) {
             s_master_btn = btn;
+        }
+        if (buttons[i].type == PANEL_BTN_LIGHT_SWEEP) {
+            s_lightsweep_btn = btn;
         }
         out_buttons[i] = btn;
     }
@@ -954,7 +1032,7 @@ static void build_content_pane(lv_obj_t *parent, const panel_btn_def_t *buttons,
         lv_obj_set_flex_flow(top, LV_FLEX_FLOW_ROW);
         lv_obj_set_flex_align(top, LV_FLEX_ALIGN_SPACE_EVENLY,
                               LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-        lv_obj_set_style_pad_column(top, 6, 0);
+        lv_obj_set_style_pad_column(top, UI_CONTENT_PAD_COL, 0);
     }
 
     lv_obj_t *bottom = NULL;
@@ -963,12 +1041,12 @@ static void build_content_pane(lv_obj_t *parent, const panel_btn_def_t *buttons,
         lv_obj_add_style(bottom, &ui_style_screen, 0);
         lv_obj_set_size(bottom, LV_PCT(100),
                         readonly_n > 0 ? LV_PCT(30) : LV_PCT(100));
-        lv_obj_align(bottom, LV_ALIGN_BOTTOM_MID, 0, -6);
+        lv_obj_align(bottom, LV_ALIGN_BOTTOM_MID, 0, UI_CONTENT_BOTTOM_OFS);
         lv_obj_remove_flag(bottom, LV_OBJ_FLAG_SCROLLABLE);
         lv_obj_set_flex_flow(bottom, LV_FLEX_FLOW_ROW);
         lv_obj_set_flex_align(bottom, LV_FLEX_ALIGN_SPACE_EVENLY,
                               LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-        lv_obj_set_style_pad_column(bottom, 6, 0);
+        lv_obj_set_style_pad_column(bottom, UI_CONTENT_PAD_COL, 0);
     }
 
     for (uint32_t i = 0; i < count; i++) {
@@ -987,9 +1065,10 @@ static void build_content_pane(lv_obj_t *parent, const panel_btn_def_t *buttons,
 
         if (def->type == PANEL_BTN_TANK_LEVEL) {
             /* Fixed size, centred in the row, rather than stretched to fill
-             * it: ui_tank_wave's glass is a fixed 90x90, so a full-height
-             * card just puts a small gauge in a tall empty box. */
-            lv_obj_set_size(btn, 140, 200);
+             * it: ui_tank_wave's glass is a fixed size, so a full-height
+             * card just puts a small gauge in a tall empty box. Tile and
+             * glass both scale together via ui_metrics.h. */
+            lv_obj_set_size(btn, UI_TANK_TILE_W, UI_TANK_TILE_H);
         } else {
             /* Everything else shares the row evenly. */
             lv_obj_set_height(btn, LV_PCT(100));
@@ -998,6 +1077,9 @@ static void build_content_pane(lv_obj_t *parent, const panel_btn_def_t *buttons,
 
         if (def->type == PANEL_BTN_LIGHT_MASTER) {
             s_master_btn = btn;
+        }
+        if (def->type == PANEL_BTN_LIGHT_SWEEP) {
+            s_lightsweep_btn = btn;
         }
         out_buttons[i] = btn;
     }
@@ -1015,14 +1097,14 @@ static void build_nav_rail(lv_obj_t *parent)
     lv_obj_set_flex_flow(parent, LV_FLEX_FLOW_COLUMN);
     lv_obj_set_flex_align(parent, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER,
                           LV_FLEX_ALIGN_CENTER);
-    lv_obj_set_style_pad_all(parent, 6, 0);
-    lv_obj_set_style_pad_row(parent, 6, 0);
+    lv_obj_set_style_pad_all(parent, UI_NAV_RAIL_PAD, 0);
+    lv_obj_set_style_pad_row(parent, UI_NAV_RAIL_GAP, 0);
 
     for (uint32_t i = 0; i < PANEL_NAV_RAIL_COUNT; i++) {
         lv_obj_t *btn = ui_dimmer_button_create(parent, &PANEL_NAV_RAIL[i],
                                                 panel_send_cb, NULL);
         lv_obj_set_width(btn, LV_PCT(100));
-        lv_obj_set_height(btn, 72);
+        lv_obj_set_height(btn, UI_NAV_RAIL_BTN_H);
         s_rail_buttons[i] = btn;
     }
 }
@@ -1239,7 +1321,7 @@ static void build_screen(void)
         lv_timer_create(solar_timer_cb, SOLAR_TIMER_MS, NULL);
     }
 #endif
-    if (s_master_btn != NULL) {
+    if (s_master_btn != NULL || s_lightsweep_btn != NULL) {
         lv_timer_create(master_timer_cb, MASTER_TIMER_MS, NULL);
         master_timer_cb(NULL);   /* prime it; don't show "off" for a second */
     }

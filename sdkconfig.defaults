@@ -44,6 +44,12 @@ CONFIG_LV_FONT_MONTSERRAT_16=y
 CONFIG_LV_FONT_MONTSERRAT_20=y
 CONFIG_LV_FONT_MONTSERRAT_24=y
 CONFIG_LV_FONT_MONTSERRAT_28=y
+# Montserrat 32: readout values on the 1024x600 main_cabinet (7B). Glyphs are
+# const rodata, so this costs flash only -- no LVGL-heap impact -- and is
+# harmless on the 4.3B panels that do not use it. Only reaches a build dir on
+# a fresh sdkconfig; existing dirs must add CONFIG_LV_FONT_MONTSERRAT_32=y in
+# place (only build_main_cabinet actually needs it).
+CONFIG_LV_FONT_MONTSERRAT_32=y
 
 # LVGL heap. The Kconfig default is 64 KB and cannot grow
 # (LV_MEM_POOL_EXPAND_SIZE is 0), which main_cabinet's four screens overrun:

@@ -4,6 +4,7 @@
 #include <string.h>
 
 #include "renogy_solar_protocol.h"
+#include "ui_metrics.h"
 #include "ui_theme.h"
 
 /* Reading order: the solar side on the top row, the battery/thermal side
@@ -71,8 +72,8 @@ static lv_obj_t *make_tile(lv_obj_t *parent, uint8_t col, uint8_t row,
     lv_obj_set_style_bg_color(tile, UI_COLOR_CARD, 0);
     lv_obj_set_style_bg_opa(tile, LV_OPA_COVER, 0);
     lv_obj_set_style_border_width(tile, 0, 0);
-    lv_obj_set_style_radius(tile, 8, 0);
-    lv_obj_set_style_pad_all(tile, 4, 0);
+    lv_obj_set_style_radius(tile, UI_TILE_RADIUS, 0);
+    lv_obj_set_style_pad_all(tile, UI_TILE_PAD, 0);
     lv_obj_set_style_pad_row(tile, 0, 0);
     lv_obj_remove_flag(tile, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_remove_flag(tile, LV_OBJ_FLAG_CLICKABLE);
@@ -84,19 +85,19 @@ static lv_obj_t *make_tile(lv_obj_t *parent, uint8_t col, uint8_t row,
 
     lv_obj_t *cap = lv_label_create(tile);
     lv_label_set_text(cap, caption);
-    lv_obj_set_style_text_font(cap, &lv_font_montserrat_14, 0);
+    lv_obj_set_style_text_font(cap, UI_FONT_READOUT_CAPTION, 0);
     lv_obj_set_style_text_color(cap, UI_COLOR_TEXT_DIM, 0);
 
     lv_obj_t *val = lv_label_create(tile);
     lv_label_set_text(val, "--");
-    lv_obj_set_style_text_font(val, &lv_font_montserrat_28, 0);
+    lv_obj_set_style_text_font(val, UI_FONT_READOUT_VALUE, 0);
     /* Green digits, same as the shore readout: this is a measurement, not a
      * control, and the colour keeps it distinct from the light buttons. */
     lv_obj_set_style_text_color(val, UI_COLOR_OK, 0);
 
     lv_obj_t *u = lv_label_create(tile);
     lv_label_set_text(u, unit);
-    lv_obj_set_style_text_font(u, &lv_font_montserrat_14, 0);
+    lv_obj_set_style_text_font(u, UI_FONT_READOUT_CAPTION, 0);
     lv_obj_set_style_text_color(u, UI_COLOR_TEXT_DIM, 0);
 
     return val;
@@ -112,8 +113,8 @@ lv_obj_t *ui_solar_panel_create(lv_obj_t *parent)
     lv_obj_set_size(root, LV_PCT(100), LV_PCT(100));
     lv_obj_set_style_bg_opa(root, LV_OPA_TRANSP, 0);
     lv_obj_set_style_border_width(root, 0, 0);
-    lv_obj_set_style_pad_all(root, 4, 0);
-    lv_obj_set_style_pad_row(root, 4, 0);
+    lv_obj_set_style_pad_all(root, UI_SOLAR_ROOT_PAD, 0);
+    lv_obj_set_style_pad_row(root, UI_SOLAR_ROOT_ROW, 0);
     lv_obj_remove_flag(root, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_remove_flag(root, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_set_flex_flow(root, LV_FLEX_FLOW_COLUMN);
@@ -122,7 +123,7 @@ lv_obj_t *ui_solar_panel_create(lv_obj_t *parent)
 
     /* --- header: section name on the left, charging state on the right --- */
     lv_obj_t *header = lv_obj_create(root);
-    lv_obj_set_size(header, LV_PCT(100), 26);
+    lv_obj_set_size(header, LV_PCT(100), UI_SOLAR_HEADER_H);
     lv_obj_set_style_bg_opa(header, LV_OPA_TRANSP, 0);
     lv_obj_set_style_border_width(header, 0, 0);
     lv_obj_set_style_pad_all(header, 0, 0);
@@ -131,13 +132,13 @@ lv_obj_t *ui_solar_panel_create(lv_obj_t *parent)
 
     lv_obj_t *title = lv_label_create(header);
     lv_label_set_text(title, "SOLAR");
-    lv_obj_set_style_text_font(title, &lv_font_montserrat_20, 0);
+    lv_obj_set_style_text_font(title, UI_FONT_SECTION_TITLE, 0);
     lv_obj_set_style_text_color(title, UI_COLOR_TEXT, 0);
     lv_obj_align(title, LV_ALIGN_LEFT_MID, 2, 0);
 
     ctx->state_label = lv_label_create(header);
     lv_label_set_text(ctx->state_label, "--");
-    lv_obj_set_style_text_font(ctx->state_label, &lv_font_montserrat_20, 0);
+    lv_obj_set_style_text_font(ctx->state_label, UI_FONT_SECTION_TITLE, 0);
     lv_obj_set_style_text_color(ctx->state_label, UI_COLOR_TEXT_DIM, 0);
     lv_obj_align(ctx->state_label, LV_ALIGN_RIGHT_MID, -2, 0);
 
@@ -153,8 +154,8 @@ lv_obj_t *ui_solar_panel_create(lv_obj_t *parent)
     lv_obj_set_style_bg_opa(grid, LV_OPA_TRANSP, 0);
     lv_obj_set_style_border_width(grid, 0, 0);
     lv_obj_set_style_pad_all(grid, 0, 0);
-    lv_obj_set_style_pad_row(grid, 6, 0);
-    lv_obj_set_style_pad_column(grid, 6, 0);
+    lv_obj_set_style_pad_row(grid, UI_SOLAR_GRID_GAP, 0);
+    lv_obj_set_style_pad_column(grid, UI_SOLAR_GRID_GAP, 0);
     lv_obj_remove_flag(grid, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_remove_flag(grid, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_set_grid_dsc_array(grid, col_dsc, row_dsc);

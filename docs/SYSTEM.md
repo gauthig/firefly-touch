@@ -86,14 +86,15 @@ shared RV-C CAN bus, where every node is a peer.
 | **`mid_coach`** | Waveshare ESP32-S3-Touch-LCD-4.3B | Lights, tank levels, battery bank (with solar) and shore power. Also the ESP-NOW bridge and the tank-telemetry producer. | RV-C CAN, ESP-NOW (unicast + broadcast) |
 | **`ent_center`** | Waveshare ESP32-S3-Touch-LCD-4.3B | Lights only | RV-C CAN |
 | **`bedroom_remote`** | Waveshare ESP32-S3-Touch-LCD-4.3B | Lights, battery bank (with the solar readout stacked beneath it), shore power — the latter three entirely from broadcasts. **No CAN wiring, no BLE.** | ESP-NOW |
-| **`main_cabinet`** | Waveshare ESP32-S3-Touch-LCD-7 | Lights, tanks, power and solar on a side-nav rail. Landscape. | RV-C CAN, ESP-NOW (broadcast, listen only) |
+| **`main_cabinet`** | Waveshare ESP32-S3-Touch-LCD-7B (1024×600) | Lights, tanks, power and solar on a side-nav rail. Landscape, larger UI variant. | RV-C CAN, ESP-NOW (broadcast, listen only) |
 | **Bluetooth proxy basement** | ESP32-D0WD-V3 (classic ESP32, 4 MB, no PSRAM) | Headless. Holds every BLE link in the coach and re-broadcasts what it reads. | BLE (5 links), ESP-NOW broadcast |
 | **`valve_node`** *(planned)* | Waveshare ESP32-S3-ETH-8DI-8RO | Headless. Drives the two DrainMaster dump valves and reports their position. **No BLE, no CAN, no Ethernet.** | ESP-NOW unicast |
 
-Panel boards: ESP32-S3-WROOM-1, 16 MB flash / 8 MB octal PSRAM, 800×480 RGB
-LCD, GT911 capacitive touch on I²C, CH422G IO expander, onboard TJA1051 CAN
-transceiver, 7–36 V input off the coach 12 V rail. The three 4.3B panels run
-their LCD rotated to portrait; `main_cabinet`'s 7" runs landscape.
+Panel boards: ESP32-S3-WROOM-1, 16 MB flash / 8 MB octal PSRAM, GT911
+capacitive touch on I²C, CH422G IO expander, onboard TJA1051 CAN
+transceiver, 7–36 V input off the coach 12 V rail. The three 4.3B panels are
+800×480, run rotated to portrait; `main_cabinet` is a Waveshare 7B at
+1024×600, run landscape (a non-B 800×480 7" until the issue #66 swap).
 
 ⚠️ **The two board types are not pin-compatible for CAN.** The 4.3B uses
 GPIO15/16; the 7" uses GPIO20/19, which on the 4.3B are RS485 — and on the
@@ -134,7 +135,8 @@ build of each, 2026-08-28.
 
 | Device | App image | Partition | Used | Free |
 |---|---|---|---|---|
-| `main_cabinet` | 1,280,352 B (1.22 MiB) | 4 MiB | 30.5 % | 2.78 MiB |
+| `main_cabinet` (7B) | 1,289,344 B (1.23 MiB) | 4 MiB | 30.7 % | 2.78 MiB |
+| `main_cabinet` (non-B, pre-#66) | 1,280,352 B (1.22 MiB) | 4 MiB | 30.5 % | 2.78 MiB |
 | `mid_coach` | 1,284,256 B (1.22 MiB) | 4 MiB | 30.6 % | 2.78 MiB |
 | `bedroom_remote` | 1,273,472 B (1.21 MiB) | 4 MiB | 30.4 % | 2.79 MiB |
 | `ent_center` | 739,248 B (0.71 MiB) | 4 MiB | 17.6 % | 3.30 MiB |
@@ -149,21 +151,27 @@ own `partitions.csv`.
 
 ### RAM — free at boot
 
-Measured on hardware from the boot log, `main_cabinet` on 2026-08-28 with the
-128 KiB LVGL pool in place:
+Measured on hardware from the boot log, `main_cabinet` (**non-B 7"**) on
+2026-08-28 with the 128 KiB LVGL pool in place:
 
 | Device | Internal heap free | RTC RAM | PSRAM free |
 |---|---|---|---|
-| `main_cabinet` | 192 KiB (139 + 21 + 32) | 7 KiB | 7,054 KiB |
+| `main_cabinet` (7B, after `board_display_init`) | ~123 KiB (125,803 B) | — | **~4.75 MiB (4,752,576 B)** |
+| `main_cabinet` (non-B 7", at boot) | 192 KiB (139 + 21 + 32) | 7 KiB | 7,054 KiB |
 | `mid_coach` | not measured | — | 8 MiB fitted |
 | `bedroom_remote` | not measured | — | 8 MiB fitted |
 | `ent_center` | not measured | — | 8 MiB fitted |
 | Bluetooth proxy basement | not measured | — | **none fitted** |
 
-Only `main_cabinet` has been measured; the others are left blank rather than
-guessed. For reference, raising its LVGL pool by 64 KiB moved its internal
-heap from 256 KiB to 192 KiB — the pool is carved straight out of internal
-RAM, so the cost is exactly the size of the increase.
+The 7B row is measured on hardware (COM21, 2026-09-05) right after
+`board_display_init` returns. `board_lcd7b.c` runs `avoid_tearing`, which
+hands the RGB panel's two PSRAM framebuffers to LVGL as its draw buffers —
+so NO separate LVGL draw buffers are allocated, and PSRAM free is ~4.75 MiB
+(vs ~2.16 MiB the partial-render path would leave). Two 1024×600 RGB565
+framebuffers + `SPIRAM_FETCH_INSTRUCTIONS`/`RODATA` account for the ~2.3
+MiB used. Internal heap (~123 KiB free, 128 KiB LVGL pool already carved
+out) is fine — do NOT enlarge the CPU caches to buy PSRAM bandwidth, it
+overruns internal RAM and boot-loops on WiFi malloc failure.
 
 ⚠️ **Reading a panel's boot log needs its UART port, not its USB port.** The
 console is on UART0 (GPIO43/44), which on the 4.3B is the CH343 **UART**
@@ -187,7 +195,8 @@ failed allocation instead of failing cleanly.
 
 | Panel | LVGL pool | Measured peak | Headroom |
 |---|---|---|---|
-| `main_cabinet` | 128 KiB | 87,848 B | ~43 KiB |
+| `main_cabinet` (non-B 7") | 128 KiB | 87,848 B (hardware) | ~43 KiB |
+| `main_cabinet` (7B, #66) | 128 KiB | ~77,500 B (simulator, `LV_STDLIB_BUILTIN` 128 KiB) — flat across 12 nav cycles, no leak | ~50 KiB |
 | `mid_coach` | 128 KiB | 86,152 B | ~44 KiB |
 | `bedroom_remote` | 128 KiB | 66,088 B | ~65 KiB |
 | `ent_center` | **64 KiB** (issue #56) | not measured | unknown |
@@ -209,6 +218,13 @@ task watchdog reported only that `taskLVGL` was pegging CPU 1.
 
 `CONFIG_LV_MEM_SIZE_KILOBYTES=128` in `sdkconfig.defaults` fixes it for every
 panel, at a cost of 64 KiB of internal RAM each.
+
+The 1024×600 `main_cabinet` (issue #66) does **not** need more: bigger fonts,
+a larger SOC arc and a 200×300 tank glass do not add LVGL objects, and glyph
+data is `const` rodata, not pool. The simulator (allocator switched to match)
+measured a flat ~77.5 KiB peak over repeated section switching — slightly
+under the non-B's, well inside the 128 KiB pool. Re-confirm from the hardware
+boot log at bring-up.
 
 > ⚠️ **The simulator cannot catch this class of bug by default.** `sim/lv_conf.h`
 > uses `LV_STDLIB_CLIB`, an effectively unbounded allocator, so a UI that

@@ -65,6 +65,14 @@ target_compile_definitions(sim PRIVATE
     PANEL_CONFIG_HEADER="${PANEL}.h"
     SDL_MAIN_HANDLED
 )
+
+# Mirror the firmware gate in components/ui_common/CMakeLists.txt: the large
+# ui_metrics.h variant is for main_cabinet (Waveshare 7B, 1024x600) only.
+# The sim compiles ui.c + every ui_common/*.c into this one target, so one
+# PRIVATE define covers them all.
+if(PANEL STREQUAL "main_cabinet")
+    target_compile_definitions(sim PRIVATE UI_METRICS_LARGE=1)
+endif()
 target_compile_options(sim PRIVATE -Wall -Wextra)
 target_link_directories(sim PRIVATE ${SDL2_ROOT}/lib)
 target_link_libraries(sim lvgl SDL2 m)

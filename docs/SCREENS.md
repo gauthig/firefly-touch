@@ -6,9 +6,11 @@ firmware uses. They are not mockups.
 
 Most panels run **portrait, 480×800** — their physically-landscape
 800×480 LCD is rotated 90° in `board_4_3b.c`. `main_cabinet` is the
-exception: its 7" panel runs unrotated, so it is **landscape, 800×480**.
-Either way the layout code sizes itself off the LOGICAL resolution and the
-simulator matches it, so captures show what the hardware shows.
+exception: its Waveshare 7B panel runs unrotated, so it is **landscape,
+1024×600** (it was an 800×480 non-B 7" until the issue #66 swap). Either way
+the layout code sizes itself off the LOGICAL resolution and the simulator
+matches it (via `PANEL_LOGICAL_W/H`), so captures show what the hardware
+shows.
 
 Regenerate them with:
 
@@ -128,9 +130,18 @@ named; unset slots simply read `--` while still showing live values.
 
 ## `main_cabinet` — "MAIN CABINET"
 
-The 7" panel, and the only one in **landscape**. A persistent left rail lists
-the sections and the selected one fills the rest of the screen, instead of
-the whole-screen swap the 4.3B panels use. It boots into POWER.
+The Waveshare **7B (1024×600)** panel, and the only one in **landscape**. A
+persistent left rail lists the sections and the selected one fills the rest
+of the screen, instead of the whole-screen swap the 4.3B panels use. It
+boots into POWER.
+
+Because of the size, this panel gets a **larger UI variant**: wider rail,
+bigger fonts (labels 24, readout values 32), a 240 px SOC arc, a 200×300
+tank glass, more generous padding. It is a single build-time switch
+(`UI_METRICS_LARGE`, `components/ui_common/include/ui_metrics.h`) gated to
+`BOARD == lcd7b`, so the three installed 4.3B panels are byte-for-byte
+unchanged. On POWER the battery bank and shore power now sit side by side
+rather than needing separate sections.
 
 Hardwired to the RV-C bus, and additionally listens to the ESP-NOW broadcast
 channel — the battery packs, the Power Watchdog and the solar charge
@@ -205,6 +216,12 @@ own LIGHT MASTER DGN has never been captured.
   off at 300 s, at which point any secondary screen also returns to the
   panel's home section (the lights grid, except on `main_cabinet`, which
   goes back to POWER).
-- **The tank gauge is a fixed 90×90 glass** inside a larger card, so it
-  looks small in a tall container. That is pre-existing on every panel, not
-  specific to the 7".
+- **The tank gauge glass is a fixed size** inside a larger card, so it looks
+  small in a tall container — 90×90 on the 4.3B panels, 200×300 on
+  `main_cabinet` (7B, `UI_TANK_GLASS_*` in `ui_metrics.h`). Pre-existing on
+  every panel, not specific to the 7-inch.
+- **The tank-wave water does not animate on the 7B** (`UI_TANK_WAVE_ANIMATE
+  0`). The 7B's RGB panel runs `full_refresh`, where the wave's ~100 ms
+  self-redraws each force a whole-frame render+swap and periodically overran
+  a frame — a full-screen blink on the TANK screen. The static water shape
+  is kept; only the motion is dropped. The 4.3B panels still animate it.

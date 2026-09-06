@@ -14,8 +14,10 @@
  */
 #pragma once
 
-#if defined(BOARD_LCD7)
-#include "board_lcd7.h"      /* Waveshare ESP32-S3-Touch-LCD-7, landscape */
+#if defined(BOARD_LCD7B)
+#include "board_lcd7b.h"     /* Waveshare ESP32-S3-Touch-LCD-7B, 1024x600 landscape */
+#elif defined(BOARD_LCD7)
+#include "board_lcd7.h"      /* Waveshare ESP32-S3-Touch-LCD-7 (non-B), 800x480 landscape */
 #else
 #include "board_4_3b.h"      /* Waveshare ESP32-S3-Touch-LCD-4.3B, portrait */
 #endif

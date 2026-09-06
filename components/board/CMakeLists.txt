@@ -14,6 +14,8 @@
 #   where BOARD is set, so switching sources this way is safe.
 if(BOARD STREQUAL "lcd7")
     set(board_src "board_lcd7.c")
+elseif(BOARD STREQUAL "lcd7b")
+    set(board_src "board_lcd7b.c")
 else()
     set(board_src "board_4_3b.c")
 endif()
@@ -21,11 +23,17 @@ endif()
 idf_component_register(
     SRCS "${board_src}"
     INCLUDE_DIRS "include"
-    REQUIRES driver esp_lcd ch422g
+    # Constant list on purpose -- see the note above. ch422g is the 4.3B /
+    # non-B 7" IO expander; ws_io_expander is the 7B's (a different chip).
+    # Whichever board is compiled links only the one it #includes; the other
+    # is dead-stripped.
+    REQUIRES driver esp_lcd ch422g ws_io_expander
 )
 
 # Picks which header include/board.h forwards to. PUBLIC so dependents (main,
 # which includes board.h) see it too.
 if(BOARD STREQUAL "lcd7")
     target_compile_definitions(${COMPONENT_LIB} PUBLIC BOARD_LCD7=1)
+elseif(BOARD STREQUAL "lcd7b")
+    target_compile_definitions(${COMPONENT_LIB} PUBLIC BOARD_LCD7B=1)
 endif()
