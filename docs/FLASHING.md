@@ -47,15 +47,33 @@ derived from `PANEL` by a mapping in the root `CMakeLists.txt`, so there is
 no `-DBOARD=` to pass or forget; `tools/check_panels.py` checks that mapping
 against the registry.
 
-† `bedroom_remote` has no CAN wiring (`PANEL_HAS_CAN 0`) and never
-transmits on the bus — see *ESP-NOW remote panel* below. Its index is still
-allocated here because it doubles as the panel's ESP-NOW peer identity.
+† `bedroom_remote` and `hvac_panel` have no CAN wiring (`PANEL_HAS_CAN 0`)
+and never transmit on the bus — `bedroom_remote` relays button taps to
+`mid_coach` over ESP-NOW (*ESP-NOW remote panel* below); `hvac_panel` holds
+the EasyTouch thermostat BLE link and is the coach's thermostat bridge (see
+[EASYTOUCH-THERMOSTAT.md](EASYTOUCH-THERMOSTAT.md)). Their indices are still
+allocated here because the index doubles as the ESP-NOW node identity.
 
 The source address is derived as `0x80 + PANEL_INDEX` in
 `main/panel_config.h`. **Two panels must never share an index** — duplicate
 source addresses on a CAN bus cause arbitration faults that show up as
 intermittent dropped frames, not an obvious failure. CI runs the check above
 on every push and fails on collisions.
+
+## Current flash status (2026-09-07)
+
+All four panels are built from `main` and flashed. Serial ports are
+machine-specific — find yours with Step 2.
+
+| Panel | Board | Running | Hardware status |
+|---|---|---|---|
+| `mid_coach` ("MID COACH") | 4.3B | `main` (EasyTouch bridge peer + dimmed-tap-actuates) | ✅ coach-verified |
+| `bedroom_remote` ("BED REMOTE") | 4.3B | `main` (EasyTouch thermostat view+control screen, LVGL stack in PSRAM) | ✅ thermostat shows 3 zones, control works |
+| `main_cabinet` ("MAIN CABINET") | 7B `lcd7b` | `main` (CLIMATE rail section + 7B USB/CAN-mux fix) | ✅ coach-verified — CAN active, all functions work |
+| `hvac_panel` ("HVAC") | 4.3B | `main` (EasyTouch BLE client + bridge, 5-screen launcher) | ✅ thermostat + panel→bridge round-trip verified; Power/Batteries/Tanks telemetry screens pending a coach test |
+
+Headless nodes: the **basement proxy** runs the solar build (5 BLE links,
+coach-verified); the **valve node** is designed but has no firmware yet.
 
 ## Step 1 — Set up the environment
 
@@ -92,6 +110,22 @@ idf.py -B build_mid_coach -DPANEL=mid_coach -p COM5 flash monitor
 ```powershell
 idf.py -B build_bedroom_remote -DPANEL=bedroom_remote -p COM5 flash monitor
 ```
+
+### HVAC panel (EasyTouch thermostat — no CAN)
+
+```powershell
+idf.py -B build_hvac_panel -DPANEL=hvac_panel "-DSDKCONFIG=build_hvac_panel/sdkconfig" -p COM5 flash monitor
+```
+
+⚠️ **Always keep the explicit `-DSDKCONFIG=`.** `build_hvac_panel/sdkconfig`
+carries the Micro-Air account password (`CONFIG_FIREFLY_EASYTOUCH_PASSWORD`),
+the zone names, and the ESP-NOW `RX_PEER_MAC_1/_2` (the panels it accepts
+thermostat commands from). It also inherits `panels/sdkconfig.hvac_panel.defaults`
+(committed, no secrets) which forces the BLE 4.2 host stack and the
+Bluedroid + Wi-Fi + LVGL RAM trims — a fresh build dir picks those up
+automatically, but never regenerate this file, and set the password by hand
+(`idf.py menuconfig`) before the first flash. Flash and monitor over the
+CH343 **UART** port. Full design + protocol: [EASYTOUCH-THERMOSTAT.md](EASYTOUCH-THERMOSTAT.md).
 
 ### Main cabinet panel (Waveshare 7B, 1024×600 landscape)
 
@@ -130,15 +164,25 @@ I (...) ws_io_expander: IO_EXTENSION @0x24 initialized (outputs, all low)
 I (...) GT911: TouchPad_ID:0x39,0x31,0x31           (="911", default addr 0x5D)
 I (...) board_lcd7b: heap free after display init: internal 125803 B, PSRAM 4752576 B
 I (...) board_lcd7b: display up: 1024x600 RGB565 landscape, GT911 touch, LVGL on core 1
-I (...) ui: UI ready: MAIN CABINET (11 buttons, +2 on screen 2)
+I (...) ui: UI ready: MAIN CABINET (12 buttons, +2 on screen 2)
 I (...) main: RV-C source addr 0x83
 W (...) board_lcd7b: EXIO5 -> CAN: native USB port is now disabled, use UART
+I (...) board_lcd7b: USB/CAN mux OK: EXIO5=1 (CAN)
 I (...) board_lcd7b: TWAI up at 250 kbps on TX=20 RX=19
+I (...) board_lcd7b: CAN after 1 s: heard=N ...   (N>0 on the coach; 0 on the bench)
 I (...) espnow_link: ESP-NOW up (telemetry), broadcast only, channel 1
 ```
 
-Bench-verified 2026-09-05: boots, all four sections render stably at
-1024×600. The 7B's display bring-up needed three fixes the non-B did not —
+⚠️ **`USB/CAN mux OK: EXIO5=1` must appear.** The 7B's CH32V003 IO_EXTENSION
+does not durably hold its direction register and swallows the first output
+write after a mode write, so `board_twai_init()` re-asserts the mode and
+writes the USB/CAN select twice, then reads it back. If the log instead says
+`USB/CAN mux did NOT switch`, CAN is dead — the expander isn't taking the
+write. The 7B's on-board DIP switch is CAN/RS485 **termination** only; leave
+it OFF, the coach bus is already terminated at the ends.
+
+Bench-verified 2026-09-05, CAN + all functions coach-verified 2026-09-07.
+The 7B's display bring-up needed three fixes the non-B did not —
 a different IO-expander driver, the extra `EXIO6 = LCD_VDD_EN` pin, and an
 `avoid_tearing`+`full_refresh` RGB buffer scheme at 21 MHz. Details in
 `CLAUDE.md` → *Hard-won during the 7B migration*.
