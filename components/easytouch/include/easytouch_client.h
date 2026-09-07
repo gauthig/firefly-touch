@@ -6,7 +6,8 @@
  *
  * Runs on the hvac_panel node. Wire framing is components/easytouch's pure-C
  * codec (easytouch_protocol.h); this file is only the BLE transport, modelled
- * on jbd_bms_client.c / renogy_solar_client.c and the hvac_capture bench tool.
+ * on jbd_bms_client.c / renogy_solar_client.c and the hvac_capture bench tool
+ * (since removed -- issue #83).
  *
  * There is no command acknowledgement — confirmation of a Change is the next
  * status read, exactly like RV-C DC_DIMMER_STATUS_3. The panel's
