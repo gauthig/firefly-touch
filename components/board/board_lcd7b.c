@@ -47,6 +47,19 @@
 
 static const char *TAG = "board_lcd7b";
 
+/* LVGL render-task stack. 8 KiB is enough for the grid / readout screens,
+ * but the thermostat widget (3 zone cards of nested flex rows + a mode-picker
+ * overlay) is the deepest object tree in the project and blows it during
+ * render -- "stack overflow in task taskLVGL", which the task WDT turns into
+ * a reboot to PANEL_DEFAULT_SCREEN. main_cabinet carries that widget on its
+ * CLIMATE section, so its build overrides this via
+ * components/board/CMakeLists.txt (24 KiB, internal -- the 7B has ~125 KiB
+ * free internal DRAM and no Bluedroid, so no need for the PSRAM placement the
+ * 4.3B panels use). Mirrors board_4_3b.c. */
+#ifndef BOARD_LVGL_TASK_STACK
+#define BOARD_LVGL_TASK_STACK 8192
+#endif
+
 static i2c_master_bus_handle_t s_i2c_bus;
 static esp_lcd_panel_handle_t s_lcd_panel;
 static esp_lcd_touch_handle_t s_touch;
@@ -180,8 +193,13 @@ static esp_err_t lvgl_init(void)
 {
     lvgl_port_cfg_t port_cfg = ESP_LVGL_PORT_INIT_CONFIG();
     port_cfg.task_priority = 4;
-    port_cfg.task_stack = 8192;
+    port_cfg.task_stack = BOARD_LVGL_TASK_STACK;
     port_cfg.task_affinity = 1;   /* UI on core 1; protocol tasks own core 0 */
+#ifdef BOARD_LVGL_TASK_STACK_PSRAM
+    /* PSRAM stack: SPIRAM_ALLOW_STACK_EXTERNAL_MEMORY + TASK_CREATE_ALLOW_EXT_MEM
+     * are on, and the LVGL task never runs in ISR context, so this is safe. */
+    port_cfg.task_stack_caps = MALLOC_CAP_SPIRAM;
+#endif
     ESP_RETURN_ON_ERROR(lvgl_port_init(&port_cfg), TAG, "lvgl_port_init");
 
     const lvgl_port_display_cfg_t disp_cfg = {
