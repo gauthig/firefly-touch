@@ -634,12 +634,16 @@ screen 3 (the old spacer slot on the grid is now the nav button);
 - ⚠️ **LVGL task stack.** The thermostat widget is the deepest object tree
   in the project and overflows the default 8 KiB LVGL render stack —
   intermittently, presenting as "the screen blinks and jumps to the menu"
-  (task-WDT reboot to screen 0). `components/board/board_4_3b.c` honours
-  `BOARD_LVGL_TASK_STACK` / `BOARD_LVGL_TASK_STACK_PSRAM`, and
-  `components/board/CMakeLists.txt` sets **24 KiB in PSRAM** for `hvac_panel`
-  and `bedroom_remote` (keyed on `PANEL`) — zero internal-DRAM cost
-  (`SPIRAM_ALLOW_STACK_EXTERNAL_MEMORY` + `FREERTOS_TASK_CREATE_ALLOW_EXT_MEM`
-  are on). Measured LVGL heap peak for the 5-screen UI + popup: ~80 KiB.
+  (task-WDT reboot to `PANEL_DEFAULT_SCREEN`). **Both** `board_4_3b.c` and
+  `board_lcd7b.c` honour `BOARD_LVGL_TASK_STACK` / `BOARD_LVGL_TASK_STACK_PSRAM`,
+  and `components/board/CMakeLists.txt` sets **24 KiB** for `hvac_panel`,
+  `bedroom_remote` (in PSRAM — zero internal-DRAM cost, needs
+  `SPIRAM_ALLOW_STACK_EXTERNAL_MEMORY` + `FREERTOS_TASK_CREATE_ALLOW_EXT_MEM`,
+  both on) and `main_cabinet` (internal — the 7B has ~125 KiB free internal
+  DRAM, no Bluedroid, and internal renders faster). ⚠️ Adding a panel that
+  carries `PANEL_BTN_THERMOSTAT` means adding it to that CMake gate — issue
+  #75 was exactly this omission on the 7B. Measured LVGL heap peak for the
+  5-screen UI + popup: ~80 KiB.
 - Mode enum (bench-confirmed, §8b/§8c): 0 off, 1 fan, 2 cool, **4 Aqua-Hot**,
   **7 electric heat** (touchscreen labels it Heat Pump *or* Heat Strip per
   zone — protocol has one value), 11 auto. `current_mode`: 0 idle,
@@ -685,12 +689,16 @@ screen 3 (the old spacer slot on the grid is now the nav button);
   too). `easytouch_protocol.c` compiles straight into the sim. Capture with
   `.\build.ps1 -Panel <panel> -Shot x.bmp -Section THERMOSTAT` (bedroom_remote)
   / `-Section CLIMATE` (main_cabinet) / `-Section THERMOSTAT` etc.
-- **Bench-verified 2026-09-06** on real hardware: hvac_panel (COM23) +
-  bedroom_remote (COM11). Thermostat screen shows all 3 zones on both;
-  bedroom_remote's mode/setpoint controls actuate the real thermostat
-  through hvac_panel (`main: hvac cmd from panel: zone 0 op 0 arg 0` logged
-  on hvac_panel, applied on the next BLE poll). No stack overflow, no
-  boot loop. main_cabinet coded but not flashed (not connected).
+- **Bench-verified 2026-09-06/07** on real hardware: hvac_panel (COM23),
+  bedroom_remote (COM11), main_cabinet (COM21). Thermostat screen shows all
+  3 zones on all three; bedroom_remote's mode/setpoint controls actuate the
+  real thermostat through hvac_panel (`main: hvac cmd from panel: zone 0 op 0
+  arg 0` logged on hvac_panel, applied on the next BLE poll). No stack
+  overflow, no boot loop. ⚠️ main_cabinet needed a follow-up (issue #75, PR
+  #76): its nav rail overflowed the 7B screen once CLIMATE made it a 5th
+  entry, and CLIMATE crash-looped until `board_lcd7b.c` got the LVGL-stack
+  fix. A real main_cabinet→hvac_panel CLIMATE round-trip is still owed at the
+  coach.
 
 ## Basement BLE proxy + broadcast telemetry (issues #33/#34)
 
@@ -1166,11 +1174,14 @@ remove it) or small finger drift cancels the long-press before it fires.
 ## Side-nav rail (main_cabinet)
 
 `main_cabinet` presents a **persistent left rail** listing its sections
-(POWER / SOLAR / TANKS / LIGHTS) with the selected one filling the rest of
-the screen, rather than the whole-screen swap the 4.3B panels use. Its 7B
-1024x600 landscape display is what makes room for it; a portrait panel has
-none to spare. The rail width and button height, like every other size on
-this panel, come from `ui_metrics.h`'s large variant.
+(CLIMATE / POWER / SOLAR / TANKS / LIGHTS) with the selected one filling the
+rest of the screen, rather than the whole-screen swap the 4.3B panels use.
+Its 7B 1024x600 landscape display is what makes room for it; a portrait panel
+has none to spare. The rail width comes from `ui_metrics.h`'s large variant;
+the button height starts from `UI_NAV_RAIL_BTN_H` there but `build_nav_rail()`
+**shrinks it to fit** when the entry count would overflow the rail — 5
+entries at 118 px run ~100 px past the 7B's 556 px rail (issue #75). It is
+still used as-is when the entries fit, so a 4-entry rail is unchanged.
 
 Opt in with `PANEL_HAS_NAV_RAIL 1` plus a `PANEL_NAV_RAIL[]` array. Rail
 entries are ordinary `PANEL_BTN_SCREEN_SWITCH` defs, reusing the existing
