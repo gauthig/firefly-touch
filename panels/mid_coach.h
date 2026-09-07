@@ -46,6 +46,12 @@
 #define PANEL_NAME  "MID COACH"
 #define PANEL_INDEX 0
 
+/* Per-panel version minor; the major is global in main/firefly_version.h.
+ * Bump this ONLY for a fix that touches just this panel, and update
+ * docs/FLASHING.md's status table in the same commit. Panels are
+ * expected to sit on different minors — that is the design, not drift. */
+#define PANEL_VERSION_MINOR 0
+
 /* This panel is the ESP-NOW bridge/router between the RV-C CAN bus and all
  * remote panels (any panel whose ID ends in _remote, e.g.
  * panels/bedroom_remote.h). It relays remote commands onto this bus and

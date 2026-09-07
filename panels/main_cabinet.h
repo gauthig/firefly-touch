@@ -43,6 +43,12 @@
 #define PANEL_NAME  "MAIN CABINET"
 #define PANEL_INDEX 3
 
+/* Per-panel version minor; the major is global in main/firefly_version.h.
+ * Bump this ONLY for a fix that touches just this panel, and update
+ * docs/FLASHING.md's status table in the same commit. Panels are
+ * expected to sit on different minors — that is the design, not drift. */
+#define PANEL_VERSION_MINOR 0
+
 /* Hardwired to the RV-C bus (source address 0x83 = 0x80 + 3). */
 
 /* Battery and shore-power readings exist only as ESP-NOW broadcasts from
