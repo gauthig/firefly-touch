@@ -1147,7 +1147,7 @@ static void build_content_pane(lv_obj_t *parent, const panel_btn_def_t *buttons,
  * thing special about them is that show_screen() lights the one matching
  * the visible section.
  */
-static void build_nav_rail(lv_obj_t *parent)
+static void build_nav_rail(lv_obj_t *parent, int32_t avail_h)
 {
     lv_obj_set_flex_flow(parent, LV_FLEX_FLOW_COLUMN);
     lv_obj_set_flex_align(parent, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER,
@@ -1155,11 +1155,22 @@ static void build_nav_rail(lv_obj_t *parent)
     lv_obj_set_style_pad_all(parent, UI_NAV_RAIL_PAD, 0);
     lv_obj_set_style_pad_row(parent, UI_NAV_RAIL_GAP, 0);
 
+    /* UI_NAV_RAIL_BTN_H is the design size, used as-is when the entries fit.
+     * A panel that lists enough sections to overflow the rail (5 entries at
+     * the 7B's 118 px run ~100 px past its 556 px rail) shrinks them to fill
+     * exactly instead of clipping the bottom ones off-screen. */
+    int32_t inner = avail_h - 2 * UI_NAV_RAIL_PAD
+                    - (int32_t)(PANEL_NAV_RAIL_COUNT - 1) * UI_NAV_RAIL_GAP;
+    int32_t btn_h = inner / (int32_t)PANEL_NAV_RAIL_COUNT;
+    if (btn_h > UI_NAV_RAIL_BTN_H || btn_h <= 0) {
+        btn_h = UI_NAV_RAIL_BTN_H;
+    }
+
     for (uint32_t i = 0; i < PANEL_NAV_RAIL_COUNT; i++) {
         lv_obj_t *btn = ui_dimmer_button_create(parent, &PANEL_NAV_RAIL[i],
                                                 panel_send_cb, NULL);
         lv_obj_set_width(btn, LV_PCT(100));
-        lv_obj_set_height(btn, UI_NAV_RAIL_BTN_H);
+        lv_obj_set_height(btn, btn_h);
         s_rail_buttons[i] = btn;
     }
 }
@@ -1301,7 +1312,7 @@ static void build_screen(void)
     lv_obj_set_size(rail, NAV_RAIL_W, logical_h - STATUSBAR_H);
     lv_obj_set_pos(rail, 0, STATUSBAR_H);
     lv_obj_remove_flag(rail, LV_OBJ_FLAG_SCROLLABLE);
-    build_nav_rail(rail);
+    build_nav_rail(rail, logical_h - STATUSBAR_H);
 #endif
 
     /* --- screen 1 (always present) --- */
