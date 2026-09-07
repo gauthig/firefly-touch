@@ -464,13 +464,30 @@ esp_err_t espnow_link_add_valve_peer(void)
         return ESP_ERR_INVALID_ARG;
     }
 
+    /* A unicast MAC has bit 0 of the first octet clear. A value with it set
+     * (e.g. a mistyped "3f:..." from a per-machine sdkconfig) is a
+     * multicast address the driver will reject -- catch it here rather than
+     * letting esp_now_add_peer() fail an ESP_ERROR_CHECK and boot-loop an
+     * installed panel over a config typo. */
+    if (s_valve_peer_mac[0] & 0x01u) {
+        ESP_LOGE(TAG, "CONFIG_FIREFLY_ESPNOW_VALVE_PEER_MAC '%s' is not a "
+                      "unicast address (first octet is odd) -- valve control "
+                      "disabled", CONFIG_FIREFLY_ESPNOW_VALVE_PEER_MAC);
+        return ESP_ERR_INVALID_ARG;
+    }
+
     esp_now_peer_info_t peer = {0};
     memcpy(peer.peer_addr, s_valve_peer_mac, sizeof(s_valve_peer_mac));
     peer.channel = CONFIG_FIREFLY_ESPNOW_CHANNEL;
     peer.ifidx = WIFI_IF_STA;
     peer.encrypt = true;
     copy_key(peer.lmk, sizeof(peer.lmk), CONFIG_FIREFLY_ESPNOW_VALVE_LMK);
-    ESP_ERROR_CHECK(esp_now_add_peer(&peer));
+    const esp_err_t err = esp_now_add_peer(&peer);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "esp_now_add_peer(valve) failed: %s -- valve control disabled",
+                 esp_err_to_name(err));
+        return err;
+    }
     s_have_valve_peer = true;
 
     ESP_LOGI(TAG, "valve peer added %02X:%02X:%02X:%02X:%02X:%02X, channel %d",

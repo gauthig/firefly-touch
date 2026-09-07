@@ -373,7 +373,12 @@ void app_main(void)
     espnow_link_set_telem_rx_cb(remote_telem_rx, NULL);
     state_manager_register_status_sink(bridge_forward_status, NULL);
 #if PANEL_HAS_VALVE_CONTROL
-    ESP_ERROR_CHECK(espnow_link_add_valve_peer());
+    /* Not ESP_ERROR_CHECK: a bad or placeholder CONFIG_FIREFLY_ESPNOW_VALVE_
+     * PEER_MAC (it lives in a gitignored per-machine sdkconfig) must degrade
+     * to "valve control off", never boot-loop an installed panel. */
+    if (espnow_link_add_valve_peer() != ESP_OK) {
+        ESP_LOGW(TAG, "valve peer not added -- valve buttons will not actuate");
+    }
     espnow_link_set_valve_status_rx_cb(bridge_valve_status_rx, NULL);
 #endif
     TimerHandle_t resync_timer = xTimerCreate(
