@@ -81,7 +81,7 @@ bench-confirmed before calling it done**, not just built.
 - `components/ui_common/include/panel_def.h`: remove `PANEL_BTN_PANEL_LIGHTS`
   from `panel_btn_type_t` (see section B — its grid slot becomes the new
   screen-switch button).
-- `panels/mid_coach.h`, `panels/ent_center.h`, `panels/bedroom_remote.h`,
+- `panels/mid_coach.h`, `panels/bedroom_remote.h`,
   `panels/TEMPLATE.h`: the `PANEL LIGHTS` row in each `PANEL_BUTTONS[]`
   becomes the screen-switch button (see below) — every panel currently
   has one in the same bottom-right grid slot, so the slot doesn't move,
@@ -255,8 +255,8 @@ status-routing code which table to consult).
   panel has no CAN wiring, so it never sees `TANK_STATUS` frames directly;
   bridging them would need a third status-sink type alongside the
   existing dimmer one in `state_manager`. Real feature, deliberately
-  deferred — only CAN-connected panels (`mid_coach`, `ent_center`) can
-  show tank widgets in v1.
+  deferred — only CAN-connected panels (`mid_coach`) can show tank
+  widgets in v1.
 - No LPG (instance 3) — this coach's kit only has Fresh/Grey/Black
   sensors per your message; the DGN supports it but nothing here targets
   it.

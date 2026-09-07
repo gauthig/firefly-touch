@@ -1,6 +1,6 @@
 # Build (and optionally run) the PC simulator.
 #   .\build.ps1                        # build mid_coach
-#   .\build.ps1 -Panel ent_center -Run
+#   .\build.ps1 -Panel bedroom_remote -Run
 #   .\build.ps1 -Shot preview.bmp      # headless screenshot (home screen)
 #   .\build.ps1 -Shot preview.bmp -Screen2   # ...of screen 2 instead
 #   .\build.ps1 -Panel main_cabinet -Shot p.bmp -Section LIGHTS

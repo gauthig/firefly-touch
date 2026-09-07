@@ -15,12 +15,16 @@ run. If you add a panel header without adding a row here, CI fails.
 | `PANEL` value | Index | Source addr | Board | On-screen name | Location / replaces |
 |---|---|---|---|---|---|
 | `mid_coach` | 0 | `0x80` | `4_3b` | MID COACH | Mid coach wall — Entegra SW2-E8 (p/n 0291135 / 75570); ESP-NOW bridge/router to the remotes |
-| `ent_center` | 1 | `0x81` | `4_3b` | ENT CENTER | Entertainment center — Entegra SW4-E1 (p/n 0291136 / 75571) |
 | `bedroom_remote` | 2 | `0x82`† | `4_3b` | BED REMOTE | No CAN wiring — relays to `mid_coach` over ESP-NOW, see below |
-| `main_cabinet` | 3 | `0x83` | `lcd7b` | MAIN CABINET | Main cabinet — Waveshare 7B 1024×600 landscape, side-nav rail (Power / Solar / Tanks / Lights) |
+| `main_cabinet` | 3 | `0x83` | `lcd7b` | MAIN CABINET | Main cabinet — Waveshare 7B 1024×600 landscape, side-nav rail (Climate / Power / Solar / Tanks / Lights) |
 | `hvac_panel` | 4 | `0x84`† | `4_3b` | HVAC | Stool room, at the Firefly G6 (ex-`hvac_capture`, COM23). No CAN. Holds the EasyTouch thermostat BLE link and is the coach's **thermostat bridge**: broadcasts each zone (`ESPNOW_TELEM_HVAC`) and accepts `ESPNOW_FRAME_HVAC_CMD` from `bedroom_remote` / `main_cabinet` (its `FIREFLY_ESPNOW_RX_PEER_MAC_1/_2`), feeding them to the local client. Sends no unicast itself. Menu → Thermostat / Power / Batteries / Tanks. See [../docs/EASYTOUCH-THERMOSTAT.md](../docs/EASYTOUCH-THERMOSTAT.md). |
 
 **Next free index: 5** (source address `0x85`).
+
+Index **1** (`0x81`) is unused and free to claim — it was never assigned to a
+flashed panel. `tools/check_panels.py` derives *Next free index* as the
+highest allocated index + 1, so a new panel normally takes 5; deliberately
+reusing 1 is fine (bump nothing, just add the row).
 
 † `bedroom_remote` and `hvac_panel` both have `PANEL_HAS_CAN 0`
 (`panels/*.h`) — they never transmit on the CAN bus, so `0x82` / `0x84` are

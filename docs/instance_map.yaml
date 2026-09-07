@@ -5,7 +5,7 @@
 # factory legend, NOT a sniffer capture -- treat every entry as "verified: false"
 # until confirmed by watching real DC_DIMMER_STATUS_3 frames in sniffer mode
 # (see CLAUDE.md -> Build/flash/monitor -> Sniffer mode). Entries already
-# exercised in firmware (panels/mid_coach.h, panels/ent_center.h) are
+# exercised in firmware (panels/mid_coach.h, panels/main_cabinet.h) are
 # marked verified: true -- they've moved a real load on the coach.
 #
 # Use `loads` as the lookup table when assigning buttons on a new panel
@@ -132,18 +132,18 @@ loads:
     source: [SW1-E1 Entry Door, SW2-E7 Living Room]
     verified: true
     notes: Was live in panels/mid_coach.h; dropped from its button layout
-      2026-08-15 when mid_coach was renamed "MID COACH" and relaid out to
-      match ent_center's instance set. Still verified true -- was
-      bench/coach-confirmed before removal, and instance 24 itself hasn't
-      changed. Not currently wired to any firmware panel.
+      2026-08-15 when mid_coach was renamed "MID COACH" and its grid was
+      relaid out. Still verified true -- was bench/coach-confirmed before
+      removal, and instance 24 itself hasn't changed. Not currently wired to
+      any firmware panel.
 
   - name: Center Ceiling Light
     instances: [25]
     type: dimmer
     source: [SW2-E7 Living Room, SW4-E7 Ent. Center, bedroom_remote]
     verified: true
-    notes: Live in panels/mid_coach.h and panels/ent_center.h today; the
-      one bench-confirmed-on-real-hardware instance. Also wired to
+    notes: Live in panels/mid_coach.h today; the one
+      bench-confirmed-on-real-hardware instance. Also wired to
       bedroom_remote's "CENTER CEILING" button as of 2026-08-13.
 
   - name: Accent Light
@@ -151,8 +151,7 @@ loads:
     type: dimmer
     source: [SW4-E7 Ent. Center, mid_coach]
     verified: true
-    notes: Live in panels/ent_center.h; also added to panels/mid_coach.h
-      ("MID COACH") 2026-08-15. Driven as a pair.
+    notes: Live in panels/mid_coach.h ("MID COACH"). Driven as a pair.
 
   - name: Side Ceiling Light
     instances: [30, 31]
@@ -181,8 +180,7 @@ loads:
     type: dimmer
     source: [SW4-E7 Ent. Center, mid_coach]
     verified: true
-    notes: Live in panels/ent_center.h; also added to panels/mid_coach.h
-      ("MID COACH") 2026-08-15.
+    notes: Live in panels/mid_coach.h ("MID COACH").
 
   - name: Midship / Hall-Midship Light
     instances: [35]
@@ -495,10 +493,9 @@ switch_panels:
     notes: >
       Physical wall panel factory layout, for reference only -- as of
       2026-08-15 panels/mid_coach.h no longer matches this row-for-row
-      (on-screen name changed to "MID COACH" and buttons were relaid out
-      to match ent_center's set plus a dedicated ACCENT button). See
-      "Current mid_coach.h firmware layout" below for what's actually
-      flashed.
+      (on-screen name changed to "MID COACH" and buttons were relaid out,
+      adding a dedicated ACCENT button). See "Current mid_coach.h firmware
+      layout" below for what's actually flashed.
     rows:
       - left: { name: Center Ceiling Light, instances: [25] }
         right: { name: Entry Ceiling Light, instances: [24] }
@@ -514,9 +511,9 @@ switch_panels:
     firmware: panels/mid_coach.h
     notes: >
       What's actually flashed as of 2026-08-15 (on-screen name "MID COACH"),
-      not the factory SW2-E7 row above. Reprogrammed to mirror ent_center's
-      instance set (minus Entry Ceiling, plus a dedicated Sofa Sconce/Slide
-      row) so the two CAN-connected panels cover the same loads.
+      not the factory SW2-E7 row above. Reprogrammed to the living-room
+      instance set below (Entry Ceiling dropped, a dedicated Sofa
+      Sconce/Slide row added).
     rows:
       - left: { name: Center Ceiling Light, instances: [25] }
         right: { name: Midship Light, instances: [35] }
@@ -529,7 +526,7 @@ switch_panels:
 
   - panel: SW4-E7 Ent. Center
     part_number: "0291142/75577"
-    firmware: panels/ent_center.h
+    firmware: null   # factory switch panel; no firmware panel currently drives this set
     rows:
       - left: { name: Center Ceiling Light, instances: [25] }
         right: { name: Midship Light, instances: [35] }

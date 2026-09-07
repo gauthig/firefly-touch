@@ -10,8 +10,7 @@ PSRAM, GT911 touch on I2C, CH422G IO expander, TJA1051 CAN transceiver,
 7-36 V input. Three board configs, two compiled today:
 
 - Waveshare **ESP32-S3-Touch-LCD-4.3B** — 4.3" 800x480, run rotated to
-  portrait. `mid_coach`, `ent_center`, `bedroom_remote`, `hvac_panel`.
-  (`board_4_3b`)
+  portrait. `mid_coach`, `bedroom_remote`, `hvac_panel`. (`board_4_3b`)
 - Waveshare **ESP32-S3-Touch-LCD-7B** — 7" 1024x600, run landscape.
   `main_cabinet`. (`board_lcd7b`, `BOARD_LCD7B`; issue #66)
 - Waveshare **ESP32-S3-Touch-LCD-7** (non-B) — 7" 800x480 EK9716. Was
@@ -48,15 +47,15 @@ global PATH:
 ```
 
 ```
-idf.py -B build_mid_coach -DPANEL=mid_coach build
-idf.py -B build_ent_center  -DPANEL=ent_center  build
+idf.py -B build_mid_coach     -DPANEL=mid_coach     build
+idf.py -B build_main_cabinet  -DPANEL=main_cabinet  build
 idf.py -B build_mid_coach -DPANEL=mid_coach -p COM5 flash monitor
 ```
 
 Use one build dir per panel (PANEL is cached; switching values in a shared
 build dir requires `fullclean`). Valid PANEL values = basenames of headers in
 `panels/`. Panel identity: `PANEL_INDEX` → RV-C source address `0x80 + index`;
-`mid_coach` = 0/0x80, `ent_center` = 1/0x81. Never reuse an index.
+`mid_coach` = 0/0x80, `main_cabinet` = 3/0x83. Never reuse an index.
 
 Sniffer mode (log every RV-C frame — how the instance map gets verified):
 `idf.py menuconfig` → *Firefly Touch Panel* → *RV-C sniffer mode*, or add
@@ -81,7 +80,7 @@ the status-driven UI path is exercised exactly like on hardware.
 ```
 cd sim
 .\build.ps1 -Run                    # mid_coach, interactive window
-.\build.ps1 -Panel ent_center -Run
+.\build.ps1 -Panel bedroom_remote -Run
 .\build.ps1 -Shot preview.bmp       # headless screenshot, then exits
 .\build.ps1 -Shot p.bmp -Screen2    # ...of screen 2
 .\build.ps1 -Shot p.bmp -Screen2 -Popup   # ...with the pack-detail popup open
@@ -922,10 +921,9 @@ detail and the three captured frames (also used as
 Live on `panels/mid_coach.h` ("MID COACH") as of GitHub issues #4/#5:
 screen 2 shows FRESH/GREY/BLACK with a BACK button, reached via a
 **TANK LEVELS** button in screen 1's bottom-right slot (see *Dual screens*
-below). Not yet wired to `ent_center` or `bedroom_remote` — the latter
-has no CAN wiring and can't see `TANK_STATUS` frames directly (ESP-NOW
-relay of tank data is explicitly out of scope for now, see
-`docs/SPEC-panel-v2.md`).
+below). Not wired to `bedroom_remote` — it has no CAN wiring and can't see
+`TANK_STATUS` frames directly (ESP-NOW relay of tank data is explicitly out
+of scope for now, see `docs/SPEC-panel-v2.md`).
 
 **Known limitation, accepted 2026-08-15: displayed percent won't exactly
 match the SeeLevel unit's own front-panel digits.** Compared directly on
@@ -940,21 +938,23 @@ full comparison and reasoning.
 
 ## Instance map (from factory Entegra legends — verify via sniffer!)
 
-| Load | Instances | Panels |
-|------|-----------|--------|
-| CENTER CEILING  | 25 | both |
-| ACCENT          | 26, 27 | both |
-| SIDE CEILING    | 30, 31 | both |
-| ODS SOFA SCONCE / ODS SLIDE | 32 | both |
-| DINETTE / SCONCE-DINETTE    | 33 | both |
-| SINK/COUNTER    | 34 | both |
-| MIDSHIP / HALL-MIDSHIP      | 35 | both |
+`mid_coach` ("MID COACH") drives this living-room set:
 
-`mid_coach` (on-screen "MID COACH") and `ent_center` were realigned
-2026-08-15 to drive the same instance set. **ENTRY CEILING (24)** and
-**SECURITY P+H (44, 45 — Note A)** are no longer wired to any CAN-connected
-panel (they were dropped from `mid_coach.h`'s button grid); both remain
-valid RV-C instances, just not currently exposed by a button. See
+| Load | Instances |
+|------|-----------|
+| CENTER CEILING  | 25 |
+| ACCENT          | 26, 27 |
+| SIDE CEILING    | 30, 31 |
+| ODS SOFA SCONCE / ODS SLIDE | 32 |
+| DINETTE / SCONCE-DINETTE    | 33 |
+| SINK/COUNTER    | 34 |
+| MIDSHIP / HALL-MIDSHIP      | 35 |
+
+**ENTRY CEILING (24)** and **SECURITY P+H (44, 45 — Note A)** are no longer
+wired to any CAN-connected panel (they were dropped from `mid_coach.h`'s
+button grid); both remain valid RV-C instances, just not currently exposed by
+a button. `main_cabinet` carries its own, larger light grid (see
+`panels/main_cabinet.h`). See
 [docs/instance_map.yaml](docs/instance_map.yaml) for the full instance map
 including everything not yet wired to firmware.
 
@@ -1465,9 +1465,10 @@ Hard-won during setup — check here before re-debugging:
   ⚠️ **IDF applies `sdkconfig.defaults` only when an `sdkconfig` does not yet
   exist**, so every existing `build_<panel>/sdkconfig` must be edited **in
   place** — regenerating one wipes its real ESP-NOW peer MAC and battery
-  MACs. As of 2026-08-28 only `main_cabinet` and `bedroom_remote` have been
-  raised and reflashed; `mid_coach` and `ent_center` are still on 64 KB.
-  Per-device budgets: [docs/SYSTEM.md](docs/SYSTEM.md) → *Memory budget*.
+  MACs. `main_cabinet`, `bedroom_remote` and `mid_coach` were all raised to
+  128 KB and reflashed by 2026-08-28; `hvac_panel` runs 108 KB via
+  `panels/sdkconfig.hvac_panel.defaults`. Per-device budgets:
+  [docs/SYSTEM.md](docs/SYSTEM.md) → *Memory budget*.
 - ⚠️ **The simulator cannot reproduce that class of bug by default**, because
   its allocator is unbounded CLIB. To reproduce one, temporarily set
   `sim/lv_conf.h` to `LV_STDLIB_BUILTIN` with a matching `LV_MEM_SIZE` plus

@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.16)
 
-# Panel selection: idf.py -DPANEL=mid_coach build   (or ent_center, ...)
+# Panel selection: idf.py -DPANEL=mid_coach build   (or main_cabinet, ...)
 # Each PANEL value must have a matching header in panels/<name>.h.
 # NOTE: use a separate build dir per panel (idf.py -B build_mid_coach ...)
 # or run `idf.py fullclean` when switching panels — the value is cached.

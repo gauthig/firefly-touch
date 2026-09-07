@@ -32,10 +32,10 @@ python tools/check_panels.py
 
 ```
   mid_coach        index 0   source addr 0x80   board 4_3b   "MID COACH"
-  ent_center       index 1   source addr 0x81   board 4_3b   "ENT CENTER"
   bedroom_remote   index 2   source addr 0x82†  board 4_3b   "BED REMOTE"
   main_cabinet     index 3   source addr 0x83   board lcd7b  "MAIN CABINET"
-  next free        index 4   source addr 0x84
+  hvac_panel       index 4   source addr 0x84†  board 4_3b   "HVAC"
+  next free        index 5   source addr 0x85
 ```
 
 ⚠️ **The Board column is not cosmetic.** `4_3b` is the Waveshare 4.3B;
@@ -85,12 +85,6 @@ apart by looking at the hardware.
 
 ```powershell
 idf.py -B build_mid_coach -DPANEL=mid_coach -p COM5 flash monitor
-```
-
-### Entertainment center panel
-
-```powershell
-idf.py -B build_ent_center -DPANEL=ent_center -p COM5 flash monitor
 ```
 
 ### Bedroom remote panel (no CAN — see *ESP-NOW remote panel* below)
@@ -181,9 +175,9 @@ I (549) twai_tasks: RX/TX tasks running on core 0, source addr 0x80
 I (551) espnow_link: ESP-NOW link up (bridge), peer XX:XX:XX:XX:XX:XX, channel 1
 ```
 
-The `espnow_link` line only appears on `mid_coach` (the bridge) and on
-`bedroom_remote`; `ent_center` has neither ESP-NOW nor a peer configured
-and won't print it.
+The `espnow_link` line appears on `mid_coach` (the bridge), on
+`bedroom_remote`, and (telemetry-only) on `main_cabinet` and `hvac_panel`.
+A pure CAN-only panel with no ESP-NOW role would not print it.
 
 The panel name is also shown in the top-left of the status bar on screen — the
 quickest way to confirm a mounted panel without a serial cable.
@@ -211,8 +205,8 @@ remotes.
 > every `idf.py` invocation for these two panels (configure, menuconfig,
 > build, flash — all of it). Skipping this on even one command silently
 > edits the shared root `sdkconfig` and the other panel's next build picks
-> up whatever was last written there. `ent_center` doesn't need this since
-> it never touches ESP-NOW Kconfig.
+> up whatever was last written there. A CAN-only panel that never touches
+> ESP-NOW Kconfig doesn't need this.
 
 **Before flashing either side:**
 
