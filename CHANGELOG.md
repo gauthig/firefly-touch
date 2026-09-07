@@ -5,6 +5,16 @@ Notable changes to firefly-touch. Format follows
 
 ## [Unreleased]
 
+### Removed — `ent_center` panel (2026-09-07)
+
+`panels/ent_center.h` (index 1, "ENT CENTER"), its screenshot, and every
+reference to it in the docs and build tooling were removed. The panel was
+scaffolded early but never programmed for the coach or flashed to hardware,
+so nothing that ships depends on it. RV-C index **1** (`0x81`) is now unused
+and free to reclaim if the entertainment-center panel is built later. The
+factory `SW4-E7 Ent. Center` switch panel still exists on the coach and its
+row stays in `docs/instance_map.yaml` as a hardware reference.
+
 Scaffold complete and building clean for both panels. **Display, touch, and
 the full UI are verified on both the plain ESP32-S3-Touch-LCD-4.3 (bench,
 2026-08-05) and the target ESP32-S3-Touch-LCD-4.3B (COM11, 2026-08-08).**

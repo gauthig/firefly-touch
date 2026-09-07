@@ -496,8 +496,8 @@ static void shore_power_timer_cb(lv_timer_t *t)
 /*
  * Guarded on PANEL_HAS_SCREEN_2, not on "does this panel have a solar
  * button": the sweep walks s_screens[], which only exists when the panel has
- * secondary screens at all. ent_center has none, and without this the
- * function would fail to compile there rather than simply going unused.
+ * secondary screens at all. A lights-only panel has none, and without this
+ * the function would fail to compile there rather than simply going unused.
  */
 #if PANEL_HAS_SCREEN_2
 /*

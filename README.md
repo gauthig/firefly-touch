@@ -56,7 +56,6 @@ bay — is held by the proxy in that bay and broadcast to the panels.
 | Node | Board | Talks |
 |---|---|---|
 | `mid_coach` | Waveshare ESP32-S3-Touch-LCD-4.3B | RV-C CAN + ESP-NOW bridge |
-| `ent_center` | Waveshare ESP32-S3-Touch-LCD-4.3B | RV-C CAN |
 | `bedroom_remote` | Waveshare ESP32-S3-Touch-LCD-4.3B | ESP-NOW only |
 | `main_cabinet` | Waveshare ESP32-S3-Touch-LCD-7B (1024×600) | RV-C CAN + ESP-NOW telemetry (listen only) |
 | Bluetooth proxy basement | ESP32-D0WD-V3, 4 MB | BLE (3 battery packs + Power Watchdog + Renogy solar) + ESP-NOW broadcast |

@@ -71,14 +71,6 @@ carries the solar strip beneath it, same as `bedroom_remote`.
 
 ---
 
-## `ent_center` — "ENT CENTER"
-
-Replaces the Entegra SW4-E1 panel. CAN-connected, lights only.
-
-![ent_center lights](images/ent-center-lights.png)
-
----
-
 ## `bedroom_remote` — "BED REMOTE"
 
 No CAN wiring and no BLE. Relays button presses to `mid_coach` over ESP-NOW;

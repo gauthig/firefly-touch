@@ -24,7 +24,6 @@ graph TB
     end
 
     MID["<b>mid_coach</b> · 0x80<br/>ESP32-S3 panel<br/><i>CAN + ESP-NOW bridge</i>"]
-    ENT["<b>ent_center</b> · 0x81<br/>ESP32-S3 panel<br/><i>CAN only</i>"]
     BED["<b>bedroom_remote</b> · 0x82<br/>ESP32-S3 panel<br/><i>no CAN wiring</i>"]
     MAIN["<b>main_cabinet</b> · 0x83<br/>ESP32-S3 7-inch panel<br/><i>CAN + listens to broadcasts</i>"]
     PROXY["<b>Bluetooth proxy basement</b><br/>classic ESP32 · headless<br/><i>in the bay</i>"]
@@ -41,10 +40,8 @@ graph TB
     end
 
     G6A === MID
-    G6A === ENT
     G6A === MAIN
     SEE === MID
-    SEE === ENT
     SEE === MAIN
     FSW === G6A
 
@@ -70,7 +67,7 @@ graph TB
 
     classDef panel fill:#0D1B3A,stroke:#5DADE2,color:#EDE4D3
     classDef coach fill:#1A1F2E,stroke:#8A8375,color:#EDE4D3
-    class MID,ENT,BED,MAIN,PROXY,VALVE panel
+    class MID,BED,MAIN,PROXY,VALVE panel
     class G6A,SEE,FSW,BAT1,BAT2,BAT3,WD,SOL,VGY,VBK coach
 ```
 
@@ -84,7 +81,6 @@ shared RV-C CAN bus, where every node is a peer.
 | Device | Hardware | Role | Talks |
 |---|---|---|---|
 | **`mid_coach`** | Waveshare ESP32-S3-Touch-LCD-4.3B | Lights, tank levels, battery bank (with solar) and shore power. Also the ESP-NOW bridge and the tank-telemetry producer. | RV-C CAN, ESP-NOW (unicast + broadcast) |
-| **`ent_center`** | Waveshare ESP32-S3-Touch-LCD-4.3B | Lights only | RV-C CAN |
 | **`bedroom_remote`** | Waveshare ESP32-S3-Touch-LCD-4.3B | Lights, battery bank (with the solar readout stacked beneath it), shore power — the latter three entirely from broadcasts. **No CAN wiring, no BLE.** | ESP-NOW |
 | **`main_cabinet`** | Waveshare ESP32-S3-Touch-LCD-7B (1024×600) | Lights, tanks, power and solar on a side-nav rail. Landscape, larger UI variant. | RV-C CAN, ESP-NOW (broadcast, listen only) |
 | **Bluetooth proxy basement** | ESP32-D0WD-V3 (classic ESP32, 4 MB, no PSRAM) | Headless. Holds every BLE link in the coach and re-broadcasts what it reads. | BLE (5 links), ESP-NOW broadcast |
@@ -139,11 +135,7 @@ build of each, 2026-08-28.
 | `main_cabinet` (non-B, pre-#66) | 1,280,352 B (1.22 MiB) | 4 MiB | 30.5 % | 2.78 MiB |
 | `mid_coach` | 1,284,256 B (1.22 MiB) | 4 MiB | 30.6 % | 2.78 MiB |
 | `bedroom_remote` | 1,273,472 B (1.21 MiB) | 4 MiB | 30.4 % | 2.79 MiB |
-| `ent_center` | 739,248 B (0.71 MiB) | 4 MiB | 17.6 % | 3.30 MiB |
 | Bluetooth proxy basement | 1,125,760 B (1.07 MiB) | 3 MiB | 35.8 % | 1.93 MiB |
-
-`ent_center` is roughly half the size of its siblings because it is lights-only
-— no battery, shore, solar or tank widgets, and no BLE or ESP-NOW stack.
 
 The proxy is the tightest, and deliberately so: a Bluedroid + WiFi build
 overruns the IDF default 1 MB app partition, which is why `proxy/` carries its
@@ -160,7 +152,6 @@ Measured on hardware from the boot log, `main_cabinet` (**non-B 7"**) on
 | `main_cabinet` (non-B 7", at boot) | 192 KiB (139 + 21 + 32) | 7 KiB | 7,054 KiB |
 | `mid_coach` | not measured | — | 8 MiB fitted |
 | `bedroom_remote` | not measured | — | 8 MiB fitted |
-| `ent_center` | not measured | — | 8 MiB fitted |
 | Bluetooth proxy basement | not measured | — | **none fitted** |
 
 The 7B row is measured on hardware (COM21, 2026-09-05) right after
@@ -199,7 +190,6 @@ failed allocation instead of failing cleanly.
 | `main_cabinet` (7B, #66) | 128 KiB | ~77,500 B (simulator, `LV_STDLIB_BUILTIN` 128 KiB) — flat across 12 nav cycles, no leak | ~50 KiB |
 | `mid_coach` | 128 KiB | 86,152 B | ~44 KiB |
 | `bedroom_remote` | 128 KiB | 66,088 B | ~65 KiB |
-| `ent_center` | **64 KiB** (issue #56) | not measured | unknown |
 
 `mid_coach` is the clearest illustration of why this is measured rather than
 assumed. Adding its battery and shore screens took it to **71,704 B** — some
@@ -238,10 +228,11 @@ boot log at bring-up.
 > it gained the stacked solar readout — enough to matter, small enough that
 > nothing but a measurement would have caught it.
 
-⚠️ **`ent_center` is still on 64 KiB** and has not been reflashed — tracked as
-issue #56. `sdkconfig.defaults` does not reach it: IDF applies defaults only
-when an `sdkconfig` does not already exist, so each build dir must be edited
-**in place** (regenerating wipes the real ESP-NOW peer MAC and battery MACs).
+⚠️ IDF applies `sdkconfig.defaults` only when an `sdkconfig` does not already
+exist, so raising the pool on an existing build dir means editing its
+`sdkconfig` **in place** (regenerating wipes the real ESP-NOW peer MAC and
+battery MACs). Every current panel build dir is already on 128 KiB
+(`hvac_panel` on 108 KiB via `panels/sdkconfig.hvac_panel.defaults`).
 It is the least exposed of the four — lights only, no secondary screens — but
 its peak has never been measured.
 

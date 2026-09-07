@@ -16,7 +16,7 @@
  *
  * Ask yourself which case you are in:
  *
- *   A. UPDATING AN EXISTING PANEL (mid_coach, ent_center, ...)
+ *   A. UPDATING AN EXISTING PANEL (mid_coach, main_cabinet, ...)
  *      -> You do not need this template. Edit that panel's header directly
  *         and KEEP its existing PANEL_INDEX.
  *
