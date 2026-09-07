@@ -462,6 +462,29 @@ static void hvac_sweep_timer_cb(lv_timer_t *t)
 }
 #endif /* PANEL_HAS_THERMOSTAT */
 
+#if PANEL_HAS_VALVE_CONTROL
+/* Stands in for bridge_tx.c's bridge_enqueue_valve_cmd() (the sim does not
+ * compile bridge_tx.c). No valve node here -- flip the reported position and
+ * echo it straight back through ui_on_valve_status(), the same entry point a
+ * real espnow_valve_status_msg_t takes. OPEN / CLOSE are instantaneous here;
+ * the arm-then-fire dance and the redrive lockout are panel-side
+ * (ui_dimmer_button.c) and run for real. */
+bool bridge_enqueue_valve_cmd(uint8_t valve, uint8_t action)
+{
+    if (valve >= 2) {
+        return false;
+    }
+    const ui_valve_status_t vs = {
+        .valve = valve,
+        .position = (action == 1u /* BRIDGE_VALVE_ACTION_OPEN */) ? 2u /* OPEN */
+                                                                  : 1u /* CLOSED */,
+    };
+    printf("[valve] %s valve %u\n", vs.position == 2u ? "OPEN" : "CLOSE", valve);
+    ui_on_valve_status(&vs);
+    return true;
+}
+#endif /* PANEL_HAS_VALVE_CONTROL */
+
 /* Called from main_sim to make the screen look alive at startup. */
 void sim_seed_demo_state(void)
 {
@@ -482,5 +505,14 @@ void sim_seed_demo_state(void)
 #if PANEL_HAS_THERMOSTAT
     lv_timer_create(hvac_sweep_timer_cb, 500, NULL);
     hvac_sweep_timer_cb(NULL);   /* prime it so a --shot has data at t=0 */
+#endif
+#if PANEL_HAS_VALVE_CONTROL
+    /* Prime both valves CLOSED so the screen-2 buttons read closed at t=0
+     * instead of stale/unknown, matching the valve node's assume-closed
+     * boot default. */
+    for (uint8_t v = 0; v < 2; v++) {
+        const ui_valve_status_t vs = { .valve = v, .position = 1u /* CLOSED */ };
+        ui_on_valve_status(&vs);
+    }
 #endif
 }

@@ -174,20 +174,26 @@ esp_err_t valve_drive_init(void)
         return ESP_ERR_NO_MEM;
     }
 
-    /* Startup: read both inputs before any drive and adopt that as the
-     * initial state -- never assume closed. A DI reading closed seeds
-     * CLOSED; anything else seeds UNKNOWN rather than guessing OPEN, since
-     * OPEN is never sensor-confirmable anyway.
+    /* Startup position.
      *
-     * With no sense circuit wired, a DI read here is just floating-pin
-     * noise (see CONFIG_FIREFLY_VALVE_SENSE_ENABLED's help), so both
-     * valves simply start unknown rather than trusting it. */
+     * With the sense circuit wired: read both DIs and adopt that -- a DI
+     * reading closed seeds CLOSED, anything else seeds UNKNOWN rather than
+     * guessing OPEN (OPEN is never sensor-confirmable anyway).
+     *
+     * Without it (the temp process until the sense circuits exist -- see
+     * CONFIG_FIREFLY_VALVE_SENSE_ENABLED): **assume CLOSED.** The valves
+     * are left closed after every dump, so closed is the safe and almost
+     * always correct default, and it means a first tap on a panel button
+     * goes straight to the arm-then-fire OPEN path instead of sitting on
+     * "unknown". A stray reboot with a valve actually open still recovers
+     * -- the panel's single-tap CLOSE runs a timed close drive regardless
+     * of the reported position. */
     for (valve_id_t v = 0; v < VALVE_COUNT; v++) {
 #if CONFIG_FIREFLY_VALVE_SENSE_ENABLED
         s_position[v] = valve_control_read_di(v) ? ESPNOW_VALVE_POS_CLOSED
                                                   : ESPNOW_VALVE_POS_UNKNOWN;
 #else
-        s_position[v] = ESPNOW_VALVE_POS_UNKNOWN;
+        s_position[v] = ESPNOW_VALVE_POS_CLOSED;
 #endif
         ESP_LOGI(TAG, "valve %u: startup position %s", (unsigned)v,
                  position_str(s_position[v]));
