@@ -49,6 +49,16 @@
  *     which means THE NATIVE USB PORT STOPS WORKING once CAN is up -- flash
  *     and monitor this board over its UART (CH343) port.
  *
+ *   - ⚠️ issue #73: the CH32V003-based IO_EXTENSION does NOT durably hold
+ *     its direction (MODE) register -- the 0xFF that ws_io_expander_init()
+ *     writes at boot is gone by the time board_twai_init() runs, so EXIO5
+ *     has fallen back to an input. AND the first OUTPUT-register write after
+ *     a MODE write is swallowed by the chip's direction latch. So
+ *     board_twai_init() re-asserts MODE=0xFF and then writes the EXIO5 mux
+ *     level TWICE; a single write leaves it at 0 (USB) and CAN stays dead
+ *     with no error anywhere. Confirmed on hardware via a read-back of the
+ *     INPUT register. Do not "simplify" the doubled write away.
+ *
  *   - Landscape, no rotation. Used in its native orientation so the
  *     side-nav rail has width to live in.
  *

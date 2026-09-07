@@ -236,10 +236,13 @@ static void apply_backlight(uint8_t percent)
 
 static void dim_overlay_event_cb(lv_event_t *e)
 {
-    /* Wake touch: restore brightness and swallow the press so the button
-     * underneath never fires. The overlay is only CLICKABLE while dimmed
-     * or off; at full brightness touches pass straight through it. */
-    if (lv_event_get_code(e) == LV_EVENT_PRESSED && s_backlight_state != BACKLIGHT_NORMAL) {
+    /* Wake touch for the fully-OFF stage only: restore brightness and
+     * swallow the press so the button underneath never fires (the screen
+     * is dark, the tap can't have been aimed at anything). The overlay is
+     * only CLICKABLE while BACKLIGHT_OFF; while merely dimmed it is left
+     * non-clickable so a tap falls straight through to the button, and
+     * idle_timer_cb brings the backlight back up on its next tick. */
+    if (lv_event_get_code(e) == LV_EVENT_PRESSED && s_backlight_state == BACKLIGHT_OFF) {
         s_backlight_state = BACKLIGHT_NORMAL;
         lv_obj_remove_flag(s_dim_overlay, LV_OBJ_FLAG_CLICKABLE);
         apply_backlight(100);
@@ -267,14 +270,29 @@ static void idle_timer_cb(lv_timer_t *t)
 
     uint32_t inactive_ms = lv_display_get_inactive_time(NULL);
 
+    /* Woke from the DIMMED stage: the overlay is left non-clickable while
+     * dimmed, so the tap that reset the inactivity timer already passed
+     * through to the button and fired it. All that's left here is to bring
+     * the backlight back to full. */
+    if (s_backlight_state == BACKLIGHT_DIMMED && inactive_ms <= IDLE_DIM_TIMEOUT_MS) {
+        s_backlight_state = BACKLIGHT_NORMAL;
+        apply_backlight(100);
+        return;
+    }
+
     if (s_backlight_state == BACKLIGHT_NORMAL && inactive_ms > IDLE_DIM_TIMEOUT_MS) {
         s_backlight_state = BACKLIGHT_DIMMED;
         apply_backlight(IDLE_DIM_PERCENT);
-        lv_obj_add_flag(s_dim_overlay, LV_OBJ_FLAG_CLICKABLE);
+        /* Overlay deliberately left NON-clickable: buttons stay visible at
+         * this stage, so a tap should actuate the load and merely also wake
+         * the screen (handled by the branch above on the next tick). */
         ESP_LOGI(TAG, "idle %lu ms -> dimmed", (unsigned long)inactive_ms);
     } else if (s_backlight_state == BACKLIGHT_DIMMED && inactive_ms > IDLE_OFF_TIMEOUT_MS) {
         s_backlight_state = BACKLIGHT_OFF;
         apply_backlight(0);
+        /* Screen is now dark -- arm the overlay so the first tap only wakes
+         * and can't blind-press whatever button happens to be underneath. */
+        lv_obj_add_flag(s_dim_overlay, LV_OBJ_FLAG_CLICKABLE);
         ESP_LOGI(TAG, "idle %lu ms -> backlight off", (unsigned long)inactive_ms);
 #if PANEL_HAS_SCREEN_2
         /* Screen actually going dark -- don't leave whichever section the

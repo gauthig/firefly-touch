@@ -33,8 +33,19 @@ esp_err_t ws_io_expander_init(i2c_master_bus_handle_t bus);
 /* Set a single EXIO pin (0..7); other pins keep their cached state. */
 esp_err_t ws_io_expander_set_pin(uint8_t pin, bool level);
 
+/* Write the direction/MODE register (0x02): 1 = output, 0 = input.
+ * ws_io_expander_init() sets 0xFF, but the CH32V003-based IO_EXTENSION has
+ * been seen to drop this register some time after boot (issue #73), so a
+ * caller that must be certain a pin is an output re-asserts it before use. */
+esp_err_t ws_io_expander_write_mode(uint8_t mode);
+
 /* Absolute write of all eight output lines. */
 esp_err_t ws_io_expander_write_io(uint8_t value);
+
+/* Read the INPUT register (0x04). For a push-pull output pin this reads back
+ * the level the chip is currently driving, which is enough to confirm a mux
+ * select actually took. */
+esp_err_t ws_io_expander_read_io(uint8_t *out_value);
 
 /* Backlight PWM duty, 0..100 %. The chip has a dedicated PWM output; this is
  * a hardware dim, unlike the CH422G's on/off-only line. */
