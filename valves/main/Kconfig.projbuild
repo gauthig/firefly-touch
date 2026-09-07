@@ -1,8 +1,32 @@
 menu "Firefly Valve Node"
 
+    config FIREFLY_VALVE_SENSE_ENABLED
+        bool "DI position sense circuits are wired (grey DI1 / black DI2)"
+        default n
+        help
+            Off until the physical sense circuit (2N3904 divider,
+            docs/DRAINMASTER-VALVES.md #4) is actually built on both
+            valves -- currently blocked on a missing capacitor.
+
+            While off, CLOSE is a TIMED drive exactly like OPEN: it runs
+            for VALVE_DRIVE_NOMINAL_MS (1 s) and is then assumed to have
+            succeeded, reported CLOSED, rather than polling DI1/DI2 (which
+            float with no sense circuit connected -- confirmed on the
+            bench 2026-09-04: one channel never read "closed" and timed
+            out to unknown every time, the other happened to float
+            "closed" from boot and reported success almost instantly,
+            neither reflecting anything real). Startup position is also
+            not seeded from DI while this is off -- both valves start
+            unknown rather than trusting a floating reading.
+
+            Turn this on once DI1/DI2 are wired for real -- CLOSE then
+            goes back to polling and either confirms within the drive
+            ceiling or reports unknown and gives up, per docs/
+            DRAINMASTER-VALVES.md #7.
+
     config FIREFLY_VALVE_TEST_MODE
         bool "Run bench self-test sequence on boot"
-        default y
+        default n
         help
             Runs the DRAINMASTER-VALVES.md bring-up order steps 1-3 on
             every boot: clicks each of the 8 relays individually, attempts
@@ -11,9 +35,78 @@ menu "Firefly Valve Node"
             even when the driving code doesn't call release itself.
 
             Safe with no valve or sense wiring connected — everything here
-            is a relay click and an I2C readback. Turn this off once
-            bring-up is done and real ESP-NOW-driven valve control lands
-            (a later issue), so a production boot doesn't click every
-            relay before going idle.
+            is a relay click and an I2C readback. Defaults off now that
+            real ESP-NOW-driven valve control exists (valve_drive.c) --
+            leave it off in production so a routine power-cycle doesn't
+            click every relay before going idle. Still useful to re-enable
+            for bench debugging.
+
+    menu "ESP-NOW (mid_coach is this node's one peer)"
+
+        config FIREFLY_ESPNOW_CHANNEL
+            int "ESP-NOW WiFi channel"
+            default 1
+            range 1 13
+            help
+                Must match mid_coach's channel exactly -- there is no AP to
+                negotiate one.
+
+        config FIREFLY_ESPNOW_PEER_MAC
+            string "mid_coach's ESP-NOW MAC address (AA:BB:CC:DD:EE:FF)"
+            default "AA:BB:CC:DD:EE:FF"
+            help
+                mid_coach's MAC. Must equal mid_coach's own
+                CONFIG_FIREFLY_ESPNOW_VALVE_PEER_MAC -- that symbol, not
+                CONFIG_FIREFLY_ESPNOW_PEER_MAC, since this node is
+                mid_coach's SECOND peer (bedroom_remote is the first).
+
+        config FIREFLY_ESPNOW_PMK
+            string "ESP-NOW primary master key (16 ASCII chars)"
+            default "firefly-pmk-0001"
+            help
+                Shared network-wide. Must equal every panel's
+                CONFIG_FIREFLY_ESPNOW_PMK. CHANGE THIS before deploying --
+                these frames actuate real loads.
+
+        config FIREFLY_ESPNOW_LMK
+            string "ESP-NOW peer local master key (16 ASCII chars)"
+            default "firefly-valve-lmk-01"
+            help
+                Must equal mid_coach's CONFIG_FIREFLY_ESPNOW_VALVE_LMK
+                specifically (a different key from the bedroom_remote
+                pair's). CHANGE THIS before deploying.
+
+        config FIREFLY_ESPNOW_VALVE_PEER_MAC
+            string "unused by this node"
+            default "AA:BB:CC:DD:EE:FF"
+            help
+                Not used. This node has exactly one peer (mid_coach, above)
+                added the normal way via espnow_link_init(). The
+                "valve peer" concept in espnow_link.c is mid_coach's SECOND
+                peer, added by espnow_link_add_valve_peer() -- a function
+                this node never calls. The symbol exists only because
+                espnow_link.c references it unconditionally at compile
+                time. Leave it at the placeholder.
+
+        config FIREFLY_ESPNOW_VALVE_LMK
+            string "unused by this node"
+            default "firefly-lmk-0001"
+            help
+                Same as FIREFLY_ESPNOW_VALVE_PEER_MAC above -- unused,
+                exists only so espnow_link.c compiles.
+
+        config FIREFLY_VALVE_RESYNC_INTERVAL_MS
+            int "Valve status resync broadcast interval (ms)"
+            default 15000
+            range 5000 120000
+            help
+                How often this node re-sends its current position for both
+                valves even without a state change, so a panel reboot or a
+                missed frame self-heals (mirrors mid_coach's own
+                ESPNOW_RESYNC_PERIOD_MS for dimmer status). Keep in step
+                with mid_coach's CONFIG_FIREFLY_VALVE_RESYNC_INTERVAL_MS,
+                which derives its staleness window from this value (3x).
+
+    endmenu
 
 endmenu
