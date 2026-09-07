@@ -14,13 +14,11 @@
 # as the panels), so it shares the panels' target rather than proxy's
 # classic-ESP32 one.
 #
-# ESP-NOW valve command/position frames are deliberately out of scope for
-# this scaffold (see docs/DRAINMASTER-VALVES.md open items) — a later issue
-# adds espnow_link (and its own rvc_protocol dependency) here. Not listed
-# yet: ESP-IDF builds every component it finds via EXTRA_COMPONENT_DIRS
-# whether or not anything REQUIRES it, so pulling espnow_link in unused
-# would drag its whole WiFi/lwIP dependency tree into this build and force
-# main/Kconfig.projbuild to stub out its Kconfig symbols for nothing.
+# espnow_link (and its own rvc_protocol dependency, for the shared
+# id-pack/dimmer-cmd types it still references even though this project
+# never sends a dimmer command) receives real valve command/position frames
+# now -- see valve_drive.c. Both are listed here for the same reason
+# proxy/CMakeLists.txt lists its shared components individually.
 #
 # Build:
 #   idf.py -C valves -B valves/build set-target esp32s3
@@ -30,6 +28,8 @@
 cmake_minimum_required(VERSION 3.16)
 
 set(EXTRA_COMPONENT_DIRS
+    "${CMAKE_CURRENT_SOURCE_DIR}/../components/espnow_link"
+    "${CMAKE_CURRENT_SOURCE_DIR}/../components/rvc_protocol"
     "${CMAKE_CURRENT_SOURCE_DIR}/../components/valve_control"
 )
 
