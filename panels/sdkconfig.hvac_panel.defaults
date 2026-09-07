@@ -1,0 +1,50 @@
+# Per-panel sdkconfig defaults for hvac_panel, applied on top of the shared
+# sdkconfig.defaults when a build dir's sdkconfig is first generated (wired in
+# by the root CMakeLists.txt). CI builds every panel from a fresh sdkconfig,
+# so anything build- or boot-critical for this panel has to be committed here
+# rather than only hand-edited into build_hvac_panel/sdkconfig.
+#
+# The account password (CONFIG_FIREFLY_EASYTOUCH_PASSWORD) is a secret and is
+# NOT in this file — set it in place in build_hvac_panel/sdkconfig before
+# flashing.
+
+# --- BLE 4.2 host stack (BUILD-CRITICAL) -----------------------------------
+# hvac_panel is the first S3 panel to exercise components/ble_host's GAP
+# scan. Its legacy esp_ble_gap_*scan* calls are not linked under the S3
+# default BT_BLE_50_FEATURES_SUPPORTED, so the link fails with
+# "undefined reference to esp_ble_gap_set_scan_params". Same workaround
+# hvac_capture used. A real BLE-5 ext-scan branch in ble_host.c is deferred.
+CONFIG_BT_BLE_50_FEATURES_SUPPORTED=n
+CONFIG_BT_BLE_42_FEATURES_SUPPORTED=y
+
+# --- Fit Bluedroid + WiFi + LVGL in internal RAM --------------------------
+# This is the first panel to run all three at once. Without this tuning it
+# boot-loops in BTU_StartUp ("Unable to allocate resources for bt_workqueue")
+# — internal DRAM exhaustion. Push BT and WiFi/LWIP allocations to PSRAM and
+# trim the WiFi buffer pools. Do NOT add CONFIG_BT_BLE_DYNAMIC_ENV_MEMORY —
+# it makes this worse (SPIRAM-first alloc of the env blob fails).
+CONFIG_BT_ALLOCATION_FROM_SPIRAM_FIRST=y
+CONFIG_SPIRAM_TRY_ALLOCATE_WIFI_LWIP=y
+CONFIG_ESP_WIFI_STATIC_RX_BUFFER_NUM=4
+CONFIG_ESP_WIFI_DYNAMIC_RX_BUFFER_NUM=8
+CONFIG_ESP_WIFI_STATIC_TX_BUFFER=y
+CONFIG_ESP_WIFI_TX_BUFFER_TYPE=0
+CONFIG_ESP_WIFI_STATIC_TX_BUFFER_NUM=16
+# RX_BA_WIN auto-scales from the buffer counts and must stay <= DYNAMIC_RX
+# and <= 2*STATIC_RX, or esp_wifi/wifi_init.c #errors out. Pin it low to
+# match the trimmed pools above.
+CONFIG_ESP_WIFI_RX_BA_WIN=6
+
+# Right-size the BLE connection tables — this panel holds exactly one link
+# (the EasyTouch thermostat) and never runs a GATT server.
+CONFIG_BT_ACL_CONNECTIONS=2
+CONFIG_BT_CTRL_BLE_MAX_ACT=3
+CONFIG_BT_GATTS_ENABLE=n
+CONFIG_BT_BLE_SMP_ENABLE=n
+
+# --- LVGL heap -----------------------------------------------------------
+# The shared default is 128 KB; the deep thermostat widget plus 5 screens
+# fit in 108 KB + a 24 KB expand pool, which leaves more internal DRAM for
+# Bluedroid. Verified on COM23.
+CONFIG_LV_MEM_SIZE_KILOBYTES=108
+CONFIG_LV_MEM_POOL_EXPAND_SIZE_KILOBYTES=24

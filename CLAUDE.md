@@ -649,10 +649,13 @@ screen 3 (the old spacer slot on the grid is now the nav button);
   linked** under the S3 default `BT_BLE_50_FEATURES_SUPPORTED` (link:
   "undefined reference to esp_ble_gap_set_scan_params"). `jbd_bms_client`
   never hit this because it connects by fixed MAC and `--gc-sections` drops
-  its scan code. `build_hvac_panel/sdkconfig` sets
-  `CONFIG_BT_BLE_42_FEATURES_SUPPORTED=y` / `_50_=n` (edited in place, same
-  workaround as `hvac_capture/sdkconfig.defaults`). A real ext-scan branch
-  in `ble_host.c` is deferred shared-component work.
+  its scan code. **`panels/sdkconfig.hvac_panel.defaults`** (committed; the
+  root `CMakeLists.txt` layers `panels/sdkconfig.<PANEL>.defaults` on top of
+  the shared `sdkconfig.defaults` when a build dir's sdkconfig is first
+  generated) sets `CONFIG_BT_BLE_42_FEATURES_SUPPORTED=y` / `_50_=n` — CI
+  builds every panel from a fresh sdkconfig, so this can't live only as an
+  in-place edit. A real ext-scan branch in `ble_host.c` is deferred
+  shared-component work.
 - ⚠️ **First panel to run Bluedroid + WiFi + LVGL together** — the default
   config boot-loops on internal-RAM exhaustion (`BTU_StartUp Unable to
   allocate resources for bt_workqueue`). `build_hvac_panel/sdkconfig` moves
@@ -661,8 +664,10 @@ screen 3 (the old spacer slot on the grid is now the nav button);
   trims the WiFi RX/TX buffer counts, turns off `BT_GATTS_ENABLE` and
   `BT_SMP_ENABLE` (client-only, no pairing), right-sizes the BLE connection
   count, sets `LV_MEM_SIZE_KILOBYTES` 108 with a 24 KiB expansion pool.
-  **~11 in-place `sdkconfig` edits — see `CLAUDE.local.md`; do not regenerate
-  that file.** ⚠️ The LVGL pool is a **static internal `.bss` array** here
+  **All of this is now in the committed `panels/sdkconfig.hvac_panel.defaults`**
+  (a fresh build dir both builds and boots); only the account password and
+  zone names remain as in-place secret edits in `build_hvac_panel/sdkconfig`.
+  ⚠️ The LVGL pool is a **static internal `.bss` array** here
   (`LV_ATTRIBUTE_LARGE_RAM_ARRAY` empty), so `LV_MEM_SIZE` trades directly
   against Bluedroid's internal budget — if the UI outgrows it, move the pool
   to PSRAM rather than shrink Bluedroid.
@@ -1385,7 +1390,10 @@ same rules: `proxy/` (built) and `valves/` (planned).
 
 Committed: C/H sources, `CMakeLists.txt`, `idf_component.yml`,
 `dependencies.lock` (pins component versions — do **not** delete it),
-`sdkconfig.defaults`, `partitions.csv`, `Kconfig.projbuild`, `panels/*.h`,
+`sdkconfig.defaults`, `panels/sdkconfig.<panel>.defaults` (per-panel overlay,
+layered on by the root `CMakeLists.txt`; hold no secrets — password/MAC edits
+still go in each `build_<panel>/sdkconfig` in place),
+`partitions.csv`, `Kconfig.projbuild`, `panels/*.h`,
 `panels/REGISTRY.md`, `tools/`, `.github/workflows/`, `.gitattributes`,
 `LICENSE`, `sim/` **source**, docs and `docs/images/*.png`. The only permitted
 IDE file is `.vscode/extensions.json` (recommends the ESP-IDF extension).

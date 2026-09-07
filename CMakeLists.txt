@@ -31,5 +31,23 @@ endif()
 set(BOARD "${_panel_board}" CACHE STRING "Display board component (derived from PANEL)" FORCE)
 message(STATUS "firefly-touch: panel '${PANEL}' on board '${BOARD}'")
 
+# ---------------------------------------------------------------------------
+# Per-panel sdkconfig defaults, layered on top of the shared
+# sdkconfig.defaults when a build dir's sdkconfig is first generated. IDF
+# applies these only when no sdkconfig exists yet, so existing build dirs
+# (and their in-place secret edits) are untouched.
+#
+# hvac_panel needs the BLE 4.2 host stack — components/ble_host's legacy GAP
+# scan calls are not linked under the S3 default BT_BLE_50_FEATURES_SUPPORTED
+# — plus BT/WiFi RAM tuning to fit Bluedroid + WiFi + LVGL in internal RAM.
+# CI builds every panel from a fresh sdkconfig, so this must be committed,
+# not merely hand-edited into build_hvac_panel/sdkconfig.
+# ---------------------------------------------------------------------------
+set(SDKCONFIG_DEFAULTS "sdkconfig.defaults")
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/panels/sdkconfig.${PANEL}.defaults")
+    list(APPEND SDKCONFIG_DEFAULTS "panels/sdkconfig.${PANEL}.defaults")
+    message(STATUS "firefly-touch: + panels/sdkconfig.${PANEL}.defaults")
+endif()
+
 include($ENV{IDF_PATH}/tools/cmake/project.cmake)
 project(firefly_touch)
