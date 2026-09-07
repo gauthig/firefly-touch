@@ -27,6 +27,14 @@ jobs:
       # PANEL_CONFIG_HEADER is normally injected by CMakeLists.txt from
       # -DPANEL=<name>; pinned to one real panel header here so cppcheck can
       # resolve main/panel_config.h's #include.
+      #
+      # This list is EVERY component. It used to be seven of them, which left
+      # the whole BLE stack and ws_io_expander unanalysed -- and
+      # ws_io_expander is the driver behind the issue #73 CAN outage. The
+      # faults these components produce are silent ones (a dead bus, a stuck
+      # mux, a swallowed write), which is the class that costs the most to
+      # diagnose from symptoms, so they are the last place to skip a checker.
+      # Add new components here when you add them.
       - name: cppcheck (main/, components/)
         run: |
           sudo apt-get update -y
@@ -36,7 +44,39 @@ jobs:
             -I panels -DPANEL_CONFIG_HEADER='"mid_coach.h"' \
             main components/rvc_protocol components/ui_common \
             components/board components/ch422g \
-            components/espnow_link components/valve_control
+            components/espnow_link components/valve_control \
+            components/ble_host components/easytouch \
+            components/hughes_watchdog components/jbd_bms \
+            components/renogy_solar components/ws_io_expander
+
+  # The coach's real hardware identity -- device MACs, ESP-NOW PMK/LMK, BLE
+  # peer addresses, the EasyTouch account password -- lives only in the
+  # gitignored DEVICES.local.md and each build_<panel>/sdkconfig. Committed
+  # files name devices by role.
+  #
+  # That rule was previously enforced by remembering to run this grep by
+  # hand before a docs commit. A credential reaching a public repo is not
+  # undoable by a later commit, so it is checked mechanically instead.
+  secrets:
+    name: No credentials in tracked files
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Scan for MAC addresses
+        run: |
+          # Placeholders are legitimate: sdkconfig.defaults and the simulator
+          # stubs ship AA:BB:CC:DD:EE:xx, and configured_mac() treats them as
+          # "unconfigured" so a link simply never comes up.
+          if git grep -nEi '([0-9a-f]{2}:){5}[0-9a-f]{2}' \
+               | grep -viE 'AA:BB:CC:DD:EE:[0-9A-F]{2}|00:00:00:00:00:00' \
+               > /tmp/hits; then
+            echo "::error::MAC-shaped strings found in tracked files."
+            echo "Credentials belong in DEVICES.local.md (gitignored) or"
+            echo "build_<panel>/sdkconfig -- see docs/FLASHING.md."
+            cat /tmp/hits
+            exit 1
+          fi
+          echo "Clean: no real MACs in tracked files."
 
   panels:
     name: Panel registry
@@ -183,8 +223,17 @@ jobs:
             (cd "$dir" && zip -r "$GITHUB_WORKSPACE/dist/${panel}-${{ github.ref_name }}.zip" .)
           done
 
+      # Uses the gh CLI (preinstalled on the runner) rather than a
+      # third-party action. softprops/action-gh-release@v2 pins Node 20,
+      # which the runner force-migrates to Node 24 -- the one annotation on
+      # the otherwise-clean v1.00 release run. gh has no Node runtime to go
+      # stale, and this drops a third-party dependency from the one job that
+      # holds `contents: write`.
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
-        with:
-          files: dist/*.zip
-          generate_release_notes: true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "${{ github.ref_name }}" dist/*.zip \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "${{ github.ref_name }}" \
+            --generate-notes
