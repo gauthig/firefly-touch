@@ -1488,7 +1488,7 @@ Hard-won during the 7B migration (2026-09-05, `main_cabinet` on COM21,
 issue #66). The best 7B reference by far is
 `github.com/xtux77/waveshare-esp32s3-lcd7b-esphome` (`docs/hardware.md` +
 `panel.yaml`) — bench-verified, and it names every trap the vendor wiki
-hides. Three things bit, in order:
+hides. Several things bit, in order:
 
 - ⚠️ **The 7B's IO expander is NOT a CH422G**, despite the wiki calling the
   whole family "CH422G". First flash aborted in `board_display_init` →
@@ -1498,6 +1498,20 @@ hides. Three things bit, in order:
   CH422G lacks). Fix: `components/ws_io_expander`, used by `board_lcd7b.c`
   in place of `components/ch422g`. **Scan the bus on any new board in this
   family — don't trust the wiki or a web-search summary.**
+- ⚠️ **The IO_EXTENSION (a CH32V003 running Waveshare firmware) does NOT
+  durably hold its MODE/direction register, and it swallows the first
+  OUTPUT-register write after any MODE write** (issue #73, cost a full
+  debugging session). This kept the 7B's CAN bus dead: `MODE=0xFF` set at
+  boot was gone by `board_twai_init()` time, so EXIO5 (the USB/CAN mux
+  select) had reverted to an input and stayed at 0 = USB. `board_twai_init()`
+  now re-asserts `MODE=0xFF`, writes the mux level **twice**, and reads EXIO5
+  back to confirm. Any EXIO written late in boot needs the same. Display /
+  touch / backlight escape it only because those writes land right after
+  init. `ws_io_expander_write_mode()` / `_read_io()` exist for this. Our
+  driver is byte-identical to Waveshare's `04_CAN` example and ESPHome's
+  `waveshare_io_ch32v003` — the bug is the chip. The 7B's DIP switch is
+  RS485/CAN **termination** only (leave OFF — Firefly manual, bus already
+  terminated).
 - ⚠️ **The 7B has a SECOND panel-enable pin: EXIO6 = LCD_VDD_EN** (VCOM
   supply), which the non-B lacks. Second flash: firmware booted clean but
   **screen stayed black with the backlight lit**. It must be driven HIGH
