@@ -37,6 +37,7 @@
 
 #include "board.h"
 #include "bridge_tx.h"
+#include "firefly_version.h"
 #include "panel_config.h"
 #include "state_manager.h"
 #include "ui_dimmer_button.h"
@@ -1274,6 +1275,24 @@ static void build_screen(void)
     lv_obj_t *title = lv_label_create(bar);
     lv_label_set_text(title, PANEL_NAME);
     lv_obj_align(title, LV_ALIGN_LEFT_MID, 0, 0);
+
+    /* Firmware version, centred between the panel name and whatever readout
+     * the right side carries. It is here so a version can be read off an
+     * installed panel without a serial cable -- which is the whole point of
+     * docs/FLASHING.md's "last validated vs recommended" table. Dim, because
+     * it is reference information, not status.
+     *
+     * snprintf into a buffer rather than lv_label_set_text_fmt(): LVGL's
+     * built-in formatter is not a full printf (see the %f trap in CLAUDE.md),
+     * and this needs a zero-padded %02u. */
+    {
+        char ver[FIREFLY_VERSION_BUF_LEN];
+        snprintf(ver, sizeof(ver), FIREFLY_VERSION_FMT, FIREFLY_VERSION_ARGS);
+        lv_obj_t *version = lv_label_create(bar);
+        lv_label_set_text(version, ver);
+        lv_obj_set_style_text_color(version, UI_COLOR_TEXT_DIM, 0);
+        lv_obj_align(version, LV_ALIGN_CENTER, 0, 0);
+    }
 
     /* The right side of the status bar holds either the grey/black tank
      * readout or a compact shore-power summary -- tanks win, because a full

@@ -60,20 +60,93 @@ source addresses on a CAN bus cause arbitration faults that show up as
 intermittent dropped frames, not an obvious failure. CI runs the check above
 on every push and fails on collisions.
 
-## Current flash status (2026-09-07)
+## Firmware version
 
-All four panels are built from `main` and flashed. Serial ports are
-machine-specific — find yours with Step 2.
+Every display panel shows its firmware version in the **status bar**, between
+the panel name and the right-hand readout — e.g. `MID COACH   v1.00   Grey-Black OK`.
+It is also on the first line of the boot log. Scheme (`main/firefly_version.h`):
 
-| Panel | Board | Running | Hardware status |
-|---|---|---|---|
-| `mid_coach` ("MID COACH") | 4.3B | `main` (EasyTouch bridge peer + dimmed-tap-actuates) | ✅ coach-verified |
-| `bedroom_remote` ("BED REMOTE") | 4.3B | `main` (EasyTouch thermostat view+control screen, LVGL stack in PSRAM) | ✅ thermostat shows 3 zones, control works |
-| `main_cabinet` ("MAIN CABINET") | 7B `lcd7b` | `main` (CLIMATE rail section + 7B USB/CAN-mux fix) | ✅ coach-verified — CAN active, all functions work |
-| `hvac_panel` ("HVAC") | 4.3B | `main` (EasyTouch BLE client + bridge, 5-screen launcher) | ✅ thermostat + panel→bridge round-trip verified; Power/Batteries/Tanks telemetry screens pending a coach test |
+- **MAJOR** is global — bump it for anything that must, or should, reach
+  *every* device. A major bump makes every row in the table below stale.
+- **MINOR** is per panel (`PANEL_VERSION_MINOR` in `panels/<name>.h`) — bump
+  it for a fix that touches only that panel. **Devices are expected to sit on
+  different minors.** That is the design, not drift.
 
-Headless nodes: the **basement proxy** runs the solar build (5 BLE links,
-coach-verified); the **valve node** is designed but has no firmware yet.
+## Current flash status
+
+**Read this table to decide what to reflash**: if *Last validated* is behind
+*Recommended*, that device is due. *Recommended* is what `main` builds today
+(`FIREFLY_VERSION_MAJOR` . that panel's `PANEL_VERSION_MINOR`). Serial ports
+and MACs are machine-specific — see *Local machine setup* below.
+
+| Device | Board | Last validated | Recommended | Notes |
+|---|---|---|---|---|
+| `mid_coach` ("MID COACH") | 4.3B | **v1.00** (2026-09-07) | **v1.00** | ✅ up to date. Bridge; lights / tanks / battery+solar / shore |
+| `hvac_panel` ("HVAC") | 4.3B | **v1.00** (2026-09-07) | **v1.00** | ✅ up to date. EasyTouch BLE + thermostat bridge, 5-screen launcher |
+| `main_cabinet` ("MAIN CABINET") | 7B `lcd7b` | *pre-versioning* | **v1.00** | ⚠️ **reflash** — no version in its status bar. CAN + CLIMATE rail coach-verified 2026-09-07 |
+| `bedroom_remote` ("BED REMOTE") | 4.3B | *pre-versioning* | **v1.00** | ⚠️ **reflash** — no version in its status bar. Thermostat view+control confirmed |
+| Basement BLE proxy | classic ESP32 | *unversioned* | *unversioned* | Separate project (`proxy/`), not on this scheme. Solar build, 5 BLE links, coach-verified |
+| Dump-valve node | S3-ETH-8DI-8RO | *unversioned* | *unversioned* | Separate project (`valves/`). ESP-NOW control is on a branch, not merged |
+
+## Local machine setup
+
+⚠️ **Real MAC addresses, ESP-NOW keys and account passwords are never
+committed.** They live in two gitignored places:
+
+1. **`build_<panel>/sdkconfig`** — the values the firmware is actually built
+   with (peer MACs, PMK/LMK, `FIREFLY_EASYTOUCH_PASSWORD`, battery MACs).
+   Edit these **in place**; regenerating one silently resets every secret to
+   its placeholder and the link breaks with no error on either side.
+2. **`DEVICES.local.md`** at the repo root — the human-readable registry of
+   which physical board is which.
+
+A fresh clone has neither. Recreate `DEVICES.local.md` with a section per
+device holding:
+
+- **name / on-screen name**, board type, serial port
+- **MAC** — read it off the hardware: `esptool.py --port COMx read_mac`
+- **RV-C source address** (`0x80 + PANEL_INDEX`) and role
+- **ESP-NOW config** actually set in that panel's `sdkconfig`: peer MACs,
+  channel, PMK/LMK
+- **secrets** that panel needs (e.g. the Micro-Air account password)
+- **version flashed** and the date it was validated
+- **memory footprint** from the boot log (see the checklist below)
+- **feature/menu inventory** — which screens and buttons that unit carries
+- BLE peripheral addresses the node talks to
+
+Then set each panel's `sdkconfig` values with
+`idf.py -B build_<panel> -DPANEL=<panel> -D SDKCONFIG=build_<panel>/sdkconfig menuconfig`.
+
+Until it is populated, ESP-NOW peers sit at the `AA:BB:CC:DD:EE:FF`
+placeholder — which `configured_mac()` rejects, so the link simply never
+comes up (by design, rather than talking to a stranger).
+
+## Every time a device is connected — checklist
+
+Run this whenever a board is plugged in to flash, test or monitor. It is what
+keeps the table above and `docs/SYSTEM.md`'s memory tables honest.
+
+1. **Identify the port** (Step 2 below) and confirm which device it is.
+2. **Capture the MAC** — `esptool.py --port COMx read_mac` — and record it
+   against the device name in `DEVICES.local.md`. Confirm it matches; a
+   changed MAC means the board was swapped and every peer that points at it
+   needs updating.
+3. **Flash**, keeping the explicit `-DSDKCONFIG=build_<panel>/sdkconfig` for
+   any panel that has secrets.
+4. **Listen to the log for 15 seconds** and confirm it comes up: the version
+   line, `display up`, `UI ready`, the bus/link lines, and **no** `E (`,
+   abort, panic or `stack overflow`. A flash that is not watched boot is not
+   a flash that worked — this is how the #73 CAN fault and the boot loop from
+   a bad valve MAC were both caught.
+5. **Capture the memory footprint** from that log —
+   `heap free after display init: internal … PSRAM …`, the `heap_init`
+   regions, and the LVGL pool size — into `DEVICES.local.md` and
+   [SYSTEM.md](SYSTEM.md) → *Memory budget*.
+6. **Capture the feature inventory** — which screens/menus that unit now
+   carries — into `DEVICES.local.md`, and update [SYSTEM.md](SYSTEM.md)'s
+   architecture diagram and device table if it changed.
+7. **Update the version table** above: set *Last validated* for that device
+   to the version just flashed and confirmed.
 
 ## Step 1 — Set up the environment
 

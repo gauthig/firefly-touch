@@ -378,7 +378,7 @@ settle it. The long-standing `TODO(bench)` is closed.
 ### Added — 4.3B bring-up (2026-08-08)
 
 - **First successful flash to the Waveshare ESP32-S3-Touch-LCD-4.3B
-  (Version B, COM11, MAC 44:1b:f6:8d:00:7c).** This is the actual in-wall
+  (Version B).** This is the actual in-wall
   deployment target (7–36 V DC input, TJA1051 CAN transceiver). Build
   `living_room` panel confirmed to flash and boot via `idf.py flash`.
 

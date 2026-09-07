@@ -651,10 +651,10 @@ spacer slot is now the nav button); `main_cabinet` a CLIMATE rail section.
 frame). Both `_Static_assert`s in `espnow_link.c` stay green.
 `espnow_link` gained a small peer table: `FIREFLY_ESPNOW_PEER_MAC` (dimmer
 bridge), `FIREFLY_ESPNOW_HVAC_PEER_MAC` (thermostat bridge),
-`FIREFLY_ESPNOW_RX_PEER_MAC_1/_2` (extra decrypt-from peers). Coach MACs:
-hvac_panel `94:a9:90:ca:fd:38`, bedroom_remote `44:1b:f6:8d:00:7c`,
-mid_coach `44:1b:f6:ca:4c:b4`, main_cabinet (7B) `44:1b:f6:8e:d5:7c` (read
-via esptool 2026-09-07, now in hvac_panel's `RX_PEER_MAC_2`).
+`FIREFLY_ESPNOW_RX_PEER_MAC_1/_2` (extra decrypt-from peers). ⚠️ The real
+MACs live in `DEVICES.local.md` (gitignored) and each
+`build_<panel>/sdkconfig`, never in a committed file — see
+[FLASHING.md](FLASHING.md) → *Local machine setup*.
 
 ### Bench-verified 2026-09-06 / flashed 2026-09-07
 
@@ -749,7 +749,8 @@ bridge above is layered on top of it.)*
   **24 KiB in PSRAM** for `hvac_panel` (and `bedroom_remote`) — zero
   internal-DRAM cost.
 - **Bench-verified on hardware 2026-09-06** (COM23): boots clean, BLE stack
-  up, scan finds `EasyTouch 355003525` at `20:E7:C8:6B:76:C6`, connects,
+  up, the name scan finds the thermostat (its advertised name and BLE
+  address are in `DEVICES.local.md`), connects,
   auth `Matched`, parses 3 zones every 30 s poll, releases the link
   between. **Thermostat screen, setpoint −/+ (optimistic + debounced) and
   the mode-picker popup are user-confirmed working.** The
