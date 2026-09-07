@@ -141,12 +141,17 @@ Panels carry a single 4 MiB `factory` app partition (there is no OTA slot —
 updates are USB-only); the proxy carries 3 MiB. Figures are from the last
 build of each, 2026-08-28.
 
-| Device | App image | Partition | Used | Free |
-|---|---|---|---|---|
-| `main_cabinet` (7B) | 1,289,344 B (1.23 MiB) | 4 MiB | 30.7 % | 2.78 MiB |
-| `main_cabinet` (non-B, pre-#66) | 1,280,352 B (1.22 MiB) | 4 MiB | 30.5 % | 2.78 MiB |
-| `mid_coach` | 1,284,256 B (1.22 MiB) | 4 MiB | 30.6 % | 2.78 MiB |
-| `bedroom_remote` | 1,273,472 B (1.21 MiB) | 4 MiB | 30.4 % | 2.79 MiB |
+Captured from the `firefly_touch.bin binary size … N% free` line the flash
+step prints — step 5 of [FLASHING.md](FLASHING.md)'s per-connection
+checklist, so these stay current as devices are reflashed.
+
+| Device | App image | Partition | Used | Free | Captured |
+|---|---|---|---|---|---|
+| `main_cabinet` (7B) | 1,299,616 B (1.24 MiB) | 4 MiB | 31.0 % | **2.76 MiB (2,895,200 B)** | **v1.00, 2026-09-07** |
+| `mid_coach` | 1,284,256 B (1.22 MiB) | 4 MiB | 30.6 % | **2.78 MiB (2,913,616 B)** | **v1.00, 2026-09-07** |
+| `bedroom_remote` | 1,280,176 B (1.22 MiB) | 4 MiB | 30.5 % | **2.78 MiB (2,913,616 B)** | **v1.00, 2026-09-07** |
+| `hvac_panel` | ~1,286,000 B (1.23 MiB) | 4 MiB | ~30.7 % | **~2.78 MiB** | **v1.00, 2026-09-07** |
+| `main_cabinet` (non-B, retired) | 1,280,352 B (1.22 MiB) | 4 MiB | 30.5 % | 2.78 MiB | 2026-08-28 |
 | Bluetooth proxy basement | 1,125,760 B (1.07 MiB) | 3 MiB | 35.8 % | 1.93 MiB |
 
 The proxy is the tightest, and deliberately so: a Bluedroid + WiFi build
@@ -166,11 +171,11 @@ per-connection checklist, so these stay current as devices are reflashed.
 
 | Device | Internal heap free (after display init) | RTC RAM | PSRAM free | Captured |
 |---|---|---|---|---|
-| `main_cabinet` (7B) | ~108 KiB (108,531 B) | 7 KiB | **~4.47 MiB (4,685,968 B)** | v1.00-era, 2026-09-07 |
+| `main_cabinet` (7B) | **106 KiB (108,531 B)** | 7 KiB | **4.47 MiB (4,685,952 B)** | **v1.00, 2026-09-07** |
 | `main_cabinet` (non-B 7", at boot, retired) | 192 KiB (139 + 21 + 32) | 7 KiB | 7,054 KiB | 2026-08-28 |
 | `mid_coach` (4.3B) | **131 KiB (133,843 B)** | 7 KiB | **3.22 MiB (3,371,724 B)** | **v1.00, 2026-09-07** |
 | `hvac_panel` (4.3B) | **133 KiB (136,119 B)** | 7 KiB | **2.95 MiB (3,096,124 B)** | **v1.00, 2026-09-07** |
-| `bedroom_remote` (4.3B) | not measured | — | 8 MiB fitted | — |
+| `bedroom_remote` (4.3B) | **140 KiB (143,279 B)** | 7 KiB | **3.19 MiB (3,349,136 B)** | **v1.00, 2026-09-07** |
 | Bluetooth proxy basement | not measured | — | **none fitted** | — |
 
 ⚠️ `hvac_panel` has the *most* internal heap free of the 4.3B panels despite

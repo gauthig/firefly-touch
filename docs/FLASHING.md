@@ -74,6 +74,9 @@ It is also on the first line of the boot log. Scheme (`main/firefly_version.h`):
 
 ## Current flash status
 
+**All four panels are on v1.00 as of 2026-09-07** — each flashed and
+boot-verified over 15 s.
+
 **Read this table to decide what to reflash**: if *Last validated* is behind
 *Recommended*, that device is due. *Recommended* is what `main` builds today
 (`FIREFLY_VERSION_MAJOR` . that panel's `PANEL_VERSION_MINOR`). Serial ports
@@ -83,8 +86,8 @@ and MACs are machine-specific — see *Local machine setup* below.
 |---|---|---|---|---|
 | `mid_coach` ("MID COACH") | 4.3B | **v1.00** (2026-09-07) | **v1.00** | ✅ up to date. Bridge; lights / tanks / battery+solar / shore |
 | `hvac_panel` ("HVAC") | 4.3B | **v1.00** (2026-09-07) | **v1.00** | ✅ up to date. EasyTouch BLE + thermostat bridge, 5-screen launcher |
-| `main_cabinet` ("MAIN CABINET") | 7B `lcd7b` | *pre-versioning* | **v1.00** | ⚠️ **reflash** — no version in its status bar. CAN + CLIMATE rail coach-verified 2026-09-07 |
-| `bedroom_remote` ("BED REMOTE") | 4.3B | *pre-versioning* | **v1.00** | ⚠️ **reflash** — no version in its status bar. Thermostat view+control confirmed |
+| `main_cabinet` ("MAIN CABINET") | 7B `lcd7b` | **v1.00** (2026-09-07) | **v1.00** | ✅ up to date. Nav rail: Climate / Power / Solar / Tanks / Lights. Boot confirms `USB/CAN mux OK: EXIO5=1` |
+| `bedroom_remote` ("BED REMOTE") | 4.3B | **v1.00** (2026-09-07) | **v1.00** | ✅ up to date. Lights / battery+solar / shore / thermostat |
 | Basement BLE proxy | classic ESP32 | *unversioned* | *unversioned* | Separate project (`proxy/`), not on this scheme. Solar build, 5 BLE links, coach-verified |
 | Dump-valve node | S3-ETH-8DI-8RO | *unversioned* | *unversioned* | Separate project (`valves/`). ESP-NOW control is on a branch, not merged |
 
@@ -138,14 +141,20 @@ keeps the table above and `docs/SYSTEM.md`'s memory tables honest.
    abort, panic or `stack overflow`. A flash that is not watched boot is not
    a flash that worked — this is how the #73 CAN fault and the boot loop from
    a bad valve MAC were both caught.
-5. **Capture the memory footprint** from that log —
+5. **Capture the free flash** the flash step itself prints —
+   `firefly_touch.bin binary size 0x… bytes. Smallest app partition is
+   0x400000 bytes. 0x… bytes (NN%) free.` — into `DEVICES.local.md` and
+   [SYSTEM.md](SYSTEM.md) → *Flash — application image vs. partition*. This
+   is the number that says how much room a panel has left to grow.
+6. **Capture the free RAM** from the boot log —
    `heap free after display init: internal … PSRAM …`, the `heap_init`
    regions, and the LVGL pool size — into `DEVICES.local.md` and
-   [SYSTEM.md](SYSTEM.md) → *Memory budget*.
-6. **Capture the feature inventory** — which screens/menus that unit now
+   [SYSTEM.md](SYSTEM.md) → *RAM — free at boot*. RAM, not flash, is the
+   constraint that has actually bitten (see *LVGL heap* there).
+7. **Capture the feature inventory** — which screens/menus that unit now
    carries — into `DEVICES.local.md`, and update [SYSTEM.md](SYSTEM.md)'s
    architecture diagram and device table if it changed.
-7. **Update the version table** above: set *Last validated* for that device
+8. **Update the version table** above: set *Last validated* for that device
    to the version just flashed and confirmed.
 
 ## Step 1 — Set up the environment

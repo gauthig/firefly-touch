@@ -3,7 +3,10 @@ name: build
 on:
   push:
     branches: [main]
-    tags: ['v*.*.*']
+    # This project versions as MAJOR.MINOR (v1.00), not three-part semver --
+    # 'v*.*.*' silently matched nothing and the v1.00 tag produced no run at
+    # all, so no release was published. Match any v-tag.
+    tags: ['v*']
   pull_request:
   workflow_dispatch:
 
