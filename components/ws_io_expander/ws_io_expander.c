@@ -50,6 +50,20 @@ esp_err_t ws_io_expander_write_io(uint8_t value)
     return wr_reg(WS_IOEXP_REG_OUTPUT, s_io_shadow);
 }
 
+esp_err_t ws_io_expander_write_mode(uint8_t mode)
+{
+    return wr_reg(WS_IOEXP_REG_MODE, mode);
+}
+
+esp_err_t ws_io_expander_read_io(uint8_t *out_value)
+{
+    if (out_value == NULL) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    const uint8_t reg = WS_IOEXP_REG_INPUT;
+    return i2c_master_transmit_receive(s_dev, &reg, 1, out_value, 1, 100);
+}
+
 esp_err_t ws_io_expander_set_pin(uint8_t pin, bool level)
 {
     if (pin > 7) {

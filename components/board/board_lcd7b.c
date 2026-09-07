@@ -327,12 +327,49 @@ esp_err_t board_backlight_set_percent(uint8_t percent)
 esp_err_t board_twai_init(void)
 {
     /* GPIO19/20 are shared between native USB and the CAN transceiver;
-     * EXIO5 picks which (IO_EXTENSION bit 5). Raising it here is what makes CAN work at all --
-     * and it is also what makes the native USB port go dark, so this board
-     * is flashed and monitored over UART (CH343). */
+     * IO_EXTENSION EXIO5 picks which (low = USB, high = CAN). Driving it high
+     * here is what makes CAN work at all -- and it also kills the native USB
+     * port, so this board is flashed and monitored over its UART (CH343).
+     *
+     * ⚠️ issue #73: the CH32V003-based IO_EXTENSION does NOT hold the
+     * direction register that ws_io_expander_init() sets at boot -- by the
+     * time we get here EXIO5 has fallen back to an input and a plain OUTPUT
+     * write to bit 5 is silently ignored (confirmed on hardware: readback
+     * stayed 0 until MODE was re-asserted). Re-assert all-outputs right
+     * before the mux write. Waveshare's own 04_CAN example similarly
+     * re-inits the expander and adds a settle delay just before selecting
+     * CAN. */
+    ESP_RETURN_ON_ERROR(ws_io_expander_write_mode(0xFF), TAG, "io mode reassert");
+    vTaskDelay(pdMS_TO_TICKS(10));
+    /* The CH32V003 absorbs the FIRST OUTPUT-register write after a MODE
+     * change into its direction latch -- it does not drive the pins. Write
+     * the mux level twice, with a gap, so the second write actually reaches
+     * EXIO5. Found on hardware: a single write left EXIO5 at 0 (USB); the
+     * doubled write drives it to 1 (CAN). The read-back check below confirms. */
     ESP_RETURN_ON_ERROR(ws_io_expander_set_pin(BOARD_EXIO_USB_SEL, BOARD_USB_SEL_CAN_LEVEL),
                         TAG, "usb/can mux");
+    vTaskDelay(pdMS_TO_TICKS(5));
+    ESP_RETURN_ON_ERROR(ws_io_expander_set_pin(BOARD_EXIO_USB_SEL, BOARD_USB_SEL_CAN_LEVEL),
+                        TAG, "usb/can mux 2");
+    vTaskDelay(pdMS_TO_TICKS(5));
     ESP_LOGW(TAG, "EXIO5 -> CAN: native USB port is now disabled, use UART");
+
+    /* issue #73: confirm the mux actually took. If EXIO5 doesn't read back at
+     * the CAN level the fault is in the expander / wiring, not the frame
+     * code -- fail loudly rather than come up looking healthy on a dead bus. */
+    {
+        uint8_t io = 0;
+        if (ws_io_expander_read_io(&io) == ESP_OK) {
+            const int exio5 = (io >> BOARD_EXIO_USB_SEL) & 1;
+            if (exio5 != (BOARD_USB_SEL_CAN_LEVEL ? 1 : 0)) {
+                ESP_LOGE(TAG, "USB/CAN mux did NOT switch: EXIO5=%d (want %d). "
+                              "CAN will be dead. Check the IO_EXTENSION.", exio5,
+                         BOARD_USB_SEL_CAN_LEVEL ? 1 : 0);
+            } else {
+                ESP_LOGI(TAG, "USB/CAN mux OK: EXIO5=%d (CAN)", exio5);
+            }
+        }
+    }
 
     twai_general_config_t g_cfg = TWAI_GENERAL_CONFIG_DEFAULT(
         BOARD_TWAI_TX_GPIO, BOARD_TWAI_RX_GPIO, TWAI_MODE_NORMAL);
@@ -349,5 +386,30 @@ esp_err_t board_twai_init(void)
     ESP_RETURN_ON_ERROR(twai_start(), TAG, "twai start");
     ESP_LOGI(TAG, "TWAI up at 250 kbps on TX=%d RX=%d",
              BOARD_TWAI_TX_GPIO, BOARD_TWAI_RX_GPIO);
+
+    /* issue #73 bring-up check: the coach bus chatters continuously at
+     * 250 kbps, so a ~1 s listen tells a coach install apart from a dead
+     * link at a glance. Harmless on the bench (no bus attached -> heard 0,
+     * no errors). Runs before twai_tasks drains the queue. */
+    {
+        int heard = 0;
+        for (int i = 0; i < 20; i++) {
+            twai_message_t msg;
+            if (twai_receive(&msg, pdMS_TO_TICKS(50)) == ESP_OK) {
+                heard++;
+            }
+        }
+        twai_status_info_t st = {0};
+        twai_get_status_info(&st);
+        ESP_LOGI(TAG, "CAN after 1 s: heard=%d state=%d bus_err=%u tec=%u rec=%u",
+                 heard, (int)st.state, (unsigned)st.bus_error_count,
+                 (unsigned)st.tx_error_counter, (unsigned)st.rx_error_counter);
+        if (heard == 0) {
+            ESP_LOGW(TAG, "CAN: no frames yet -- expected on the bench; on the "
+                          "coach check the harness is on the CAN terminal (not "
+                          "RS485) and that CAN termination is left OFF per the "
+                          "Firefly manual.");
+        }
+    }
     return ESP_OK;
 }
