@@ -76,6 +76,33 @@ bool valve_mask_is_safe(uint8_t mask);
  */
 uint8_t valve_drive_mask(valve_id_t valve, valve_action_t action);
 
+/*
+ * Outcome of one step of a drive-in-progress, per DRAINMASTER-VALVES.md §7
+ * "Close is verified, open is not":
+ *   - CLOSE polls DI: confirmed the moment it reads closed, otherwise keeps
+ *     driving up to the ceiling, past which it gives up and reports
+ *     unknown -- the independent hardware watchdog (valve_control_driver.h)
+ *     has already cut power by then regardless of whether this ever runs.
+ *   - OPEN is never sensor-confirmed: it just drives for the nominal time
+ *     and reports "open (timed)".
+ */
+typedef enum {
+    VALVE_STEP_CONTINUE,          /* keep driving, check again later */
+    VALVE_STEP_RELEASE_CLOSED,    /* release relays; CLOSE confirmed by DI */
+    VALVE_STEP_RELEASE_OPEN,      /* release relays; OPEN's nominal time elapsed (timed, not confirmed) */
+    VALVE_STEP_RELEASE_UNKNOWN,   /* release relays; CLOSE never confirmed within the ceiling -- do not auto-retry */
+} valve_step_result_t;
+
+/*
+ * Pure decision, no I/O: given how long this drive has been running and
+ * (for CLOSE) the latest DI reading, what should happen next. The caller
+ * owns actually driving/releasing the relays and reading DI; this only
+ * decides. Host-tested against the exact boundary values in the timing
+ * table above.
+ */
+valve_step_result_t valve_decide_step(valve_action_t action, uint32_t elapsed_ms,
+                                      bool di_closed);
+
 #ifdef __cplusplus
 }
 #endif

@@ -6,14 +6,11 @@
  * valves in parallel with the factory wall rockers. Full wiring, relay map,
  * and control requirements: docs/DRAINMASTER-VALVES.md.
  *
- * This scaffold covers bring-up order steps 1-3 (§10): TCA9554 relay
- * expander present at 0x20, individual relay clicks, the interlock
- * refusing a shorting mask, and the independent 2 s watchdog releasing
- * relays even when the driving code never calls release. It deliberately
- * stops there — ESP-NOW valve commands (and therefore anything that
- * actually drives a connected valve on request) are out of scope for this
- * PR; see the open items in DRAINMASTER-VALVES.md and the GitHub issue
- * this was scaffolded under.
+ * Real ESP-NOW-commanded OPEN/CLOSE actuation lives in valve_drive.c, on
+ * top of the relay/interlock/watchdog primitives proven here in the
+ * bring-up scaffold (still available via CONFIG_FIREFLY_VALVE_TEST_MODE
+ * for bench debugging, default off in production). mid_coach is this
+ * node's one ESP-NOW peer -- see docs/DRAINMASTER-VALVES.md #7-#8.
  */
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
@@ -22,8 +19,10 @@
 
 #include "driver/i2c_master.h"
 
+#include "espnow_link.h"
 #include "valve_control.h"
 #include "valve_control_driver.h"
+#include "valve_drive.h"
 
 static const char *TAG = "valves";
 
@@ -45,17 +44,6 @@ static esp_err_t i2c_bus_init(void)
         .flags.enable_internal_pullup = true,
     };
     return i2c_new_master_bus(&cfg, &s_i2c_bus);
-}
-
-static void log_di_startup_state(void)
-{
-    /* Informational only until the sense circuit exists (§4) — a floating
-     * DI pin reading either level here is expected, not a fault. This is
-     * also the rule from §7 "Startup": read both inputs before any drive
-     * and adopt that as the initial state, never assume closed. */
-    ESP_LOGI(TAG, "DI startup read: grey=%s black=%s (uninformative until sense wiring exists)",
-             valve_control_read_di(VALVE_GREY) ? "closed" : "not-closed",
-             valve_control_read_di(VALVE_BLACK) ? "closed" : "not-closed");
 }
 
 #if CONFIG_FIREFLY_VALVE_TEST_MODE
@@ -149,13 +137,14 @@ void app_main(void)
     ESP_ERROR_CHECK(i2c_bus_init());
     ESP_ERROR_CHECK(valve_control_driver_init(s_i2c_bus));
 
-    log_di_startup_state();
-
 #if CONFIG_FIREFLY_VALVE_TEST_MODE
+    /* Transient bench diagnostic, then falls through to normal operation
+     * below -- this is not an either/or with real command handling. */
     run_test_mode();
-#else
-    ESP_LOGI(TAG, "test mode disabled; idle (no ESP-NOW command path yet)");
 #endif
+
+    ESP_ERROR_CHECK(espnow_link_init(ESPNOW_ROLE_VALVE_NODE));
+    ESP_ERROR_CHECK(valve_drive_init());
 
     ESP_LOGI(TAG, "up");
 }

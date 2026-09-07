@@ -297,6 +297,24 @@ straight onto the bus."
 #endif
 
 /*
+ * PANEL_HAS_VALVE_CONTROL 1 = this panel carries PANEL_BTN_VALVE buttons and
+ * commands the DrainMaster valve node (valves/) over its own second ESP-NOW
+ * peer. Declared rather than inferred, same reason as PANEL_HAS_LIGHT_MASTER
+ * -- the preprocessor cannot look inside PANEL_BUTTONS[] to see whether one
+ * is there, and main.c's peer setup needs to know at compile time.
+ *
+ * Requires PANEL_IS_BRIDGE: only a bridge panel's main.c wires up a second
+ * ESP-NOW peer at all (see espnow_link_add_valve_peer() in main/main.c).
+ */
+#ifndef PANEL_HAS_VALVE_CONTROL
+#define PANEL_HAS_VALVE_CONTROL 0
+#endif
+
+#if PANEL_HAS_VALVE_CONTROL && !PANEL_IS_BRIDGE
+#error "PANEL_HAS_VALVE_CONTROL needs PANEL_IS_BRIDGE (only a bridge panel adds a second ESP-NOW peer)"
+#endif
+
+/*
  * Logical (post-rotation) resolution of this panel's display, i.e. what the
  * UI layout code sees from lv_display_get_horizontal/vertical_resolution().
  *
