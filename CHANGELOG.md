@@ -5,6 +5,64 @@ Notable changes to firefly-touch. Format follows
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [1.00] — 2026-09-07
+
+First tagged release. Published as a GitHub Release with a flashable
+per-panel bundle attached for each of the four panels
+(`<panel>-v1.00.zip` = app image + bootloader + partition table +
+`flash_args`).
+
+**All four panels ship on v1.00**, each flashed and boot-verified over 15 s:
+`mid_coach`, `bedroom_remote`, `main_cabinet`, `hvac_panel`.
+
+### Added — firmware version numbering
+
+`main/firefly_version.h`. Scheme is `MAJOR.MINOR`, rendered `v1.00`:
+
+- **MAJOR** is global — bump it for anything that should reach *every*
+  device (wire format, shared component, protocol fix). A major bump makes
+  every row of the flash-status table stale at once.
+- **MINOR** is per panel (`PANEL_VERSION_MINOR` in `panels/<name>.h`) — bump
+  it for a fix touching only that panel. Panels are *expected* to sit on
+  different minors.
+
+Shown in each panel's status bar between the panel name and the right-hand
+readout (`MID COACH  v1.00  Grey-Black OK`), and on the first line of the
+boot log so a serial capture identifies the build.
+
+### Added — the device-connect checklist
+
+[docs/FLASHING.md](docs/FLASHING.md) → *Every time a device is connected*.
+Whenever a board is plugged in to flash, test or monitor: capture the MAC,
+flash, **listen to the log for 15 seconds**, capture free flash and free
+RAM, capture the feature inventory, and update the version table. A flash
+nobody watched boot is not a flash that worked — this is how both the 7B CAN
+fault and a bad-peer-MAC boot loop were caught.
+
+`docs/FLASHING.md`'s *Current flash status* table gained **Last validated**
+and **Recommended** columns, so the table alone answers "what needs
+reflashing?" without connecting anything. `board_4_3b.c` now logs
+`heap free after display init` to match `board_lcd7b.c`.
+
+### Changed — credentials moved out of git
+
+Device MACs, ESP-NOW PMK/LMK, BLE peer addresses and the EasyTouch account
+password now live **only** in the gitignored `DEVICES.local.md` and each
+`build_<panel>/sdkconfig`. Committed docs name devices by role. A fresh
+clone needs `DEVICES.local.md` recreating — the template is in
+[docs/FLASHING.md](docs/FLASHING.md) → *Local machine setup*.
+
+### Fixed — the release tag filter never matched
+
+`on.push.tags` was `['v*.*.*']`, which requires three-part semver. This
+project versions as `MAJOR.MINOR`, so the `v1.00` tag matched nothing, no
+workflow ran, and no release was published. Now `['v*']`.
+
+⚠️ The workflow that runs for a tag is the one **at that tag's commit**, so
+fixing the filter also meant moving the tag onto the fixed commit.
+
 ### Removed — `ent_center` panel (2026-09-07)
 
 `panels/ent_center.h` (index 1, "ENT CENTER"), its screenshot, and every
@@ -15,21 +73,18 @@ and free to reclaim if the entertainment-center panel is built later. The
 factory `SW4-E7 Ent. Center` switch panel still exists on the coach and its
 row stays in `docs/instance_map.yaml` as a hardware reference.
 
-Scaffold complete and building clean for both panels. **Display, touch, and
-the full UI are verified on both the plain ESP32-S3-Touch-LCD-4.3 (bench,
-2026-08-05) and the target ESP32-S3-Touch-LCD-4.3B (COM11, 2026-08-08).**
-**RV-C dimmer tap on/off is now verified working on the live coach**
-(2026-08-09, `living_room` panel against a real G6) after fixing the
-command-code/interlock bugs below. Hold-to-dim, the rest of the instance
-map, and the other items in *Unverified* below are still unconfirmed.
-
 ### Added — dump-valve control specified (2026-08-30, docs only)
 
 Design and full wiring spec for panel-commanded DrainMaster dump valves on a
 **sixth node**: a Waveshare `ESP32-S3-ETH-8DI-8RO` relay board in the basement
-bay. **No firmware, no hardware built** — the board is ordered and the coach
-wiring has been measured. New doc:
+bay. At the time of this entry: no firmware, board ordered, coach wiring
+measured. New doc:
 [docs/DRAINMASTER-VALVES.md](docs/DRAINMASTER-VALVES.md).
+
+> **Superseded since:** the `valves/` project and `components/valve_control`
+> (relay interlock, 2 s watchdog, DI sense) were scaffolded and merged, and
+> CI builds the node. Panel→node ESP-NOW control remains on a branch under
+> issue #64, held until the reed sense circuit is wired.
 
 Nothing in `proxy/`, `main/`, `components/` or `panels/` changed; this release
 is documentation only.

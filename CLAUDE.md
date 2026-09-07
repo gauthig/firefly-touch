@@ -29,9 +29,22 @@ the panel boots, lights up, and never sees the bus. `BOARD` is therefore
 no `-DBOARD=` to forget. `tools/check_panels.py` cross-checks it against
 `panels/REGISTRY.md`'s Board column.
 
-Docs for humans: [README.md](README.md) (overview, toolchain install) and
-[docs/FLASHING.md](docs/FLASHING.md) (per-device upload, panel identity
-matrix, adding a panel). Keep all three in sync when things change.
+Docs for humans, and **the set to keep in sync when things change** — this
+file plus:
+
+| Doc | Covers |
+|---|---|
+| [README.md](README.md) | overview, toolchain install |
+| [docs/FLASHING.md](docs/FLASHING.md) | per-device upload, version table, the device-connect checklist, adding a panel |
+| [docs/SYSTEM.md](docs/SYSTEM.md) | architecture diagram, equipment tables, memory budgets |
+| [docs/SCREENS.md](docs/SCREENS.md) | simulator captures of every panel screen |
+| [CHANGELOG.md](CHANGELOG.md) | one section per release, newest first |
+
+⚠️ A change that **adds a node, moves a subsystem between nodes, or changes
+what a screen shows** is not done until that sweep is done — including the
+`docs/SYSTEM.md` mermaid diagram and equipment table. Ask nobody; it is part
+of the work. `CHANGELOG.md` and `docs/SCREENS.md` were both omitted from an
+earlier version of this list and both drifted as a result.
 
 ## Build / flash / monitor
 
@@ -253,6 +266,17 @@ enqueuing locally, and status arrives the same way in reverse (see below).
   CAN wiring (see *ESP-NOW remote-panel bridge* below). No dependency on
   `main/`; mirrors `dimmer_cmd_msg_t`/`dimmer_status_msg_t` as its own
   ESP-free-of-`main` structs.
+- `components/valve_control` — dump-valve relay logic for the `valves/` node.
+  Same pure-C / ESP-client split as `rvc_protocol` and `jbd_bms`:
+  `valve_control.c` is ESP-free and host-tested (`host_test/`), while
+  `valve_control_driver.c` holds the TCA9554 I²C writes, the DI sense reads
+  and the independent watchdog timer.
+  ⚠️ **`valve_mask_is_safe()` is safety-critical, not a nicety.** The
+  four-relay H-bridge can tie one motor wire to +12 V and ground at the same
+  time, shorting the house battery across it. The earlier two-DPDT design was
+  short-proof *by construction*; this one is short-proof only because that
+  function refuses the mask. Never relax it, and never drive relays on a path
+  that bypasses it. Linked by the `valves/` project only — no panel builds it.
 - `components/jbd_bms` — Xiaoxiang/JBD Smart BMS protocol codec
   (`jbd_bms_protocol.c`, pure C, host-testable like `rvc_protocol`) plus a
   Bluedroid GATT-client (`jbd_bms_client.c`) for up to 3 fixed battery
@@ -850,7 +874,7 @@ levels, so read-only remotes can show tanks — previously out of scope).
 default 1) — there is no AP to negotiate one, and a mismatch is silently
 invisible, exactly like a wrong peer MAC.
 
-## Dump-valve node (`valves/`) — designed, NOT built
+## Dump-valve node (`valves/`) — scaffold merged, control unmerged
 
 A **sixth node**: a Waveshare **ESP32-S3-ETH-8DI-8RO** relay board in the
 basement bay, driving the two DrainMaster Premium dump valves from the
@@ -858,9 +882,26 @@ panels' tank screens. Like `proxy/` it is a **separate ESP-IDF project**,
 headless, pulling shared components individually rather than pointing at
 `components/` (which would drag LVGL into a build with no display).
 
-**Status: wiring measured and specified, board ordered, no firmware written
-and no GitHub issue opened.** Full build spec, wire list and bring-up order:
-[docs/DRAINMASTER-VALVES.md](docs/DRAINMASTER-VALVES.md).
+**Status — three separate things, don't collapse them:**
+
+| Layer | State |
+|---|---|
+| Hardware wiring + build spec | ✅ measured and specified — [docs/DRAINMASTER-VALVES.md](docs/DRAINMASTER-VALVES.md) |
+| Node firmware scaffold (`valves/`, `components/valve_control`) | ✅ **merged to `main`** and built by CI (*Build valve node*) |
+| ESP-NOW valve control (panel → node) | ❌ **on a branch, not merged** — issue #64, held until the sense circuit is wired |
+| Sense circuit (reed → DI) | ❌ not built — this is what #64 waits on |
+
+⚠️ **The firmware exists.** An earlier version of this section said "no
+firmware written and no GitHub issue opened", which was wrong on both counts
+and led to a session concluding the valve work did not exist and offering to
+rebuild it — the real code was sitting unmerged on `feature/64-*`. **Check
+`git branch -a` and `gh pr list` before concluding a feature is missing.**
+
+The scaffold covers bring-up steps 1–3 of §10: TCA9554 relay expander
+present at 0x20, individual relay clicks, the interlock refusing a shorting
+mask, and the independent 2 s watchdog releasing relays even if the driving
+code never calls release. It deliberately stops short of driving a connected
+valve on request.
 
 ⚠️ **Nothing about `proxy/` changes.** The proxy keeps its five BLE links and
 its telemetry broadcasts. This is a second board on the same ESP-NOW channel,

@@ -28,7 +28,7 @@ graph TB
     MAIN["<b>main_cabinet</b> · 0x83<br/>ESP32-S3 7-inch panel<br/><i>CAN + listens to broadcasts</i>"]
     HVAC["<b>hvac_panel</b> · 0x84<br/>ESP32-S3 panel<br/><i>no CAN · thermostat bridge</i>"]
     PROXY["<b>Bluetooth proxy basement</b><br/>classic ESP32 · headless<br/><i>in the bay</i>"]
-    VALVE["<b>valve_node</b><br/>ESP32-S3-ETH-8DI-8RO<br/><i>in the bay · planned</i>"]
+    VALVE["<b>valve_node</b><br/>ESP32-S3-ETH-8DI-8RO<br/><i>in the bay · scaffold only</i>"]
 
     ET["Micro-Air EasyTouch 355<br/>3-zone RV thermostat<br/><i>stool room, at the G6</i>"]
 
@@ -95,7 +95,7 @@ shared RV-C CAN bus, where every node is a peer.
 | **`main_cabinet`** | Waveshare ESP32-S3-Touch-LCD-7B (1024×600) | Climate, lights, tanks, power and solar on a side-nav rail. Landscape, larger UI variant. | RV-C CAN, ESP-NOW (broadcast + thermostat commands) |
 | **`hvac_panel`** | Waveshare ESP32-S3-Touch-LCD-4.3B | 5-screen launcher: menu → Thermostat / Power / Batteries / Tanks. Holds the coach's only EasyTouch BLE link and is the **thermostat bridge**. **No CAN.** | BLE (EasyTouch), ESP-NOW (thermostat commands in, zone telemetry out) |
 | **Bluetooth proxy basement** | ESP32-D0WD-V3 (classic ESP32, 4 MB, no PSRAM) | Headless. Holds every BLE link in the coach and re-broadcasts what it reads. | BLE (5 links), ESP-NOW broadcast |
-| **`valve_node`** *(planned)* | Waveshare ESP32-S3-ETH-8DI-8RO | Headless. Drives the two DrainMaster dump valves and reports their position. **No BLE, no CAN, no Ethernet.** | ESP-NOW unicast |
+| **`valve_node`** *(scaffold merged; control unmerged)* | Waveshare ESP32-S3-ETH-8DI-8RO | Headless. Drives the two DrainMaster dump valves and reports their position. **No BLE, no CAN, no Ethernet.** The `valves/` project and `components/valve_control` are on `main` and built by CI — relay interlock, 2 s watchdog and DI sense. Panel→node ESP-NOW control is on a branch (issue #64), held until the reed sense circuit is wired. | ESP-NOW unicast |
 
 Panel boards: ESP32-S3-WROOM-1, 16 MB flash / 8 MB octal PSRAM, GT911
 capacitive touch on I²C, CH422G IO expander, onboard TJA1051 CAN

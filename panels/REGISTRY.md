@@ -64,7 +64,7 @@ Each is its own ESP-IDF project:
 | Node | Project | Hardware | Talks |
 |---|---|---|---|
 | Bluetooth proxy basement | `proxy/` | ESP32-D0WD-V3 (classic) | BLE ×5, ESP-NOW broadcast |
-| Dump-valve controller *(planned)* | `valves/` | Waveshare ESP32-S3-ETH-8DI-8RO | ESP-NOW unicast |
+| Dump-valve controller *(scaffold merged, control unmerged — issue #64)* | `valves/` | Waveshare ESP32-S3-ETH-8DI-8RO | ESP-NOW unicast |
 
 They are still ESP-NOW participants and must share
 `FIREFLY_ESPNOW_CHANNEL` with every panel. See
