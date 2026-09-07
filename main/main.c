@@ -14,6 +14,8 @@
  *           if PANEL_IS_BRIDGE or !PANEL_HAS_CAN) / state_mgr (9)
  *   core 1: LVGL task via esp_lvgl_port (4)
  */
+#include <string.h>
+
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "freertos/timers.h"
@@ -32,18 +34,97 @@
 #include "state_manager.h"
 #endif
 
-#if !PANEL_HAS_CAN || PANEL_IS_BRIDGE || PANEL_WANTS_TELEMETRY
+#if !PANEL_HAS_CAN || PANEL_IS_BRIDGE || PANEL_WANTS_TELEMETRY || PANEL_HVAC_BRIDGE
 #include "espnow_link.h"
+#endif
+
+#if PANEL_HAS_EASYTOUCH
+#include "easytouch_client.h"
 #endif
 
 static const char *TAG = "main";
 
-#if !PANEL_HAS_CAN
+#if PANEL_HAS_EASYTOUCH
+#define HVAC_PUMP_PERIOD_MS 1000
+/* Re-broadcast every zone once per this many pump ticks. */
+#define HVAC_BROADCAST_EVERY_N ((CONFIG_FIREFLY_HVAC_BROADCAST_INTERVAL_MS + \
+                                 HVAC_PUMP_PERIOD_MS - 1) / HVAC_PUMP_PERIOD_MS)
+
+/* Pull the latest thermostat reading from the on-panel BLE client into the
+ * local UI once a second, and (every HVAC_BROADCAST_EVERY_N ticks) broadcast
+ * each present zone over ESP-NOW so panels with no BLE link can display it.
+ * The client owns the BLE poll cadence; this just moves what it has. */
+static void hvac_pump_timer_cb(TimerHandle_t t)
+{
+    (void)t;
+    easytouch_status_t st;
+    const bool have = easytouch_client_get_status(&st);
+    ui_on_hvac_status(have ? &st : NULL, have && easytouch_client_healthy());
+
+#if PANEL_HVAC_BRIDGE
+    static uint32_t tick;
+    if (have && (tick++ % HVAC_BROADCAST_EVERY_N) == 0) {
+        for (uint8_t z = 0; z < EASYTOUCH_MAX_ZONES; z++) {
+            const easytouch_zone_t *src = &st.zones[z];
+            if (!src->present) {
+                continue;
+            }
+            espnow_telem_msg_t msg = { .kind = ESPNOW_TELEM_HVAC };
+            msg.hvac.zone = z;
+            msg.hvac.flags = ESPNOW_HVAC_FLAG_PRESENT;
+            msg.hvac.mode = src->mode;
+            msg.hvac.current_mode = src->current_mode;
+            /* Fan for the selected mode -- the receiver puts it back in the
+             * right slot for fan_for_mode(). */
+            switch (src->mode) {
+            case EASYTOUCH_MODE_COOL:     msg.hvac.fan = src->cool_fan; break;
+            case EASYTOUCH_MODE_HEAT:
+            case EASYTOUCH_MODE_AQUA_HOT: msg.hvac.fan = src->heat_fan; break;
+            case EASYTOUCH_MODE_AUTO:     msg.hvac.fan = src->auto_fan; break;
+            case EASYTOUCH_MODE_FAN:      msg.hvac.fan = src->fan_only; break;
+            default:                      msg.hvac.fan = 0; break;
+            }
+            msg.hvac.inside_f = src->inside_f;
+            msg.hvac.cool_sp = src->cool_sp;
+            msg.hvac.heat_sp = src->heat_sp;
+            msg.hvac.auto_heat_sp = src->auto_heat_sp;
+            msg.hvac.auto_cool_sp = src->auto_cool_sp;
+            espnow_link_send_telemetry(&msg);
+        }
+    }
+#endif
+}
+#endif
+
+#if PANEL_HVAC_BRIDGE
+/* A thermostat command relayed from another panel -- translate to an
+ * easytouch_change_t and hand it to the local client, exactly like a local
+ * tap does via bridge_tx.c. */
+static void hvac_cmd_rx(const espnow_hvac_cmd_msg_t *msg, void *ctx)
+{
+    (void)ctx;
+    ESP_LOGI(TAG, "hvac cmd from panel: zone %u op %u arg %u", msg->zone, msg->op, msg->arg);
+    easytouch_change_t c = { .zone = msg->zone };
+    switch (msg->op) {
+    case ESPNOW_HVAC_OP_SET_MODE:    c.set_mode = true;    c.mode = msg->arg;    break;
+    case ESPNOW_HVAC_OP_SET_COOL_SP: c.set_cool_sp = true; c.cool_sp = msg->arg; break;
+    case ESPNOW_HVAC_OP_SET_HEAT_SP: c.set_heat_sp = true; c.heat_sp = msg->arg; break;
+    default: return;
+    }
+    easytouch_client_submit_change(&c);
+}
+#endif
+
+#if !PANEL_HAS_CAN && !PANEL_ESPNOW_TELEMETRY_ONLY && !PANEL_HVAC_BRIDGE
 /* Remote panel: apply a status update relayed from the bridge directly to
  * the UI. There is no local state_mgr/bus-truth table here — the bridge
  * panel owns that; this is purely a display of what it reports.
  * ui_on_status() takes the LVGL lock itself, so this is safe to call from
- * espnow_rx_task's context. */
+ * espnow_rx_task's context.
+ *
+ * A PANEL_ESPNOW_TELEMETRY_ONLY panel (hvac_panel) has no dimmer buttons and
+ * sends no commands, so it takes the peerless telemetry role instead and
+ * never wires this up. */
 static void remote_status_rx(const espnow_status_msg_t *msg, void *ctx)
 {
     (void)ctx;
@@ -137,6 +218,48 @@ static void remote_telem_rx(const espnow_telem_msg_t *msg, void *ctx)
         ui_on_solar_status(&solar);
         break;
     }
+
+#if PANEL_HAS_THERMOSTAT && !PANEL_HAS_EASYTOUCH
+    case ESPNOW_TELEM_HVAC: {
+        /* One zone per frame; rebuild the whole easytouch_status_t here so
+         * the widget sees the same shape it does on hvac_panel. */
+        static easytouch_status_t s_hvac_rx;
+        const espnow_hvac_msg_t *h = &msg->hvac;
+        if (h->zone >= EASYTOUCH_MAX_ZONES) {
+            break;
+        }
+        easytouch_zone_t *z = &s_hvac_rx.zones[h->zone];
+        memset(z, 0, sizeof(*z));
+        z->present = (h->flags & ESPNOW_HVAC_FLAG_PRESENT) != 0;
+        z->mode = h->mode;
+        z->current_mode = h->current_mode;
+        z->inside_f = h->inside_f;
+        z->cool_sp = h->cool_sp;
+        z->heat_sp = h->heat_sp;
+        z->auto_heat_sp = h->auto_heat_sp;
+        z->auto_cool_sp = h->auto_cool_sp;
+        /* Put the one fan value back where fan_for_mode() will find it. */
+        switch (h->mode) {
+        case EASYTOUCH_MODE_COOL:     z->cool_fan = h->fan; break;
+        case EASYTOUCH_MODE_HEAT:
+        case EASYTOUCH_MODE_AQUA_HOT: z->heat_fan = h->fan; break;
+        case EASYTOUCH_MODE_AUTO:     z->auto_fan = h->fan; break;
+        case EASYTOUCH_MODE_FAN:      z->fan_only = h->fan; break;
+        default: break;
+        }
+        uint8_t mask = 0, n = 0;
+        for (uint8_t i = 0; i < EASYTOUCH_MAX_ZONES; i++) {
+            if (s_hvac_rx.zones[i].present) { mask |= (uint8_t)(1u << i); n++; }
+            if (s_hvac_rx.zones[i].current_mode != EASYTOUCH_CURRENT_IDLE) {
+                s_hvac_rx.system_active = true;
+            }
+        }
+        s_hvac_rx.present_mask = mask;
+        s_hvac_rx.zone_count = n;
+        ui_on_hvac_status(&s_hvac_rx, true);
+        break;
+    }
+#endif
 
     default:
         break;   /* newer producer, unknown measurement — ignore quietly */
@@ -255,6 +378,21 @@ void app_main(void)
         ESP_LOGW(TAG, "failed to create tank telemetry timer");
     }
 #endif
+#elif PANEL_HVAC_BRIDGE
+    /* hvac_panel: holds the EasyTouch BLE link, and bridges thermostat
+     * commands from other panels to it. It sends no unicast itself; its
+     * peers (RX_PEER_MAC_1/_2 = the panels it accepts commands from) are
+     * added by espnow_link_init from Kconfig. It also broadcasts HVAC
+     * telemetry (hvac_pump_timer_cb) and consumes battery/shore/tank
+     * telemetry for its own screens. */
+    ESP_ERROR_CHECK(espnow_link_init(ESPNOW_ROLE_BRIDGE));
+    espnow_link_set_hvac_cmd_rx_cb(hvac_cmd_rx, NULL);
+    espnow_link_set_telem_rx_cb(remote_telem_rx, NULL);
+#elif PANEL_ESPNOW_TELEMETRY_ONLY
+    /* Non-CAN panel that sends no commands: peerless telemetry role, same as
+     * a CAN panel with PANEL_WANTS_TELEMETRY. */
+    ESP_ERROR_CHECK(espnow_link_init(ESPNOW_ROLE_TELEMETRY));
+    espnow_link_set_telem_rx_cb(remote_telem_rx, NULL);
 #elif !PANEL_HAS_CAN
     ESP_ERROR_CHECK(espnow_link_init(ESPNOW_ROLE_REMOTE));
     espnow_link_set_status_rx_cb(remote_status_rx, NULL);
@@ -266,6 +404,21 @@ void app_main(void)
      * Nothing it receives here actuates anything. */
     ESP_ERROR_CHECK(espnow_link_init(ESPNOW_ROLE_TELEMETRY));
     espnow_link_set_telem_rx_cb(remote_telem_rx, NULL);
+#endif
+
+#if PANEL_HAS_EASYTOUCH
+    /* On-panel BLE link to the Micro-Air EasyTouch thermostat. Brings up
+     * ble_host itself. Idles harmlessly if FIREFLY_EASYTOUCH_PASSWORD is
+     * unset (e.g. a bench build). */
+    ESP_ERROR_CHECK(easytouch_client_start());
+    TimerHandle_t hvac_timer = xTimerCreate(
+        "hvac_pump", pdMS_TO_TICKS(HVAC_PUMP_PERIOD_MS), pdTRUE, NULL,
+        hvac_pump_timer_cb);
+    if (hvac_timer != NULL) {
+        xTimerStart(hvac_timer, 0);
+    } else {
+        ESP_LOGW(TAG, "failed to create HVAC pump timer");
+    }
 #endif
 
     ESP_LOGI(TAG, "up");

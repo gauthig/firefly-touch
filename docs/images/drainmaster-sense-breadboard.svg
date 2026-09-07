@@ -1,0 +1,251 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="980" viewBox="0 0 1000 980" role="img" aria-label="Breadboard build layout for the two DrainMaster position-sense circuits. A 30-row board with a five-hole plus five-hole column split and a power-rail pair on each side. The grey valve circuit occupies the left half (columns a to e) and the black valve circuit the right half (columns f to j), each an R1-R2 100k divider from the GREEN MAG wire to a node J, a 100nF cap across the lower resistor, and a 2N3904 NPN whose base is J, collector is the DI pin and emitter is ground. Both negative rails are tied together and run to board DGND.">
+  <rect x="0" y="0" width="1000" height="980" fill="#ffffff"/>
+
+  <text x="30" y="30" font-family="IBM Plex Sans Condensed, sans-serif" font-size="16" font-weight="700" fill="#14181d">DrainMaster position sense &#8212; breadboard build layout (two circuits, one board)</text>
+  <text x="30" y="50" font-family="IBM Plex Sans, sans-serif" font-size="11.5" fill="#5a6672">30 rows &#183; 5+5 columns (a&#8211;e | trench | f&#8211;j) &#183; a &#8211;/+ rail pair each side. LEFT half = GREY valve &#8594; DI1. RIGHT half = BLACK valve &#8594; DI2. Only rows 3&#8211;9 are populated.</text>
+
+  <!-- ============ TOP I/O LABELS ============ -->
+  <text x="134" y="74" text-anchor="middle" font-family="IBM Plex Sans Condensed, sans-serif" font-size="10.5" font-weight="700" fill="#2e7d32">GREEN</text>
+  <text x="134" y="86" text-anchor="middle" font-family="IBM Plex Sans, sans-serif" font-size="9" fill="#5a6672">grey MAG (pigtail)</text>
+
+  <text x="262" y="74" text-anchor="middle" font-family="IBM Plex Sans Condensed, sans-serif" font-size="10.5" font-weight="700" fill="#b45309">DI1</text>
+  <text x="262" y="86" text-anchor="middle" font-family="IBM Plex Sans, sans-serif" font-size="9" fill="#5a6672">GPIO4</text>
+
+  <text x="304" y="74" text-anchor="middle" font-family="IBM Plex Sans Condensed, sans-serif" font-size="10.5" font-weight="700" fill="#b45309">DI2</text>
+  <text x="304" y="86" text-anchor="middle" font-family="IBM Plex Sans, sans-serif" font-size="9" fill="#5a6672">GPIO5</text>
+
+  <text x="430" y="74" text-anchor="middle" font-family="IBM Plex Sans Condensed, sans-serif" font-size="10.5" font-weight="700" fill="#2e7d32">GREEN</text>
+  <text x="430" y="86" text-anchor="middle" font-family="IBM Plex Sans, sans-serif" font-size="9" fill="#5a6672">black MAG (pigtail)</text>
+
+  <!-- ============ BOARD BODY ============ -->
+  <rect x="70" y="96" width="430" height="748" rx="8" fill="#fcfdfd" stroke="#b6bfc7" stroke-width="1.5"/>
+  <!-- half-block shading -->
+  <rect x="122" y="104" width="140" height="732" fill="#f4f7f8"/>
+  <rect x="302" y="104" width="140" height="732" fill="#f4f7f8"/>
+  <!-- centre trench -->
+  <rect x="266" y="104" width="34" height="732" fill="#eef1f3"/>
+  <text x="283" y="470" text-anchor="middle" font-family="IBM Plex Sans, sans-serif" font-size="9" fill="#9aa1a8" transform="rotate(-90 283 470)">centre trench &#8212; left half &amp; right half isolated</text>
+
+  <!-- hole columns as dotted lines (dot every 24px = one per row, rows 1..30) -->
+  <g stroke="#c3ccd3" stroke-width="4" stroke-linecap="round" stroke-dasharray="2.5 21.5">
+    <line x1="134" y1="120" x2="134" y2="816"/>
+    <line x1="163" y1="120" x2="163" y2="816"/>
+    <line x1="192" y1="120" x2="192" y2="816"/>
+    <line x1="221" y1="120" x2="221" y2="816"/>
+    <line x1="250" y1="120" x2="250" y2="816"/>
+    <line x1="314" y1="120" x2="314" y2="816"/>
+    <line x1="343" y1="120" x2="343" y2="816"/>
+    <line x1="372" y1="120" x2="372" y2="816"/>
+    <line x1="401" y1="120" x2="401" y2="816"/>
+    <line x1="430" y1="120" x2="430" y2="816"/>
+  </g>
+
+  <!-- column letters -->
+  <g font-family="IBM Plex Mono, monospace" font-size="9" fill="#9aa1a8" text-anchor="middle">
+    <text x="134" y="832">a</text><text x="163" y="832">b</text><text x="192" y="832">c</text><text x="221" y="832">d</text><text x="250" y="832">e</text>
+    <text x="314" y="832">f</text><text x="343" y="832">g</text><text x="372" y="832">h</text><text x="401" y="832">i</text><text x="430" y="832">j</text>
+  </g>
+
+  <!-- power rails -->
+  <line x1="88" y1="104" x2="88" y2="828" stroke="#2563eb" stroke-width="1"/>
+  <line x1="106" y1="104" x2="106" y2="828" stroke="#dc2626" stroke-width="1"/>
+  <line x1="454" y1="104" x2="454" y2="828" stroke="#dc2626" stroke-width="1"/>
+  <line x1="472" y1="104" x2="472" y2="828" stroke="#2563eb" stroke-width="1"/>
+  <g stroke-width="4" stroke-linecap="round" stroke-dasharray="2.5 21.5">
+    <line x1="88" y1="120" x2="88" y2="816" stroke="#93b4f6"/>
+    <line x1="106" y1="120" x2="106" y2="816" stroke="#f0a6a6"/>
+    <line x1="454" y1="120" x2="454" y2="816" stroke="#f0a6a6"/>
+    <line x1="472" y1="120" x2="472" y2="816" stroke="#93b4f6"/>
+  </g>
+  <g font-family="IBM Plex Mono, monospace" font-size="11" font-weight="700" text-anchor="middle">
+    <text x="88" y="118" fill="#2563eb">&#8211;</text><text x="106" y="118" fill="#dc2626">+</text>
+    <text x="454" y="118" fill="#dc2626">+</text><text x="472" y="118" fill="#2563eb">&#8211;</text>
+  </g>
+
+  <!-- row numbers -->
+  <g font-family="IBM Plex Mono, monospace" font-size="8.5" fill="#9aa1a8" text-anchor="end">
+    <text x="64" y="123">1</text><text x="64" y="219">5</text><text x="64" y="339">10</text><text x="64" y="459">15</text>
+    <text x="64" y="579">20</text><text x="64" y="699">25</text><text x="64" y="819">30</text>
+  </g>
+
+  <!-- ================= GREY CIRCUIT (left, cols a-e; rows 3,5,6,7,9) ================= -->
+  <!-- GREEN in: top -> a3 (y168) -->
+  <path d="M134 60 V168" stroke="#2e7d32" stroke-width="3" fill="none"/>
+  <circle cx="134" cy="168" r="3.6" fill="#14181d"/>
+
+  <!-- R1: a3 (168) -> b6 (240), body in col b -->
+  <path d="M134 168 H163 V176" stroke="#2e7d32" stroke-width="3" fill="none"/>
+  <rect x="156" y="176" width="14" height="52" rx="2" fill="#ffffff" stroke="#14181d" stroke-width="1.6"/>
+  <path d="M163 228 V240" stroke="#1565c0" stroke-width="3" fill="none"/>
+  <text x="150" y="205" text-anchor="end" font-family="IBM Plex Mono, monospace" font-size="10" font-weight="700" fill="#14181d">R1</text>
+
+  <!-- node J (row 6, y240): b6 c6 d6 e6 all common -->
+  <path d="M163 240 H250" stroke="#1565c0" stroke-width="3" fill="none"/>
+  <circle cx="163" cy="240" r="3.6" fill="#14181d"/>
+  <text x="150" y="244" text-anchor="end" font-family="IBM Plex Mono, monospace" font-size="10" font-weight="700" fill="#1565c0">J</text>
+
+  <!-- R2: c6 (240) -> c9 (312) -->
+  <rect x="185" y="252" width="14" height="52" rx="2" fill="#ffffff" stroke="#14181d" stroke-width="1.6"/>
+  <path d="M192 240 V252 M192 304 V312" stroke="#1565c0" stroke-width="3" fill="none"/>
+  <text x="205" y="282" font-family="IBM Plex Mono, monospace" font-size="10" font-weight="700" fill="#14181d">R2</text>
+
+  <!-- C1: d6 (240) -> d9 (312) -->
+  <path d="M221 240 V250 M221 258 V312" stroke="#1565c0" stroke-width="3" fill="none"/>
+  <line x1="213" y1="250" x2="229" y2="250" stroke="#14181d" stroke-width="2.4"/>
+  <line x1="213" y1="258" x2="229" y2="258" stroke="#14181d" stroke-width="2.4"/>
+  <text x="233" y="252" font-family="IBM Plex Mono, monospace" font-size="10" font-weight="700" fill="#14181d">C1</text>
+
+  <!-- Q1 2N3904: legs into e5 (E,216) e6 (B,240) e7 (C,264); flat face left -->
+  <path d="M236 210 L246 210 A 32 32 0 0 1 246 270 L236 270 Z" fill="#eef1f3" stroke="#14181d" stroke-width="1.7"/>
+  <line x1="246" y1="216" x2="250" y2="216" stroke="#14181d" stroke-width="2"/>
+  <line x1="246" y1="240" x2="250" y2="240" stroke="#14181d" stroke-width="2"/>
+  <line x1="246" y1="264" x2="250" y2="264" stroke="#14181d" stroke-width="2"/>
+  <circle cx="250" cy="216" r="3" fill="#14181d"/><circle cx="250" cy="240" r="3" fill="#14181d"/><circle cx="250" cy="264" r="3" fill="#14181d"/>
+  <text x="241" y="200" text-anchor="middle" font-family="IBM Plex Sans Condensed, sans-serif" font-size="10" font-weight="700" fill="#14181d">Q1</text>
+  <g font-family="IBM Plex Mono, monospace" font-size="8" fill="#5a6672" text-anchor="end">
+    <text x="234" y="219">E</text><text x="234" y="243">B</text><text x="234" y="267">C</text>
+  </g>
+
+  <!-- emitter GND jumper: a5 (216) -> - rail -->
+  <path d="M134 216 H88" stroke="#1a1a1a" stroke-width="3" fill="none"/>
+  <circle cx="134" cy="216" r="3.6" fill="#14181d"/>
+  <!-- lower divider GND jumper: a9 (312) -> - rail -->
+  <path d="M134 312 H88" stroke="#1a1a1a" stroke-width="3" fill="none"/>
+  <circle cx="134" cy="312" r="3.6" fill="#14181d"/>
+  <path d="M192 312 H134 M221 312 H134" stroke="#1a1a1a" stroke-width="3" fill="none"/>
+
+  <!-- collector -> DI1: e7 (264) into trench, up to top -->
+  <path d="M250 264 H262 V60" stroke="#b45309" stroke-width="3" fill="none"/>
+  <circle cx="250" cy="264" r="3.6" fill="#14181d"/>
+
+  <!-- ================= BLACK CIRCUIT (right, cols f-j; rows 3,5,6,7,9) ================= -->
+  <path d="M430 60 V168" stroke="#2e7d32" stroke-width="3" fill="none"/>
+  <circle cx="430" cy="168" r="3.6" fill="#14181d"/>
+
+  <!-- R3: j3 -> i6 -->
+  <path d="M430 168 V176" stroke="#2e7d32" stroke-width="3" fill="none"/>
+  <rect x="423" y="176" width="14" height="52" rx="2" fill="#ffffff" stroke="#14181d" stroke-width="1.6"/>
+  <path d="M430 228 V240" stroke="#1565c0" stroke-width="3" fill="none"/>
+  <text x="444" y="205" font-family="IBM Plex Mono, monospace" font-size="10" font-weight="700" fill="#14181d">R3</text>
+
+  <path d="M314 240 H430" stroke="#1565c0" stroke-width="3" fill="none"/>
+  <circle cx="430" cy="240" r="3.6" fill="#14181d"/>
+  <text x="444" y="244" font-family="IBM Plex Mono, monospace" font-size="10" font-weight="700" fill="#1565c0">J</text>
+
+  <!-- R4: i6 -> i9 -->
+  <rect x="394" y="252" width="14" height="52" rx="2" fill="#ffffff" stroke="#14181d" stroke-width="1.6"/>
+  <path d="M401 240 V252 M401 304 V312" stroke="#1565c0" stroke-width="3" fill="none"/>
+  <text x="388" y="282" text-anchor="end" font-family="IBM Plex Mono, monospace" font-size="10" font-weight="700" fill="#14181d">R4</text>
+
+  <!-- C2: h6 -> h9 -->
+  <path d="M372 240 V250 M372 258 V312" stroke="#1565c0" stroke-width="3" fill="none"/>
+  <line x1="364" y1="250" x2="380" y2="250" stroke="#14181d" stroke-width="2.4"/>
+  <line x1="364" y1="258" x2="380" y2="258" stroke="#14181d" stroke-width="2.4"/>
+  <text x="359" y="252" text-anchor="end" font-family="IBM Plex Mono, monospace" font-size="10" font-weight="700" fill="#14181d">C2</text>
+
+  <!-- Q2 2N3904: legs into f5 (E) f6 (B) f7 (C); flat face right -->
+  <path d="M328 210 L318 210 A 32 32 0 0 0 318 270 L328 270 Z" fill="#eef1f3" stroke="#14181d" stroke-width="1.7"/>
+  <line x1="318" y1="216" x2="314" y2="216" stroke="#14181d" stroke-width="2"/>
+  <line x1="318" y1="240" x2="314" y2="240" stroke="#14181d" stroke-width="2"/>
+  <line x1="318" y1="264" x2="314" y2="264" stroke="#14181d" stroke-width="2"/>
+  <circle cx="314" cy="216" r="3" fill="#14181d"/><circle cx="314" cy="240" r="3" fill="#14181d"/><circle cx="314" cy="264" r="3" fill="#14181d"/>
+  <text x="323" y="200" text-anchor="middle" font-family="IBM Plex Sans Condensed, sans-serif" font-size="10" font-weight="700" fill="#14181d">Q2</text>
+  <g font-family="IBM Plex Mono, monospace" font-size="8" fill="#5a6672">
+    <text x="330" y="219">E</text><text x="330" y="243">B</text><text x="330" y="267">C</text>
+  </g>
+
+  <!-- black GND jumpers to right - rail -->
+  <path d="M430 216 H472" stroke="#1a1a1a" stroke-width="3" fill="none"/>
+  <circle cx="430" cy="216" r="3.6" fill="#14181d"/>
+  <path d="M430 312 H472" stroke="#1a1a1a" stroke-width="3" fill="none"/>
+  <circle cx="430" cy="312" r="3.6" fill="#14181d"/>
+  <path d="M372 312 H430 M401 312 H430" stroke="#1a1a1a" stroke-width="3" fill="none"/>
+
+  <!-- black collector -> DI2 -->
+  <path d="M314 264 H304 V60" stroke="#b45309" stroke-width="3" fill="none"/>
+  <circle cx="314" cy="264" r="3.6" fill="#14181d"/>
+
+  <!-- ============ RAIL TIE + GND OUT ============ -->
+  <path d="M88 828 V840 H472 V828" stroke="#2563eb" stroke-width="3" fill="none"/>
+  <path d="M280 840 V866" stroke="#1a1a1a" stroke-width="3" fill="none"/>
+  <circle cx="280" cy="840" r="3.6" fill="#14181d"/>
+  <text x="290" y="862" font-family="IBM Plex Sans Condensed, sans-serif" font-size="10.5" font-weight="700" fill="#1a1a1a">&#8594; board DGND / WAGO G1</text>
+  <text x="290" y="875" font-family="IBM Plex Sans, sans-serif" font-size="9" fill="#5a6672">one wire &#8212; both &#8211; rails are tied together by the jumper above</text>
+
+  <text x="88" y="895" font-family="IBM Plex Sans, sans-serif" font-size="9" fill="#9aa1a8">+ rails: unused. DI COM (+12 V, WAGO P1) lands on the board&#8217;s DI COM screw, not the breadboard.</text>
+  <text x="283" y="560" text-anchor="middle" font-family="IBM Plex Sans, sans-serif" font-size="10" fill="#c3ccd3">rows 10&#8211;30 &#8212; unused</text>
+
+  <!-- ============ NOTES PANEL ============ -->
+  <rect x="524" y="96" width="452" height="612" rx="8" fill="#f9fafb" stroke="#d8dde1" stroke-width="1"/>
+  <text x="542" y="122" font-family="IBM Plex Sans Condensed, sans-serif" font-size="13" font-weight="700" fill="#14181d">How the two sense circuits work</text>
+
+  <g font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="#14181d">
+    <text x="542" y="148" font-weight="700">Left half a&#8211;e &#8594; GREY valve, out to DI1 / GPIO4.</text>
+    <text x="542" y="163" font-weight="700">Right half f&#8211;j &#8594; BLACK valve, out to DI2 / GPIO5.</text>
+    <text x="542" y="178" fill="#5a6672">The two are identical and mirror-imaged; they share only the ground rail.</text>
+
+    <text x="542" y="202">R1&#8741;R2 (both 100 k&#8486;) halve the 12 V MAG line &#8594; <tspan font-weight="700">~6 V at node J</tspan>.</text>
+    <text x="542" y="217">C1 (100 nF) across R2 debounces the reed (~5 ms).</text>
+
+    <text x="542" y="241">Q1 is an <tspan font-weight="700">NPN low-side switch</tspan>: Base = node J, Collector = DI pin,</text>
+    <text x="542" y="256">Emitter = GND. The tap feeds ~0.1 mA into the base &#8212; hard saturation.</text>
+
+    <text x="542" y="280">Valve <tspan font-weight="700">FULLY CLOSED</tspan> &#8594; reed passes 12 V on GREEN &#8594; Q ON, sinks the DI.</text>
+    <text x="542" y="295">Doc convention: &#8220;DI high = fully closed&#8221;. Open / mid-travel &#8594; GREEN 0 V &#8594; Q OFF.</text>
+  </g>
+
+  <rect x="536" y="312" width="428" height="66" rx="5" fill="#fff4f2" stroke="#c0392b" stroke-width="1.3"/>
+  <g font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="#14181d">
+    <text x="548" y="330" font-weight="700" fill="#c0392b">&#9888; 2N3904 legs = E &#183; B &#183; C</text>
+    <text x="548" y="345">flat printed face toward you, legs pointing down. This is <tspan font-weight="700">not</tspan> the</text>
+    <text x="548" y="360">2N7000&#8217;s S&#183;G&#183;D order &#8212; wire by function. A 2SC1815 is E&#183;C&#183;B;</text>
+    <text x="548" y="373">verify your own part against its datasheet before landing it.</text>
+  </g>
+
+  <rect x="536" y="386" width="428" height="34" rx="5" fill="#fff4f2" stroke="#c0392b" stroke-width="1.3"/>
+  <g font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="#14181d">
+    <text x="548" y="404" font-weight="700" fill="#c0392b">&#9888; NPN only</text>
+    <text x="612" y="404"> &#8212; 2N3904 / 2N2222 / BC337 / S8050. A PNP (2N3906) will not switch here.</text>
+  </g>
+
+  <g font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="#14181d">
+    <text x="542" y="442">+ rails are unused. <tspan font-weight="700">DI COM &#8594; +12 V (WAGO P1)</tspan> is a wire on the board&#8217;s</text>
+    <text x="542" y="457">screw terminal, not on the breadboard.</text>
+    <text x="542" y="475">Tie <tspan font-weight="700">both &#8211; rails together</tspan> (bottom jumper) &#8594; one wire to board DGND / WAGO G1.</text>
+    <text x="542" y="499">Per circuit: 2&#215; 100 k&#8486; &#188; W, 1&#215; 100 nF ceramic, 1&#215; 2N3904. Rows 10&#8211;30 spare.</text>
+    <text x="542" y="514" fill="#5a6672">Build &amp; test per docs/DRAINMASTER-VALVES.md &#167;4 and bring-up step 5.</text>
+  </g>
+
+  <!-- TO-92 pinout inset -->
+  <text x="542" y="548" font-family="IBM Plex Sans Condensed, sans-serif" font-size="11.5" font-weight="700" fill="#14181d">2N3904 (TO-92) &#8212; flat face toward you, legs down</text>
+  <rect x="600" y="562" width="120" height="72" rx="12" fill="#f2f5f7" stroke="#14181d" stroke-width="2"/>
+  <line x1="600" y1="562" x2="600" y2="634" stroke="#c0392b" stroke-width="4"/>
+  <text x="660" y="600" text-anchor="middle" font-family="IBM Plex Sans Condensed, sans-serif" font-size="12" font-weight="700" fill="#14181d">2N3904</text>
+  <line x1="624" y1="634" x2="624" y2="668" stroke="#14181d" stroke-width="2"/>
+  <line x1="660" y1="634" x2="660" y2="668" stroke="#14181d" stroke-width="2"/>
+  <line x1="696" y1="634" x2="696" y2="668" stroke="#14181d" stroke-width="2"/>
+  <g font-family="IBM Plex Mono, monospace" font-size="12" font-weight="700" fill="#14181d" text-anchor="middle">
+    <text x="624" y="684">E</text><text x="660" y="684">B</text><text x="696" y="684">C</text>
+  </g>
+  <g font-family="IBM Plex Sans, sans-serif" font-size="9.5" fill="#5a6672" text-anchor="middle">
+    <text x="624" y="698">&#8594; GND</text><text x="660" y="698">&#8594; node J</text><text x="696" y="698">&#8594; DI pin</text>
+  </g>
+
+  <!-- ============ BOTTOM LEGEND ============ -->
+  <rect x="30" y="912" width="946" height="52" rx="6" fill="#f9fafb" stroke="#d8dde1" stroke-width="1"/>
+  <g font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="#14181d">
+    <line x1="46" y1="932" x2="74" y2="932" stroke="#2e7d32" stroke-width="3"/>
+    <text x="82" y="936">GREEN &#8212; MAG signal from the valve pigtail (12 V closed / 0 V not closed)</text>
+    <line x1="430" y1="932" x2="458" y2="932" stroke="#1565c0" stroke-width="3"/>
+    <text x="466" y="936">divider tap &amp; node J</text>
+    <line x1="600" y1="932" x2="628" y2="932" stroke="#b45309" stroke-width="3"/>
+    <text x="636" y="936">collector &#8594; DI pin</text>
+    <line x1="770" y1="932" x2="798" y2="932" stroke="#1a1a1a" stroke-width="3"/>
+    <text x="806" y="936">ground</text>
+    <line x1="46" y1="952" x2="74" y2="952" stroke="#2563eb" stroke-width="3"/>
+    <text x="82" y="956">&#8211; rail bus &#183; both sides tied together, then one wire to board DGND / WAGO G1</text>
+    <circle cx="474" cy="952" r="3.6" fill="#14181d"/>
+    <text x="486" y="956">filled dot = electrical junction (wires land in the same breadboard row)</text>
+  </g>
+</svg>

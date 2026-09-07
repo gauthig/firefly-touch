@@ -24,12 +24,14 @@
  */
 #pragma once
 
+#include "easytouch_protocol.h"
 #include "lvgl.h"
 #include "panel_def.h"
 #include "rvc_protocol.h"
 #include "ui_battery_summary.h"
 #include "ui_shore_panel.h"
 #include "ui_solar_panel.h"
+#include "ui_thermostat.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -97,6 +99,22 @@ void ui_dimmer_button_update_solar(lv_obj_t *btn, const ui_solar_reading_t *r,
 
 void ui_dimmer_button_update_shore(lv_obj_t *btn, const ui_shore_reading_t *r,
                                    bool valid);
+
+/*
+ * Feed an EasyTouch thermostat reading to a PANEL_BTN_THERMOSTAT widget.
+ * No-op for any other button type, so callers can sweep every button. `st`
+ * may be NULL when `valid` is false. Caller must hold the LVGL lock.
+ */
+void ui_dimmer_button_update_thermostat(lv_obj_t *btn,
+                                        const easytouch_status_t *st, bool valid);
+
+/*
+ * Set the per-zone on-screen labels on a PANEL_BTN_THERMOSTAT widget. No-op
+ * for any other button type. `names` is UI_THERMOSTAT_ZONES entries in
+ * zone-index order; any may be NULL. Caller must hold the LVGL lock.
+ */
+void ui_dimmer_button_thermostat_zone_names(lv_obj_t *btn,
+                                            const char *const names[UI_THERMOSTAT_ZONES]);
 
 /*
  * Feed "is any light on" to a PANEL_BTN_LIGHT_MASTER widget. No-op for any

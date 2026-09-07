@@ -18,14 +18,17 @@ run. If you add a panel header without adding a row here, CI fails.
 | `ent_center` | 1 | `0x81` | `4_3b` | ENT CENTER | Entertainment center — Entegra SW4-E1 (p/n 0291136 / 75571) |
 | `bedroom_remote` | 2 | `0x82`† | `4_3b` | BED REMOTE | No CAN wiring — relays to `mid_coach` over ESP-NOW, see below |
 | `main_cabinet` | 3 | `0x83` | `lcd7b` | MAIN CABINET | Main cabinet — Waveshare 7B 1024×600 landscape, side-nav rail (Power / Solar / Tanks / Lights) |
+| `hvac_panel` | 4 | `0x84`† | `4_3b` | HVAC | Stool room, at the Firefly G6 (ex-`hvac_capture`, COM23). No CAN. Holds the EasyTouch thermostat BLE link and is the coach's **thermostat bridge**: broadcasts each zone (`ESPNOW_TELEM_HVAC`) and accepts `ESPNOW_FRAME_HVAC_CMD` from `bedroom_remote` / `main_cabinet` (its `FIREFLY_ESPNOW_RX_PEER_MAC_1/_2`), feeding them to the local client. Sends no unicast itself. Menu → Thermostat / Power / Batteries / Tanks. See [../docs/EASYTOUCH-THERMOSTAT.md](../docs/EASYTOUCH-THERMOSTAT.md). |
 
-**Next free index: 4** (source address `0x84`).
+**Next free index: 5** (source address `0x85`).
 
-† `bedroom_remote` has `PANEL_HAS_CAN 0` (`panels/bedroom_remote.h`)
-— it never transmits on the CAN bus, so `0x82` is never actually claimed as
-a source address. The index is still allocated from this table because it
-doubles as the panel's ESP-NOW peer identity; one allocation table stays
-authoritative for every panel regardless of role.
+† `bedroom_remote` and `hvac_panel` both have `PANEL_HAS_CAN 0`
+(`panels/*.h`) — they never transmit on the CAN bus, so `0x82` / `0x84` are
+never actually claimed as source addresses. The index is still allocated
+from this table because it doubles as the panel's ESP-NOW / node identity;
+one allocation table stays authoritative for every panel regardless of role.
+(`hvac_panel` sends no unicast at all — it is a bridge that only *receives*
+thermostat commands and broadcasts telemetry.)
 
 ## Boards
 
