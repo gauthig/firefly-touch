@@ -194,6 +194,20 @@ rail):
 
 ![2N3904 pinout (E-B-C, flat face toward you) and the point-to-point sense-circuit wiring for the grey valve on DI1: R1 from the GREEN pigtail wire to a twisted splice junction J1, R2 and C1 from J1 to a second twisted splice junction J2, Q1's base from J1, Q1's emitter to J2, J2 continuing to the board's GND bus, and Q1's collector direct to the DI1 terminal. Black valve is identical on Q2/R3/R4/C2/DI2.](images/drainmaster-sense-2n3904-wiring.svg)
 
+**Breadboard build (both circuits on one board).** If you are prototyping
+both sensor front-ends on a solderless breadboard rather than point-to-point:
+a 30-row board with the usual 5+5 column split and a rail pair per side holds
+both circuits in **rows 3–9** — the GREY valve in the left half (columns
+a–e) out to `DI1`, the BLACK valve mirror-imaged in the right half (f–j) out
+to `DI2`. Node **J** is the single breadboard row the base, R1-bottom,
+R2-top and C1-top all share. **C1/C2 are ceramic (non-polarised)** — one leg
+on node J, the other on the ground rail, in parallel with R2. The `+` rails
+stay empty (DI COM's +12 V lands on the board's DI COM screw, not the
+breadboard); tie **both `−` rails together** and run one wire to board
+`DGND` / WAGO `G1`.
+
+![Breadboard layout for both DrainMaster position-sense circuits: a 30-row board with a 5-plus-5 column split and a power-rail pair on each side. The grey valve circuit is in the left half columns a to e and the black valve circuit mirror-imaged in the right half f to j, each an R1/R2 100k divider from the GREEN MAG wire to a node J, a 100nF ceramic cap from J to the ground rail, and a 2N3904 NPN whose base is J, collector is the DI pin and emitter is the ground rail. Both negative rails are tied together and run to board DGND.](images/drainmaster-sense-breadboard.svg)
+
 ### Digital-input terminal block
 
 Confirmed from the enclosure legend: the DI block carries **`COM`**, **`DGND`**

@@ -53,7 +53,18 @@
 #define PANEL_HAS_SCREEN_2 1
 #define PANEL_HAS_SCREEN_3 1
 #define PANEL_HAS_SCREEN_4 1
+#define PANEL_HAS_SCREEN_5 1
 #define PANEL_HAS_NAV_RAIL 1
+
+/*
+ * Thermostat: no BLE link here -- hvac_panel (in the stool room) holds it
+ * and broadcasts each zone. This panel shows a CLIMATE rail section and
+ * sends changes back to hvac_panel over ESP-NOW. PANEL_WANTS_HVAC_CONTROL
+ * needs FIREFLY_ESPNOW_HVAC_PEER_MAC = hvac_panel's MAC, and hvac_panel
+ * needs this panel's MAC in its FIREFLY_ESPNOW_RX_PEER_MAC_1/_2.
+ */
+#define PANEL_HAS_THERMOSTAT 1
+#define PANEL_WANTS_HVAC_CONTROL 1
 
 /* Carries the MASTER and ALL LIGHTS buttons, so panel_config.h can check
  * both against PANEL_HAS_CAN. */
@@ -75,6 +86,7 @@
  * the target screen, exactly as on the other panels' nav buttons.
  */
 static const panel_btn_def_t PANEL_NAV_RAIL[] = {
+    { .label = "CLIMATE", .type = PANEL_BTN_SCREEN_SWITCH, .instances = {4}, .instance_count = 1 },
     { .label = "POWER", .type = PANEL_BTN_SCREEN_SWITCH, .instances = {1}, .instance_count = 1 },
     { .label = "SOLAR", .type = PANEL_BTN_SCREEN_SWITCH, .instances = {3}, .instance_count = 1 },
     { .label = "TANKS", .type = PANEL_BTN_SCREEN_SWITCH, .instances = {2}, .instance_count = 1 },
@@ -167,3 +179,16 @@ static const panel_btn_def_t PANEL_BUTTONS_4[] = {
 };
 
 #define PANEL_BUTTON_COUNT_4 (sizeof(PANEL_BUTTONS_4) / sizeof(PANEL_BUTTONS_4[0]))
+
+/*
+ * Screen index 4 (PANEL_BUTTONS_5, the 5th screen) — CLIMATE. The three
+ * EasyTouch zones, fed by hvac_panel's ESPNOW_TELEM_HVAC broadcast;
+ * mode/setpoint changes go back to hvac_panel over ESP-NOW. No BACK -- the
+ * persistent rail is the navigation. (Rail entry targets {4}: PANEL_BUTTONS_N
+ * lays out screen N-1.)
+ */
+static const panel_btn_def_t PANEL_BUTTONS_5[] = {
+    { .label = "THERMOSTAT", .type = PANEL_BTN_THERMOSTAT, .instances = {0}, .instance_count = 0 },
+};
+
+#define PANEL_BUTTON_COUNT_5 (sizeof(PANEL_BUTTONS_5) / sizeof(PANEL_BUTTONS_5[0]))

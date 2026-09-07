@@ -25,3 +25,11 @@
 /* ui.c derives its solar staleness window (3x) from this, the same way
  * it does for the battery packs. */
 #define CONFIG_FIREFLY_SOLAR_BROADCAST_INTERVAL_MS 30000
+
+/* EasyTouch thermostat: ui.c reads the zone labels and derives its
+ * broadcast-staleness window (3x). Real values live in each panel's
+ * build_<panel>/sdkconfig. */
+#define CONFIG_FIREFLY_EASYTOUCH_ZONE0_NAME "FRONT"
+#define CONFIG_FIREFLY_EASYTOUCH_ZONE1_NAME "MID COACH"
+#define CONFIG_FIREFLY_EASYTOUCH_ZONE2_NAME "REAR"
+#define CONFIG_FIREFLY_HVAC_BROADCAST_INTERVAL_MS 30000

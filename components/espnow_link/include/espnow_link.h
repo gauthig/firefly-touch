@@ -43,6 +43,29 @@ typedef struct {
     bool    on;
 } espnow_status_msg_t;
 
+/*
+ * Thermostat command, panel -> hvac_panel (the EasyTouch BLE bridge). Rides
+ * the same 16-byte control frame as the dimmer command (own union member,
+ * own frame type), so it does NOT change the wire size -- see the
+ * _Static_assert on espnow_frame_t in espnow_link.c.
+ *
+ * `op` selects what `arg` means; hvac_panel translates this into an
+ * easytouch_change_t and hands it to its local client. Deliberately NOT the
+ * system-wide `power` key -- per-zone off is op=SET_MODE, arg=0.
+ */
+typedef enum {
+    ESPNOW_HVAC_OP_SET_MODE    = 0,   /* arg = easytouch_mode_t */
+    ESPNOW_HVAC_OP_SET_COOL_SP = 1,   /* arg = degrees F */
+    ESPNOW_HVAC_OP_SET_HEAT_SP = 2,   /* arg = degrees F */
+} espnow_hvac_op_t;
+
+typedef struct {
+    uint8_t zone;    /* 0..3 */
+    uint8_t op;      /* espnow_hvac_op_t */
+    uint8_t arg;
+    uint8_t reserved;
+} espnow_hvac_cmd_msg_t;
+
 /* ------------------------------------------------------- telemetry ------ *
  *
  * Read-only measurements BROADCAST to every node on the channel, so any
@@ -72,6 +95,7 @@ typedef enum {
     ESPNOW_TELEM_TANK        = 2,   /* RV-C TANK_STATUS, relayed by the bridge */
     ESPNOW_TELEM_BATTERY     = 3,   /* one JBD/Xiaoxiang pack, from the proxy */
     ESPNOW_TELEM_SOLAR       = 4,   /* Renogy MPPT controller, from the proxy */
+    ESPNOW_TELEM_HVAC        = 5,   /* one EasyTouch zone, from hvac_panel */
 } espnow_telem_kind_t;
 
 typedef struct {
@@ -154,6 +178,29 @@ typedef struct {
 
 #define ESPNOW_SOLAR_FLAG_ONLINE 0x01u
 
+/*
+ * ONE EasyTouch thermostat zone, broadcast by hvac_panel every poll so a
+ * panel with no BLE link to the thermostat can display it. Same 16-byte
+ * envelope as every other telemetry member -- fields are the decoded values
+ * a ui_thermostat card renders, not the raw 16-int array. The fan is the
+ * one for the *selected* mode (the receiver puts it back in the right slot).
+ */
+typedef struct {
+    uint8_t zone;          /* 0..3 */
+    uint8_t flags;         /* bit0 = present */
+    uint8_t mode;          /* raw EasyTouch mode enum (idx 10) */
+    uint8_t current_mode;  /* raw (idx 15): 0 idle / 2 cooling / 4 heating */
+    uint8_t fan;           /* fan enum for the selected mode */
+    int8_t  inside_f;      /* faceplate inside temperature (idx 12) */
+    uint8_t cool_sp;
+    uint8_t heat_sp;
+    uint8_t auto_heat_sp;
+    uint8_t auto_cool_sp;
+    uint8_t reserved[6];
+} espnow_hvac_msg_t;
+
+#define ESPNOW_HVAC_FLAG_PRESENT 0x01u
+
 typedef struct {
     uint8_t kind;               /* espnow_telem_kind_t */
     union {
@@ -161,6 +208,7 @@ typedef struct {
         espnow_tank_msg_t    tank;
         espnow_battery_msg_t battery;
         espnow_solar_msg_t   solar;
+        espnow_hvac_msg_t    hvac;
     };
 } espnow_telem_msg_t;
 
@@ -205,6 +253,7 @@ typedef void (*espnow_status_rx_cb_t)(const espnow_status_msg_t *msg, void *ctx)
 typedef void (*espnow_telem_rx_cb_t)(const espnow_telem_msg_t *msg, void *ctx);
 typedef void (*espnow_valve_cmd_rx_cb_t)(const espnow_valve_cmd_msg_t *msg, void *ctx);
 typedef void (*espnow_valve_status_rx_cb_t)(const espnow_valve_status_msg_t *msg, void *ctx);
+typedef void (*espnow_hvac_cmd_rx_cb_t)(const espnow_hvac_cmd_msg_t *msg, void *ctx);
 
 typedef enum {
     /* CAN panel: relays remote commands onto the bus, sends status back,
@@ -227,25 +276,38 @@ typedef enum {
 } espnow_role_t;
 
 /*
- * Brings up WiFi in STA-no-connect mode + ESP-NOW, adds the peers this role
- * needs, and starts espnow_rx_task. Must be called after nvs/board init;
- * safe to call once per boot.
+ * Brings up WiFi in STA-no-connect mode + ESP-NOW, adds every peer this node
+ * needs, and starts espnow_rx_task.
+ *
+ * Peers are driven by Kconfig MACs, NOT by `role` (which now only chooses
+ * the log line and whether a missing FIREFLY_ESPNOW_PEER_MAC is an error):
+ *   - FIREFLY_ESPNOW_PEER_MAC       the dimmer/lights bridge   (send_cmd target)
+ *   - FIREFLY_ESPNOW_HVAC_PEER_MAC  the thermostat bridge      (send_hvac_cmd target)
+ *   - FIREFLY_ESPNOW_RX_PEER_MAC_1/_2  extra nodes to accept encrypted
+ *                                  unicast FROM (a bridge that serves several panels)
+ * Any left at the AA:BB:CC:DD:EE:FF placeholder are skipped. All real ones
+ * are added as encrypted peers with the shared PMK/LMK.
+ *
+ * Must be called after nvs/board init; safe to call once per boot.
  */
 esp_err_t espnow_link_init(espnow_role_t role);
 
-/* Remote panel -> bridge: send a dimmer command to be relayed onto CAN. */
+/* -> FIREFLY_ESPNOW_PEER_MAC: send a dimmer command to be relayed onto CAN. */
 bool espnow_link_send_cmd(const espnow_cmd_msg_t *msg);
 
 /* Bridge -> remote panel: relay a real DC_DIMMER_STATUS_3 change. */
 bool espnow_link_send_status(const espnow_status_msg_t *msg);
 
+/* -> FIREFLY_ESPNOW_HVAC_PEER_MAC: send a thermostat change to hvac_panel. */
+bool espnow_link_send_hvac_cmd(const espnow_hvac_cmd_msg_t *msg);
+
 /* Broadcast one telemetry measurement to every node on the channel. */
 bool espnow_link_send_telemetry(const espnow_telem_msg_t *msg);
 
-/* True if any frame was received from the peer within the last 5 s. */
+/* True if any control/status frame was received within the last 5 s. */
 bool espnow_link_healthy(void);
 
-/* Bridge role: called from espnow_rx_task when a command arrives. */
+/* Bridge role: called from espnow_rx_task when a dimmer command arrives. */
 void espnow_link_set_cmd_rx_cb(espnow_cmd_rx_cb_t cb, void *ctx);
 
 /* Remote role: called from espnow_rx_task when a status update arrives. */
@@ -253,6 +315,9 @@ void espnow_link_set_status_rx_cb(espnow_status_rx_cb_t cb, void *ctx);
 
 /* Any receiving role: called when a telemetry broadcast arrives. */
 void espnow_link_set_telem_rx_cb(espnow_telem_rx_cb_t cb, void *ctx);
+
+/* hvac_panel: called from espnow_rx_task when a thermostat command arrives. */
+void espnow_link_set_hvac_cmd_rx_cb(espnow_hvac_cmd_rx_cb_t cb, void *ctx);
 
 /*
  * ------------------------------------------------------- valve control ---

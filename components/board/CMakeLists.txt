@@ -37,3 +37,17 @@ if(BOARD STREQUAL "lcd7")
 elseif(BOARD STREQUAL "lcd7b")
     target_compile_definitions(${COMPONENT_LIB} PUBLIC BOARD_LCD7B=1)
 endif()
+
+# hvac_panel's thermostat screen is the deepest object tree in the project and
+# overflows the default 8 KiB LVGL task stack during render. Give those panels
+# a large LVGL task stack placed in PSRAM: zero internal-DRAM cost (hvac_panel
+# is tight there with Bluedroid + WiFi), and it frees the 8 KiB the stack
+# otherwise takes from internal RAM. bedroom_remote opts in too -- same 4.3B
+# board, comparable screen depth, and it may host the thermostat readout later.
+# PANEL is set in this (real) pass, like the UI_METRICS_LARGE gate in
+# components/ui_common/CMakeLists.txt.
+if(PANEL STREQUAL "hvac_panel" OR PANEL STREQUAL "bedroom_remote")
+    target_compile_definitions(${COMPONENT_LIB} PRIVATE
+        BOARD_LVGL_TASK_STACK=24576
+        BOARD_LVGL_TASK_STACK_PSRAM=1)
+endif()

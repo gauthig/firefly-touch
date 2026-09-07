@@ -3,7 +3,12 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+#include "panel_config.h"
 #include "rvc_protocol.h"
+
+#if PANEL_HAS_THERMOSTAT
+#include "easytouch_protocol.h"
+#endif
 
 /*
  * Single injection point ui.c's panel_send_cb() uses to send a dimmer
@@ -49,3 +54,16 @@ bool bridge_enqueue_valve_cmd(uint8_t valve, uint8_t action);
  * unrelated files, so there's one place to remember. */
 #define BRIDGE_VALVE_ACTION_CLOSE 0u
 #define BRIDGE_VALVE_ACTION_OPEN  1u
+
+#if PANEL_HAS_THERMOSTAT
+/*
+ * Single injection point ui_thermostat's controls use to apply a change.
+ * Resolves at build time:
+ *   - PANEL_HAS_EASYTOUCH  -> easytouch_client_submit_change() (local BLE)
+ *   - PANEL_WANTS_HVAC_CONTROL -> espnow_link_send_hvac_cmd() to hvac_panel
+ * Only the fields whose set_* flag is set are acted on; over ESP-NOW each
+ * becomes its own tiny frame (mode / cool_sp / heat_sp). Safe from the LVGL
+ * task. Returns false if there is no delivery path configured.
+ */
+bool bridge_enqueue_hvac_change(const easytouch_change_t *change);
+#endif

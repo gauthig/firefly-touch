@@ -96,6 +96,14 @@ static const char *TAG = "ui";
 #define SOLAR_STALE_MS (3 * CONFIG_FIREFLY_SOLAR_BROADCAST_INTERVAL_MS)
 #define SOLAR_TIMER_MS 1000
 
+/* The thermostat reading is either the on-panel BLE client's (PANEL_HAS_
+ * EASYTOUCH, `valid` from easytouch_client_healthy()) or an ESP-NOW
+ * broadcast from hvac_panel (aged out on silence like battery/shore/solar).
+ * hvac_status_timer_cb handles both: it repaints from the cache, and treats
+ * the reading as stale past 3x the broadcast interval. */
+#define HVAC_STATUS_TIMER_MS 1000
+#define HVAC_STALE_MS (3 * CONFIG_FIREFLY_HVAC_BROADCAST_INTERVAL_MS)
+
 /* Upper bound on main-grid rows (PANEL_GRID_COLS columns each). */
 #define GRID_MAX_ROWS 6
 
@@ -166,6 +174,15 @@ static uint8_t  s_valve_position[VALVE_COUNT];
 static bool     s_valve_seen[VALVE_COUNT];
 static uint32_t s_valve_last_ms[VALVE_COUNT];
 
+#if PANEL_HAS_THERMOSTAT
+/* Thermostat cache. ui_on_hvac_status() only stores; hvac_status_timer_cb
+ * repaints and owns the staleness decision. */
+static easytouch_status_t s_hvac;
+static bool               s_hvac_valid;
+static bool               s_hvac_seen;
+static uint32_t           s_hvac_last_ms;
+#endif
+
 #if PANEL_HAS_SCREEN_2
 static lv_obj_t *s_buttons_2[PANEL_BUTTON_COUNT_2];
 static lv_obj_t *s_tank_status_label;
@@ -181,6 +198,9 @@ static lv_obj_t *s_buttons_3[PANEL_BUTTON_COUNT_3];
 #if PANEL_HAS_SCREEN_4
 static lv_obj_t *s_buttons_4[PANEL_BUTTON_COUNT_4];
 #endif
+#if PANEL_HAS_SCREEN_5
+static lv_obj_t *s_buttons_5[PANEL_BUTTON_COUNT_5];
+#endif
 
 #if PANEL_HAS_SCREEN_2
 /*
@@ -190,7 +210,7 @@ static lv_obj_t *s_buttons_4[PANEL_BUTTON_COUNT_4];
  * updated even while hidden, so switching to one never shows stale state.
  */
 #define UI_SCREEN_COUNT \
-    (1 + PANEL_HAS_SCREEN_2 + PANEL_HAS_SCREEN_3 + PANEL_HAS_SCREEN_4)
+    (1 + PANEL_HAS_SCREEN_2 + PANEL_HAS_SCREEN_3 + PANEL_HAS_SCREEN_4 + PANEL_HAS_SCREEN_5)
 
 typedef struct {
     lv_obj_t              *root;
@@ -530,6 +550,37 @@ static void solar_timer_cb(lv_timer_t *t)
         }
     }
 }
+
+#if PANEL_HAS_THERMOSTAT
+/* ui_thermostat builds the Change; bridge_tx routes it -- to the local BLE
+ * client on hvac_panel, or over ESP-NOW to hvac_panel on a display-only
+ * panel. Either way there is no ack; the next status read/broadcast is the
+ * confirmation. */
+static void hvac_cmd_forward(const easytouch_change_t *c)
+{
+    bridge_enqueue_hvac_change(c);
+}
+
+/* Repaints every PANEL_BTN_THERMOSTAT widget from the cache, and ages the
+ * reading out on silence (a broadcast consumer never gets an explicit
+ * invalid; hvac_panel's pump also just stops updating s_hvac_last_ms if the
+ * client goes unhealthy). */
+static void hvac_status_timer_cb(lv_timer_t *t)
+{
+    (void)t;
+    const bool stale = !s_hvac_seen ||
+                       (lv_tick_get() - s_hvac_last_ms) > HVAC_STALE_MS;
+    const bool valid = s_hvac_valid && !stale;
+    for (uint8_t sc = 0; sc < UI_SCREEN_COUNT; sc++) {
+        for (uint32_t i = 0; i < s_screens[sc].count; i++) {
+            if (s_screens[sc].buttons[i] != NULL) {
+                ui_dimmer_button_update_thermostat(s_screens[sc].buttons[i],
+                                                   &s_hvac, valid);
+            }
+        }
+    }
+}
+#endif
 #endif /* PANEL_HAS_SCREEN_2 */
 /* -------------------------------------------------------------- valve --- */
 
@@ -908,7 +959,8 @@ static void build_screen2_row(lv_obj_t *parent, const panel_btn_def_t *buttons,
     for (uint32_t i = 0; i < count; i++) {
         if (buttons[i].type == PANEL_BTN_BATTERY_SUMMARY ||
             buttons[i].type == PANEL_BTN_SHORE_POWER ||
-            buttons[i].type == PANEL_BTN_SOLAR) {
+            buttons[i].type == PANEL_BTN_SOLAR ||
+            buttons[i].type == PANEL_BTN_THERMOSTAT) {
             summary_n++;
         }
     }
@@ -934,6 +986,7 @@ static void build_screen2_row(lv_obj_t *parent, const panel_btn_def_t *buttons,
         case PANEL_BTN_BATTERY_SUMMARY:
         case PANEL_BTN_SHORE_POWER:
         case PANEL_BTN_SOLAR:
+        case PANEL_BTN_THERMOSTAT:
         case PANEL_BTN_SPACER:
         case PANEL_BTN_SCREEN_SWITCH:
             break;
@@ -1004,7 +1057,8 @@ static void build_screen2_row(lv_obj_t *parent, const panel_btn_def_t *buttons,
         const bool is_readonly = (buttons[i].type == PANEL_BTN_TANK_LEVEL ||
                                   buttons[i].type == PANEL_BTN_BATTERY_SUMMARY ||
                                   buttons[i].type == PANEL_BTN_SHORE_POWER ||
-                                  buttons[i].type == PANEL_BTN_SOLAR);
+                                  buttons[i].type == PANEL_BTN_SOLAR ||
+                                  buttons[i].type == PANEL_BTN_THERMOSTAT);
         if (actions != NULL && !is_readonly) {
             lv_obj_t *abtn = ui_dimmer_button_create(actions, &buttons[i],
                                                      panel_send_cb, NULL);
@@ -1025,7 +1079,8 @@ static void build_screen2_row(lv_obj_t *parent, const panel_btn_def_t *buttons,
             lv_obj_set_size(btn, LV_PCT(100), SOLAR_STRIP_H);
         } else if (buttons[i].type == PANEL_BTN_BATTERY_SUMMARY ||
                    buttons[i].type == PANEL_BTN_SHORE_POWER ||
-                   buttons[i].type == PANEL_BTN_SOLAR) {
+                   buttons[i].type == PANEL_BTN_SOLAR ||
+                   buttons[i].type == PANEL_BTN_THERMOSTAT) {
             /* One combined readout owning the full area, rather than
              * sharing the row -- unlike the tank gauges, which really are
              * three separate things side by side. When stacked, height is
@@ -1190,6 +1245,9 @@ static const screen_defs_t k_screen_defs[] = {
 #if PANEL_HAS_SCREEN_4
     { PANEL_BUTTONS_4, PANEL_BUTTON_COUNT_4 },
 #endif
+#if PANEL_HAS_SCREEN_5
+    { PANEL_BUTTONS_5, PANEL_BUTTON_COUNT_5 },
+#endif
 };
 
 #define SCREEN_DEFS_COUNT (sizeof(k_screen_defs) / sizeof(k_screen_defs[0]))
@@ -1346,6 +1404,18 @@ static void build_screen(void)
 #endif
     s_screens[3] = (ui_screen_t){ grid4, s_buttons_4, PANEL_BUTTONS_4,
                                   PANEL_BUTTON_COUNT_4 };
+
+#if PANEL_HAS_SCREEN_5
+    lv_obj_t *grid5 = make_screen_pane(scr, logical_h);
+    lv_obj_add_flag(grid5, LV_OBJ_FLAG_HIDDEN);
+#if PANEL_HAS_NAV_RAIL
+    build_content_pane(grid5, PANEL_BUTTONS_5, PANEL_BUTTON_COUNT_5, s_buttons_5);
+#else
+    build_screen2_row(grid5, PANEL_BUTTONS_5, PANEL_BUTTON_COUNT_5, s_buttons_5);
+#endif
+    s_screens[4] = (ui_screen_t){ grid5, s_buttons_5, PANEL_BUTTONS_5,
+                                  PANEL_BUTTON_COUNT_5 };
+#endif
 #endif
 #endif
 #endif
@@ -1393,6 +1463,25 @@ static void build_screen(void)
     if (s_screen2_is_battery) {
         lv_timer_create(battery_status_timer_cb, BATTERY_STATUS_TIMER_MS, NULL);
     }
+#if PANEL_HAS_THERMOSTAT
+    if (panel_has_button_type(PANEL_BTN_THERMOSTAT)) {
+        ui_thermostat_set_cmd_cb(hvac_cmd_forward);
+        const char *const zone_names[UI_THERMOSTAT_ZONES] = {
+            CONFIG_FIREFLY_EASYTOUCH_ZONE0_NAME,
+            CONFIG_FIREFLY_EASYTOUCH_ZONE1_NAME,
+            CONFIG_FIREFLY_EASYTOUCH_ZONE2_NAME,
+        };
+        for (uint8_t sc = 0; sc < UI_SCREEN_COUNT; sc++) {
+            for (uint32_t i = 0; i < s_screens[sc].count; i++) {
+                if (s_screens[sc].buttons[i] != NULL) {
+                    ui_dimmer_button_thermostat_zone_names(s_screens[sc].buttons[i],
+                                                           zone_names);
+                }
+            }
+        }
+        lv_timer_create(hvac_status_timer_cb, HVAC_STATUS_TIMER_MS, NULL);
+    }
+#endif
 
     /* Land on this panel's home section rather than assuming screen 0. */
     show_screen(PANEL_DEFAULT_SCREEN);
@@ -1516,6 +1605,31 @@ void ui_on_valve_status(const ui_valve_status_t *vs)
     s_valve_seen[vs->valve] = true;
     s_valve_last_ms[vs->valve] = lv_tick_get();
     lvgl_port_unlock();
+}
+
+void ui_on_hvac_status(const easytouch_status_t *st, bool valid)
+{
+#if PANEL_HAS_THERMOSTAT
+    if (!s_ui_ready) {
+        return;
+    }
+    /* Cache only; hvac_status_timer_cb repaints and owns staleness. On
+     * hvac_panel `valid` is the client's own verdict; on a display-only
+     * panel main.c always passes true and the timer ages it on silence. */
+    lvgl_port_lock(0);
+    if (valid && st != NULL) {
+        s_hvac = *st;
+        s_hvac_valid = true;
+        s_hvac_seen = true;
+        s_hvac_last_ms = lv_tick_get();
+    } else {
+        s_hvac_valid = false;
+    }
+    lvgl_port_unlock();
+#else
+    (void)st;
+    (void)valid;
+#endif
 }
 
 void ui_on_tank_status(uint8_t instance, uint8_t percent, bool valid)

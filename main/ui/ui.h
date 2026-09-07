@@ -3,6 +3,8 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+#include "easytouch_protocol.h"
+
 /* Builds the panel screen (status bar + button grid). Takes the LVGL lock
  * itself; call after board_display_init(). */
 void ui_init(void);
@@ -125,3 +127,14 @@ typedef struct {
  * unknown, not an explicit invalid call.
  */
 void ui_on_valve_status(const ui_valve_status_t *vs);
+
+/*
+ * Push the EasyTouch thermostat reading from the on-panel BLE client
+ * (components/easytouch) into the UI. Unlike the shore/battery/solar
+ * readings this is NOT a broadcast relay -- hvac_panel holds the link
+ * itself -- so it carries an explicit `valid` flag from
+ * easytouch_client_healthy() rather than aging out on silence. Takes the
+ * LVGL lock internally; safe before ui_init (no-op). `st` may be NULL when
+ * valid is false.
+ */
+void ui_on_hvac_status(const easytouch_status_t *st, bool valid);

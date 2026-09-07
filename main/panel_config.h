@@ -96,6 +96,21 @@
 #endif
 
 /*
+ * PANEL_HAS_SCREEN_5 1 = a fifth screen (PANEL_BUTTONS_5[] /
+ * PANEL_BUTTON_COUNT_5). Same consecutive-numbering rule as screens 3 and 4.
+ *
+ * Added for hvac_panel, which uses screen 0 as a launcher menu and needs
+ * four detail screens beneath it (Thermostat / Power / Batteries / Tanks).
+ */
+#ifndef PANEL_HAS_SCREEN_5
+#define PANEL_HAS_SCREEN_5 0
+#endif
+
+#if PANEL_HAS_SCREEN_5 && !PANEL_HAS_SCREEN_4
+#error "PANEL_HAS_SCREEN_5 requires PANEL_HAS_SCREEN_4 (screens are consecutive)"
+#endif
+
+/*
  * PANEL_HAS_LIGHT_MASTER 1 = this panel carries a PANEL_BTN_LIGHT_MASTER
  * button. Declared rather than inferred: the preprocessor cannot look inside
  * PANEL_BUTTONS[] to see whether one is there, and the guard below needs to
@@ -170,6 +185,75 @@ straight onto the bus."
 
 #if PANEL_WANTS_TELEMETRY && !PANEL_HAS_CAN
 #error "PANEL_WANTS_TELEMETRY is for CAN panels; a remote panel already receives telemetry"
+#endif
+
+/*
+ * PANEL_ESPNOW_TELEMETRY_ONLY 1 = this NON-CAN panel takes the peerless
+ * ESPNOW_ROLE_TELEMETRY (broadcast receive only), not the ESPNOW_ROLE_REMOTE
+ * a plain PANEL_HAS_CAN=0 panel takes. It sends no commands and has no
+ * unicast peer, so FIREFLY_ESPNOW_PEER_MAC / PMK / LMK are not consulted.
+ *
+ * hvac_panel needs this: it displays only broadcast telemetry (shore /
+ * battery / tanks) plus its own local BLE thermostat, and mid_coach's v1
+ * "one remote per bridge" peer slot is already taken by bedroom_remote.
+ */
+#ifndef PANEL_ESPNOW_TELEMETRY_ONLY
+#define PANEL_ESPNOW_TELEMETRY_ONLY 0
+#endif
+
+#if PANEL_ESPNOW_TELEMETRY_ONLY && PANEL_HAS_CAN
+#error "PANEL_ESPNOW_TELEMETRY_ONLY is for non-CAN panels; a CAN panel uses PANEL_WANTS_TELEMETRY"
+#endif
+
+/*
+ * Thermostat (Micro-Air EasyTouch) capability flags. Declared rather than
+ * inferred for the same reason as PANEL_HAS_LIGHT_MASTER -- the preprocessor
+ * cannot see inside PANEL_BUTTONS*[], and main.c / ui.c need them at compile
+ * time.
+ *
+ *   PANEL_HAS_THERMOSTAT   carries a PANEL_BTN_THERMOSTAT widget + the
+ *                          ui_on_hvac_status() display path.
+ *   PANEL_HAS_EASYTOUCH    additionally runs the EasyTouch BLE client
+ *                          locally (components/easytouch, ble_host). Implies
+ *                          PANEL_HAS_THERMOSTAT.
+ *   PANEL_HVAC_BRIDGE      additionally accepts ESPNOW_FRAME_HVAC_CMD from
+ *                          other panels and feeds them to its local client.
+ *                          Requires PANEL_HAS_EASYTOUCH. (hvac_panel)
+ *   PANEL_WANTS_HVAC_CONTROL  a display-only thermostat panel that sends its
+ *                          mode/setpoint changes to the bridge over ESP-NOW
+ *                          (needs FIREFLY_ESPNOW_HVAC_PEER_MAC). Requires
+ *                          PANEL_HAS_THERMOSTAT and NOT PANEL_HAS_EASYTOUCH.
+ */
+#ifndef PANEL_HAS_EASYTOUCH
+#define PANEL_HAS_EASYTOUCH 0
+#endif
+
+#ifndef PANEL_HAS_THERMOSTAT
+#define PANEL_HAS_THERMOSTAT PANEL_HAS_EASYTOUCH
+#endif
+
+#if PANEL_HAS_EASYTOUCH && !PANEL_HAS_THERMOSTAT
+#error "PANEL_HAS_EASYTOUCH implies PANEL_HAS_THERMOSTAT -- do not set it to 0"
+#endif
+
+#if PANEL_HAS_THERMOSTAT && !PANEL_HAS_SCREEN_2
+#error "PANEL_HAS_THERMOSTAT needs a secondary screen to host the widget"
+#endif
+
+#ifndef PANEL_HVAC_BRIDGE
+#define PANEL_HVAC_BRIDGE 0
+#endif
+
+#if PANEL_HVAC_BRIDGE && !PANEL_HAS_EASYTOUCH
+#error "PANEL_HVAC_BRIDGE feeds the local EasyTouch client -- needs PANEL_HAS_EASYTOUCH"
+#endif
+
+#ifndef PANEL_WANTS_HVAC_CONTROL
+#define PANEL_WANTS_HVAC_CONTROL 0
+#endif
+
+#if PANEL_WANTS_HVAC_CONTROL && (!PANEL_HAS_THERMOSTAT || PANEL_HAS_EASYTOUCH)
+#error "PANEL_WANTS_HVAC_CONTROL is for a display-only thermostat panel (has THERMOSTAT, no EASYTOUCH)"
 #endif
 
 /*

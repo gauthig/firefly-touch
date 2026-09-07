@@ -34,12 +34,24 @@
 #define PANEL_HAS_CAN 0
 #define PANEL_HAS_SCREEN_2 1
 #define PANEL_HAS_SCREEN_3 1
+#define PANEL_HAS_SCREEN_4 1
+
+/*
+ * Thermostat: no BLE link here -- hvac_panel holds it and broadcasts each
+ * zone (ESPNOW_TELEM_HVAC). This panel displays that and sends mode/setpoint
+ * changes back to hvac_panel over ESP-NOW (PANEL_WANTS_HVAC_CONTROL needs
+ * FIREFLY_ESPNOW_HVAC_PEER_MAC = hvac_panel's MAC; hvac_panel needs THIS
+ * panel's MAC in its FIREFLY_ESPNOW_RX_PEER_MAC_1/_2).
+ */
+#define PANEL_HAS_THERMOSTAT 1
+#define PANEL_WANTS_HVAC_CONTROL 1
 
 /*
  * Screen-switch buttons name their target screen in instances[0]:
- * 0 = this button grid, 1 = battery bank, 2 = shore power. The trailing
- * spacer keeps the two nav buttons together on the bottom row instead of
- * leaving one stranded beside MOTION.
+ * 0 = this button grid, 1 = battery bank, 2 = shore power, 3 = thermostat.
+ * THERMOSTAT fills the slot beside MOTION that used to be a spacer, so the
+ * three nav buttons run THERMOSTAT / BATTERY / SHORE POWER across the last
+ * two rows.
  */
 static const panel_btn_def_t PANEL_BUTTONS[] = {
     { .label = "BEDROOM CEILING", .type = PANEL_BTN_DIMMER, .instances = {17}, .instance_count = 1 },
@@ -49,7 +61,7 @@ static const panel_btn_def_t PANEL_BUTTONS[] = {
     { .label = "MIDSHIP", .type = PANEL_BTN_DIMMER, .instances = {35}, .instance_count = 1 },
     { .label = "COURTESY", .type = PANEL_BTN_DIMMER, .instances = {21}, .instance_count = 1 },
     { .label = "MOTION", .type = PANEL_BTN_SWITCH, .instances = {46}, .instance_count = 1 },
-    { .label = "", .type = PANEL_BTN_SPACER, .instances = {0}, .instance_count = 0 },
+    { .label = "THERMOSTAT", .type = PANEL_BTN_SCREEN_SWITCH, .instances = {3}, .instance_count = 1 },
     { .label = "BATTERY", .type = PANEL_BTN_SCREEN_SWITCH, .instances = {1}, .instance_count = 1 },
     { .label = "SHORE POWER", .type = PANEL_BTN_SCREEN_SWITCH, .instances = {2}, .instance_count = 1 },
 };
@@ -91,3 +103,15 @@ static const panel_btn_def_t PANEL_BUTTONS_3[] = {
 };
 
 #define PANEL_BUTTON_COUNT_3 (sizeof(PANEL_BUTTONS_3) / sizeof(PANEL_BUTTONS_3[0]))
+
+/*
+ * Screen 4: thermostat. The three EasyTouch zones (inside temp, mode with a
+ * tap-to-open picker, fan, setpoint +/-), fed by hvac_panel's ESPNOW_TELEM_HVAC
+ * broadcast; changes go back to hvac_panel over ESP-NOW. Takes no instances.
+ */
+static const panel_btn_def_t PANEL_BUTTONS_4[] = {
+    { .label = "THERMOSTAT", .type = PANEL_BTN_THERMOSTAT, .instances = {0}, .instance_count = 0 },
+    { .label = "BACK", .type = PANEL_BTN_SCREEN_SWITCH, .instances = {0}, .instance_count = 1 },
+};
+
+#define PANEL_BUTTON_COUNT_4 (sizeof(PANEL_BUTTONS_4) / sizeof(PANEL_BUTTONS_4[0]))

@@ -51,6 +51,15 @@ typedef enum {
      */
     PANEL_BTN_SOLAR,
     /*
+     * Micro-Air EasyTouch RV thermostat control (hvac_panel only). Fed by
+     * the on-panel BLE client (components/easytouch), not a broadcast and
+     * not an RV-C instance -- takes no instances. Renders one card per zone
+     * (inside temp, mode, fan, setpoint +/-) and a mode-cycle control;
+     * commands go straight to easytouch_client_submit_change(). Its visual
+     * state is driven only by the parsed thermostat status, never the tap.
+     */
+    PANEL_BTN_THERMOSTAT,
+    /*
      * Purely local two-state button: shows `label` when off and `label_alt`
      * when on, and sends NOTHING to the bus. Used for controls whose real
      * actuation isn't built yet (the grey/black dump valves and the

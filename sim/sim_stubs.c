@@ -8,10 +8,12 @@
  */
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 
 #include "board.h"
 #include "bridge_tx.h"
 #include "lvgl.h"
+#include "panel_config.h"
 #include "renogy_solar_protocol.h"   /* RENOGY_CHARGE_* for the fake sweep */
 #include "rvc_protocol.h"
 #include "state_manager.h"
@@ -374,6 +376,92 @@ static void solar_sweep_timer_cb(lv_timer_t *t)
     ui_on_solar_status(&sol);
 }
 
+#if PANEL_HAS_THERMOSTAT
+/*
+ * Fakes the thermostat feed. On hvac_panel this stands in for the BLE
+ * client; on a display-only panel it stands in for hvac_panel's ESP-NOW
+ * broadcast. Either way bridge_enqueue_hvac_change() mutates the local
+ * table and the sweep echoes it back through ui_on_hvac_status() -- the
+ * status-driven path, so a tap never moves the widget until the "read"
+ * reflects it, exactly as on hardware.
+ */
+static easytouch_status_t s_hvac;
+static bool               s_hvac_init;
+
+static void hvac_ensure_init(void)
+{
+    if (s_hvac_init) {
+        return;
+    }
+    s_hvac_init = true;
+    strcpy(s_hvac.serial, "355003525");
+    s_hvac.zone_count = 3;
+    s_hvac.present_mask = 0x07;
+    /* Front cool, Mid Coach heat-pump, Rear aqua-hot -- one of each family. */
+    const struct { uint8_t mode, cool, heat, inside; } z[3] = {
+        { EASYTOUCH_MODE_COOL, 74, 68, 78 },
+        { EASYTOUCH_MODE_HEAT, 76, 70, 69 },
+        { EASYTOUCH_MODE_AQUA_HOT, 78, 66, 64 },
+    };
+    for (uint8_t i = 0; i < 3; i++) {
+        easytouch_zone_t *zz = &s_hvac.zones[i];
+        zz->present = true;
+        zz->mode = z[i].mode;
+        zz->current_mode = EASYTOUCH_CURRENT_IDLE;
+        zz->inside_f = (int8_t)z[i].inside;
+        zz->cool_sp = z[i].cool;
+        zz->heat_sp = z[i].heat;
+        zz->cool_fan = EASYTOUCH_FAN_AUTO;
+        zz->heat_fan = EASYTOUCH_FAN_AUTO;
+        zz->auto_fan = EASYTOUCH_FAN_AUTO;
+        zz->fan_only = EASYTOUCH_FAN_LOW;
+    }
+}
+
+/* Stands in for bridge_tx.c's bridge_enqueue_hvac_change() (which the sim
+ * does not compile -- sim_stubs.c owns the bridge_* entry points). */
+bool bridge_enqueue_hvac_change(const easytouch_change_t *c)
+{
+    hvac_ensure_init();
+    if (c == NULL || c->zone >= 3) {
+        return false;
+    }
+    easytouch_zone_t *zz = &s_hvac.zones[c->zone];
+    if (c->set_mode)    zz->mode = c->mode;
+    if (c->set_cool_sp) zz->cool_sp = c->cool_sp;
+    if (c->set_heat_sp) zz->heat_sp = c->heat_sp;
+    printf("[hvac] change zone %u -> mode %u cool %u heat %u\n",
+           c->zone, zz->mode, zz->cool_sp, zz->heat_sp);
+    ui_on_hvac_status(&s_hvac, true);
+    return true;
+}
+
+static void hvac_sweep_timer_cb(lv_timer_t *t)
+{
+    (void)t;
+    hvac_ensure_init();
+    static uint32_t tick;
+    tick++;
+
+    /* Drift the inside temps a little and toggle the call-for indicators so
+     * the "cooling"/"heating" text and colours are visible in a capture. */
+    for (uint8_t i = 0; i < 3; i++) {
+        easytouch_zone_t *zz = &s_hvac.zones[i];
+        zz->inside_f = (int8_t)(64 + ((tick / 4 + i * 5) % 18));
+        if (zz->mode == EASYTOUCH_MODE_COOL) {
+            zz->current_mode = (zz->inside_f > zz->cool_sp) ? EASYTOUCH_CURRENT_COOLING
+                                                           : EASYTOUCH_CURRENT_IDLE;
+        } else if (zz->mode == EASYTOUCH_MODE_HEAT || zz->mode == EASYTOUCH_MODE_AQUA_HOT) {
+            zz->current_mode = (zz->inside_f < zz->heat_sp) ? EASYTOUCH_CURRENT_HEATING
+                                                           : EASYTOUCH_CURRENT_IDLE;
+        } else {
+            zz->current_mode = EASYTOUCH_CURRENT_IDLE;
+        }
+    }
+    ui_on_hvac_status(&s_hvac, true);
+}
+#endif /* PANEL_HAS_THERMOSTAT */
+
 /* Called from main_sim to make the screen look alive at startup. */
 void sim_seed_demo_state(void)
 {
@@ -391,4 +479,8 @@ void sim_seed_demo_state(void)
     lv_timer_create(battery_sweep_timer_cb, 500, NULL);
     lv_timer_create(shore_power_timer_cb, 500, NULL);
     lv_timer_create(solar_sweep_timer_cb, 500, NULL);
+#if PANEL_HAS_THERMOSTAT
+    lv_timer_create(hvac_sweep_timer_cb, 500, NULL);
+    hvac_sweep_timer_cb(NULL);   /* prime it so a --shot has data at t=0 */
+#endif
 }

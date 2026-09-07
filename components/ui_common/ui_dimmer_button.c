@@ -11,6 +11,7 @@
 #include "ui_solar_panel.h"
 #include "ui_tank_wave.h"
 #include "ui_theme.h"
+#include "ui_thermostat.h"
 
 static const char *TAG = "ui_dimmer_button";
 
@@ -80,6 +81,7 @@ typedef struct {
     lv_obj_t *battery_summary;/* PANEL_BTN_BATTERY_SUMMARY only: bank readout */
     lv_obj_t *shore_panel;    /* PANEL_BTN_SHORE_POWER only: L1/L2 readout */
     lv_obj_t *solar_panel;    /* PANEL_BTN_SOLAR only: MPPT readout */
+    lv_obj_t *thermostat;     /* PANEL_BTN_THERMOSTAT only: EasyTouch zones */
 } btn_ctx_t;
 
 static bool any_on(const btn_ctx_t *ctx)
@@ -249,8 +251,12 @@ static void handle_tap(btn_ctx_t *ctx)
     }
     if (ctx->def->type == PANEL_BTN_TANK_LEVEL ||
         ctx->def->type == PANEL_BTN_SHORE_POWER ||
-        ctx->def->type == PANEL_BTN_SOLAR) {
-        /* Read-only display, no command, no confirm timer. */
+        ctx->def->type == PANEL_BTN_SOLAR ||
+        ctx->def->type == PANEL_BTN_THERMOSTAT) {
+        /* Read-only from this widget's point of view: the thermostat's own
+         * child buttons (mode / -/+) handle their taps and call
+         * easytouch_client_submit_change() via ui_thermostat's callback.
+         * No command, no confirm timer here. */
         return;
     }
     if (ctx->def->type == PANEL_BTN_LOCAL_TOGGLE) {
@@ -362,6 +368,7 @@ static bool acts_on_click(const btn_ctx_t *ctx)
     case PANEL_BTN_BATTERY_SUMMARY:
     case PANEL_BTN_SHORE_POWER:
     case PANEL_BTN_SOLAR:
+    case PANEL_BTN_THERMOSTAT:
     case PANEL_BTN_TANK_LEVEL:
     case PANEL_BTN_LOCAL_TOGGLE:
     case PANEL_BTN_LIGHT_MASTER:
@@ -539,6 +546,14 @@ lv_obj_t *ui_dimmer_button_create(lv_obj_t *parent,
         ctx->solar_panel = ui_solar_panel_create(btn);
     }
 
+    if (def->type == PANEL_BTN_THERMOSTAT) {
+        lv_obj_add_flag(ctx->name, LV_OBJ_FLAG_HIDDEN);
+        /* The zone cards carry their own backgrounds. */
+        lv_obj_set_style_bg_opa(btn, LV_OPA_TRANSP, LV_PART_MAIN);
+        lv_obj_set_style_pad_all(btn, 0, 0);
+        ctx->thermostat = ui_thermostat_create(btn);
+    }
+
     lv_obj_add_event_cb(btn, event_cb, LV_EVENT_ALL, ctx);
     refresh_visuals(ctx);
     return btn;
@@ -556,6 +571,7 @@ void ui_dimmer_button_update(lv_obj_t *btn, uint8_t instance,
         ctx->def->type == PANEL_BTN_BATTERY_SUMMARY ||
         ctx->def->type == PANEL_BTN_SHORE_POWER ||
         ctx->def->type == PANEL_BTN_SOLAR ||
+        ctx->def->type == PANEL_BTN_THERMOSTAT ||
         ctx->def->type == PANEL_BTN_LOCAL_TOGGLE ||
         ctx->def->type == PANEL_BTN_LIGHT_MASTER ||
         ctx->def->type == PANEL_BTN_VALVE ||
@@ -642,6 +658,26 @@ void ui_dimmer_button_update_shore(lv_obj_t *btn, const ui_shore_reading_t *r,
         return;
     }
     ui_shore_panel_set(ctx->shore_panel, r, valid);
+}
+
+void ui_dimmer_button_update_thermostat(lv_obj_t *btn,
+                                        const easytouch_status_t *st, bool valid)
+{
+    btn_ctx_t *ctx = lv_obj_get_user_data(btn);
+    if (ctx == NULL || ctx->def->type != PANEL_BTN_THERMOSTAT) {
+        return;
+    }
+    ui_thermostat_set(ctx->thermostat, st, valid);
+}
+
+void ui_dimmer_button_thermostat_zone_names(lv_obj_t *btn,
+                                            const char *const names[UI_THERMOSTAT_ZONES])
+{
+    btn_ctx_t *ctx = lv_obj_get_user_data(btn);
+    if (ctx == NULL || ctx->def->type != PANEL_BTN_THERMOSTAT) {
+        return;
+    }
+    ui_thermostat_set_zone_names(ctx->thermostat, names);
 }
 
 void ui_dimmer_button_update_master(lv_obj_t *btn, bool any_light_on)

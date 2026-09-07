@@ -27,11 +27,25 @@
 #include "esp_lcd_touch_gt911.h"
 #include "esp_lcd_panel_io.h"
 #include "esp_log.h"
+#include "esp_heap_caps.h"
 #include "esp_lvgl_port.h"
 
 #include "ch422g.h"
 
 static const char *TAG = "board_4_3b";
+
+/*
+ * LVGL task stack. 8 KiB is fine for the button-grid / single-readout screens
+ * the installed 4.3B panels carry. hvac_panel's thermostat screen has a far
+ * deeper object tree (3 zone cards of nested flex rows + a mode-picker
+ * overlay) and blows 8 KiB during render -- "stack overflow in task taskLVGL".
+ * Its build overrides these via components/board/CMakeLists.txt:
+ * a big stack, placed in PSRAM so it costs no internal DRAM (which is already
+ * tight there with Bluedroid + WiFi + the LVGL heap).
+ */
+#ifndef BOARD_LVGL_TASK_STACK
+#define BOARD_LVGL_TASK_STACK 8192
+#endif
 
 static i2c_master_bus_handle_t s_i2c_bus;
 static esp_lcd_panel_handle_t s_lcd_panel;
@@ -146,8 +160,13 @@ static esp_err_t lvgl_init(void)
 {
     lvgl_port_cfg_t port_cfg = ESP_LVGL_PORT_INIT_CONFIG();
     port_cfg.task_priority = 4;
-    port_cfg.task_stack = 8192;
+    port_cfg.task_stack = BOARD_LVGL_TASK_STACK;
     port_cfg.task_affinity = 1;   /* UI on core 1; protocol tasks own core 0 */
+#ifdef BOARD_LVGL_TASK_STACK_PSRAM
+    /* PSRAM stack: SPIRAM_ALLOW_STACK_EXTERNAL_MEMORY + TASK_CREATE_ALLOW_EXT_MEM
+     * are on, and the LVGL task never runs in ISR context, so this is safe. */
+    port_cfg.task_stack_caps = MALLOC_CAP_SPIRAM;
+#endif
     ESP_RETURN_ON_ERROR(lvgl_port_init(&port_cfg), TAG, "lvgl_port_init");
 
     const lvgl_port_display_cfg_t disp_cfg = {
