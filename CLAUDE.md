@@ -1464,6 +1464,32 @@ project owner first.
   etc.), memory-file updates (this file and `CLAUDE.local.md`), and
   general questions about the code that don't change anything.
 
+## CI (`.github/workflows/build.yml`) — two lanes
+
+- **Fast lane, always runs** (~20 s total): `lint` (ruff + cppcheck over
+  **every** component), `panels` (`check_panels.py`, and it emits the build
+  matrix), `host-tests` (six pure-C suites under `-Werror`), and `secrets`.
+- **Heavy lane, ~3–5 min per job**: the four panel builds, `proxy` and
+  `valves`. **Skipped when a push touches only `*.md` / `docs/`**, gated on
+  the `changes` job.
+
+⚠️ **A green run on a docs-only push did NOT build the firmware.** Check
+which jobs actually ran before treating green as "the code still compiles".
+The `changes` job fails safe — a tag, a workflow edit, or an unusable diff
+base all build everything — so the risk is misreading the result, not
+missing a build.
+
+⚠️ **`secrets` prevents the next leak; it does not undo the current one.**
+The ESP-NOW PMK/LMK in use are committed Kconfig defaults in this **public**
+repo (`firefly-pmk-0001` / `firefly-lmk-0001`), and are allow-listed in that
+job so it reports new problems rather than failing red on a known one. See
+**issue #86** — resolving it means new keys plus a coordinated reflash of
+every node, because the PMK is network-wide and a partly-reflashed fleet has
+silently broken links.
+
+Adding a component means adding it to the cppcheck list; adding a panel needs
+no workflow change (the matrix comes from the registry).
+
 ## Repo hygiene — what belongs in git
 
 Two separate ESP-IDF projects live alongside the panel app and follow the
