@@ -11,6 +11,62 @@ on:
   workflow_dispatch:
 
 jobs:
+  # Two lanes. The fast lane (lint, panels, host-tests, secrets) always runs
+  # and costs ~20 s all told. The heavy lane -- six ESP-IDF builds at 3-5
+  # minutes each -- is skipped when a push touches only documentation.
+  #
+  # Measured before writing this: Lint is 0.2 min, the builds are 2.9-4.8 min
+  # each. Around 40% of non-merge commits on main are .md-only, because the
+  # project's workflow deliberately exempts doc edits from the branch/PR
+  # cycle, so they land straight here and used to trigger all six builds.
+  #
+  # Fails SAFE: anything it cannot classify builds everything.
+  changes:
+    name: What changed
+    runs-on: ubuntu-latest
+    outputs:
+      code: ${{ steps.filter.outputs.code }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - id: filter
+        run: |
+          set -euo pipefail
+
+          # A tag build must produce artifacts for the release job, and a
+          # change to the workflow itself must be exercised -- neither is
+          # ever "docs-only", whatever the diff says.
+          if [[ "$GITHUB_REF" == refs/tags/* ]]; then
+            echo "tag push -- building everything"
+            echo "code=true" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+
+          if [[ "$GITHUB_EVENT_NAME" == "pull_request" ]]; then
+            base="${{ github.event.pull_request.base.sha }}"
+          else
+            base="${{ github.event.before }}"
+          fi
+
+          # Zero SHA (new branch), missing, or an object we do not have:
+          # we cannot know what changed, so assume code.
+          if [[ -z "${base:-}" || "$base" =~ ^0+$ ]] || ! git cat-file -e "$base^{commit}" 2>/dev/null; then
+            echo "no usable diff base ($base) -- building everything"
+            echo "code=true" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+
+          changed="$(git diff --name-only "$base" "$GITHUB_SHA")"
+          echo "Changed files:"; echo "$changed" | sed 's/^/  /'
+
+          # Everything that is NOT a doc. Note .github/ counts as code.
+          if echo "$changed" | grep -qvE '(\.md$|^docs/)'; then
+            echo "code=true" >> "$GITHUB_OUTPUT"
+            echo "=> code changed; running the firmware builds"
+          else
+            echo "code=false" >> "$GITHUB_OUTPUT"
+            echo "=> documentation only; skipping the firmware builds"
+          fi
+
   lint:
     name: Lint
     runs-on: ubuntu-latest
@@ -57,12 +113,18 @@ jobs:
   # That rule was previously enforced by remembering to run this grep by
   # hand before a docs commit. A credential reaching a public repo is not
   # undoable by a later commit, so it is checked mechanically instead.
+  # ⚠️ This job prevents the NEXT leak. It cannot undo issue #86, where the
+  # ESP-NOW keys actually in use are committed Kconfig defaults in a public
+  # repo -- those are allow-listed below precisely so this job does not fail
+  # red on a known, tracked problem. Remove the allow-list entry when #86 is
+  # resolved and the real keys move to build_<panel>/sdkconfig.
   secrets:
     name: No credentials in tracked files
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
-      - name: Scan for MAC addresses
+
+      - name: MAC addresses
         run: |
           # Placeholders are legitimate: sdkconfig.defaults and the simulator
           # stubs ship AA:BB:CC:DD:EE:xx, and configured_mac() treats them as
@@ -71,12 +133,67 @@ jobs:
                | grep -viE 'AA:BB:CC:DD:EE:[0-9A-F]{2}|00:00:00:00:00:00' \
                > /tmp/hits; then
             echo "::error::MAC-shaped strings found in tracked files."
-            echo "Credentials belong in DEVICES.local.md (gitignored) or"
+            echo "Device MACs belong in DEVICES.local.md (gitignored) or"
             echo "build_<panel>/sdkconfig -- see docs/FLASHING.md."
             cat /tmp/hits
             exit 1
           fi
-          echo "Clean: no real MACs in tracked files."
+          echo "OK: no real MACs in tracked files."
+
+      - name: Files that carry secrets by design must stay untracked
+        run: |
+          # A tracked sdkconfig or *.local.md is a leak regardless of what is
+          # in it today, because these are the files the project deliberately
+          # puts real keys, MACs and the EasyTouch password into.
+          # sdkconfig.defaults / sdkconfig.<panel>.defaults are the committed
+          # templates and are fine; a bare `sdkconfig` is not.
+          if git ls-files | grep -nE '(^|/)sdkconfig$|\.local\.md$' > /tmp/hits; then
+            echo "::error::A secret-bearing file is tracked."
+            cat /tmp/hits
+            exit 1
+          fi
+          echo "OK: no sdkconfig or *.local.md is tracked."
+
+      - name: Project credentials
+        run: |
+          # The EasyTouch account password must never appear with a value.
+          if git grep -nE 'CONFIG_FIREFLY_EASYTOUCH_PASSWORD[[:space:]]*=?[[:space:]]*"[^"]+"' > /tmp/hits; then
+            echo "::error::EasyTouch account password found in a tracked file."
+            cat /tmp/hits
+            exit 1
+          fi
+
+          # ESP-NOW keys. The two firefly-*-0001 strings are the currently
+          # deployed defaults and are the subject of issue #86 -- allow-listed
+          # so this job reports new leaks rather than re-reporting a known
+          # one. Any OTHER key value here means a real key was committed.
+          if git grep -nEi '(PMK|LMK)[^\n]*"[^"]{8,}"' \
+               | grep -viE 'firefly-(pmk|lmk)-0001|firefly-valve-lmk-01|CHANGE THIS' \
+               > /tmp/hits; then
+            echo "::error::An ESP-NOW key value appears in a tracked file."
+            echo "Keys belong in build_<panel>/sdkconfig -- see issue #86."
+            cat /tmp/hits
+            exit 1
+          fi
+          echo "OK: no project credentials in tracked files."
+
+      - name: Generic credential shapes
+        run: |
+          # Cheap, high-signal patterns. Deliberately narrow: this repo has no
+          # cloud services, so a hit here is almost certainly a real mistake.
+          #
+          # "BEGIN [A-Z ]*PRIVATE KEY" already covers the OpenSSH, RSA and EC
+          # header variants -- an explicit "-----BEGIN OPENSSH" alternative
+          # was removed because the pattern string then matched ITSELF in this
+          # file and failed the job on its own source. Keep every alternative
+          # here anchored on a character class, never a bare literal header.
+          pat='BEGIN [A-Z ]*PRIVATE KEY|AKIA[0-9A-Z]{16}|ghp_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|xox[baprs]-[A-Za-z0-9-]{10,}'
+          if git grep -nE "$pat" > /tmp/hits; then
+            echo "::error::A credential-shaped string was found."
+            cat /tmp/hits
+            exit 1
+          fi
+          echo "OK: no generic credential shapes."
 
   panels:
     name: Panel registry
@@ -139,7 +256,8 @@ jobs:
   # author's.
   proxy:
     name: Build ble proxy
-    needs: [lint, host-tests]
+    needs: [changes, lint, host-tests]
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
@@ -155,7 +273,8 @@ jobs:
   # than proxy's classic ESP32.
   valves:
     name: Build valve node
-    needs: [lint, host-tests]
+    needs: [changes, lint, host-tests]
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
@@ -168,7 +287,8 @@ jobs:
 
   firmware:
     name: Build ${{ matrix.panel }}
-    needs: [lint, panels, host-tests]
+    needs: [changes, lint, panels, host-tests]
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
