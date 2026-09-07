@@ -36,11 +36,18 @@
 #include "panel_def.h"
 
 /* Shown in the status bar and the boot log. Keep it short — it shares the
- * status bar with the CAN-health dot. */
+ * status bar with the version label and the right-hand readout. */
 #define PANEL_NAME  "PANEL NAME"
 
 /* Unique. See the warning above and panels/REGISTRY.md. */
 #define PANEL_INDEX 99
+
+/* Per-panel version minor; the major is global in main/firefly_version.h.
+ * A new panel starts at 0. Bump it ONLY for a fix that touches just this
+ * panel, and update docs/FLASHING.md's status table in the same commit.
+ * Panels are expected to sit on different minors — that is the design, not
+ * drift. Range 0-99; tools/check_panels.py requires this line. */
+#define PANEL_VERSION_MINOR 0
 
 /*
  * Naming convention: a panel whose <name> ends in `_remote` is an ESP-NOW
