@@ -1470,8 +1470,19 @@ project owner first.
   **every** component), `panels` (`check_panels.py`, and it emits the build
   matrix), `host-tests` (six pure-C suites under `-Werror`), and `secrets`.
 - **Heavy lane, ~3–5 min per job**: the four panel builds, `proxy` and
-  `valves`. **Skipped when a push touches only `*.md` / `docs/`**, gated on
-  the `changes` job.
+  `valves`. Gated on the `changes` job, which skips them for a push that is
+  **docs-only** (`*.md` / `docs/`) or a **merge commit** (its PR already
+  built that tree). A **direct** push to `main` still builds — the workflow
+  allows small corrections without a PR, and those have never been built.
+
+**Why the builds are not redundant with your local ones**, before anyone
+proposes deleting them: CI builds from a **fresh sdkconfig**, builds **all
+four** panels, and builds **all three** projects. Local builds use each
+panel's hand-edited `build_<panel>/sdkconfig` (with the real secrets) and
+usually only the panel about to be flashed. Of the real CI failures to date,
+one was the `hvac_panel` BLE-4.2 link error — invisible locally *because*
+the local sdkconfig already had the fix — and one was a `proxy` break on a
+different chip. Neither was reachable from a bench build.
 
 ⚠️ **A green run on a docs-only push did NOT build the firmware.** Check
 which jobs actually ran before treating green as "the code still compiles".
