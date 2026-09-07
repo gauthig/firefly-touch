@@ -26,15 +26,18 @@ graph TB
     MID["<b>mid_coach</b> · 0x80<br/>ESP32-S3 panel<br/><i>CAN + ESP-NOW bridge</i>"]
     BED["<b>bedroom_remote</b> · 0x82<br/>ESP32-S3 panel<br/><i>no CAN wiring</i>"]
     MAIN["<b>main_cabinet</b> · 0x83<br/>ESP32-S3 7-inch panel<br/><i>CAN + listens to broadcasts</i>"]
+    HVAC["<b>hvac_panel</b> · 0x84<br/>ESP32-S3 panel<br/><i>no CAN · thermostat bridge</i>"]
     PROXY["<b>Bluetooth proxy basement</b><br/>classic ESP32 · headless<br/><i>in the bay</i>"]
     VALVE["<b>valve_node</b><br/>ESP32-S3-ETH-8DI-8RO<br/><i>in the bay · planned</i>"]
+
+    ET["Micro-Air EasyTouch 355<br/>3-zone RV thermostat<br/><i>stool room, at the G6</i>"]
 
     subgraph bay["Basement bay"]
         BAT1["Pack 1 · Vatrer 300 Ah<br/>JBD/Xiaoxiang BMS"]
         BAT2["Pack 2 · Vatrer 300 Ah<br/>JBD/Xiaoxiang BMS"]
         BAT3["Pack 3 · Vatrer 300 Ah<br/>JBD/Xiaoxiang BMS"]
-        WD["Hughes Power Watchdog<br/>Gen 1 · APMD1CB0DE309<br/><i>at the shore inlet</i>"]
-        SOL["Renogy MPPT controller<br/>BT-TH-B00E7B91<br/><i>solar charge controller</i>"]
+        WD["Hughes Power Watchdog<br/>Gen 1<br/><i>at the shore inlet</i>"]
+        SOL["Renogy MPPT controller<br/>BT-TH- module<br/><i>solar charge controller</i>"]
         VGY["Grey dump valve<br/>DrainMaster Premium 5197"]
         VBK["Black dump valve<br/>DrainMaster Premium 5197"]
     end
@@ -47,6 +50,13 @@ graph TB
 
     MID <-->|"ESP-NOW unicast<br/>encrypted · ch 1"| BED
     MID <-.->|"ESP-NOW unicast<br/>valve cmd + position<br/><i>planned</i>"| VALVE
+
+    HVAC -->|"BLE GATT<br/>poll-and-release"| ET
+    HVAC -.->|"ESP-NOW broadcast<br/>thermostat zones"| BED
+    HVAC -.->|"ESP-NOW broadcast<br/>thermostat zones"| MAIN
+    BED -.->|"ESP-NOW unicast<br/>thermostat cmd"| HVAC
+    MAIN -.->|"ESP-NOW unicast<br/>thermostat cmd"| HVAC
+    PROXY -.->|"ESP-NOW broadcast"| HVAC
 
     MID -.->|"ESP-NOW broadcast<br/>tank levels"| BED
     PROXY -.->|"ESP-NOW broadcast<br/>shore power + batteries + solar"| BED
@@ -67,8 +77,8 @@ graph TB
 
     classDef panel fill:#0D1B3A,stroke:#5DADE2,color:#EDE4D3
     classDef coach fill:#1A1F2E,stroke:#8A8375,color:#EDE4D3
-    class MID,BED,MAIN,PROXY,VALVE panel
-    class G6A,SEE,FSW,BAT1,BAT2,BAT3,WD,SOL,VGY,VBK coach
+    class MID,BED,MAIN,HVAC,PROXY,VALVE panel
+    class G6A,SEE,FSW,BAT1,BAT2,BAT3,WD,SOL,VGY,VBK,ET coach
 ```
 
 Solid lines are wired buses. Dashed lines are wireless. Double lines are the
@@ -82,7 +92,8 @@ shared RV-C CAN bus, where every node is a peer.
 |---|---|---|---|
 | **`mid_coach`** | Waveshare ESP32-S3-Touch-LCD-4.3B | Lights, tank levels, battery bank (with solar) and shore power. Also the ESP-NOW bridge and the tank-telemetry producer. | RV-C CAN, ESP-NOW (unicast + broadcast) |
 | **`bedroom_remote`** | Waveshare ESP32-S3-Touch-LCD-4.3B | Lights, battery bank (with the solar readout stacked beneath it), shore power — the latter three entirely from broadcasts. **No CAN wiring, no BLE.** | ESP-NOW |
-| **`main_cabinet`** | Waveshare ESP32-S3-Touch-LCD-7B (1024×600) | Lights, tanks, power and solar on a side-nav rail. Landscape, larger UI variant. | RV-C CAN, ESP-NOW (broadcast, listen only) |
+| **`main_cabinet`** | Waveshare ESP32-S3-Touch-LCD-7B (1024×600) | Climate, lights, tanks, power and solar on a side-nav rail. Landscape, larger UI variant. | RV-C CAN, ESP-NOW (broadcast + thermostat commands) |
+| **`hvac_panel`** | Waveshare ESP32-S3-Touch-LCD-4.3B | 5-screen launcher: menu → Thermostat / Power / Batteries / Tanks. Holds the coach's only EasyTouch BLE link and is the **thermostat bridge**. **No CAN.** | BLE (EasyTouch), ESP-NOW (thermostat commands in, zone telemetry out) |
 | **Bluetooth proxy basement** | ESP32-D0WD-V3 (classic ESP32, 4 MB, no PSRAM) | Headless. Holds every BLE link in the coach and re-broadcasts what it reads. | BLE (5 links), ESP-NOW broadcast |
 | **`valve_node`** *(planned)* | Waveshare ESP32-S3-ETH-8DI-8RO | Headless. Drives the two DrainMaster dump valves and reports their position. **No BLE, no CAN, no Ethernet.** | ESP-NOW unicast |
 
@@ -116,6 +127,7 @@ node regardless of role.
 | **3 × Vatrer 300 Ah LiFePO4** | BLE GATT (JBD/Xiaoxiang) | Wired **in parallel**. Each BMS is its own BLE peripheral. |
 | **Hughes Power Watchdog Gen 1** | BLE GATT | Surge protector / power monitor at the shore inlet. Receive-only. |
 | **Renogy MPPT charge controller** | BLE GATT (`BT-TH-` module) | Solar charge controller in the bay. Polled for PV watts/volts/amps, battery volts and SOC, charge state, and controller/battery temperature. Read-only. |
+| **Micro-Air EasyTouch 355** | BLE GATT (JSON) | 3-zone RV thermostat in the stool room. `hvac_panel` holds the coach's only link to it and bridges commands from the other panels. No BLE pairing — auth is an account-password write. |
 | **2 × DrainMaster Premium valves** | 12 V motor + NC magnetic reed | Grey and black dump valves, PN 5197. Driven by relay contacts wired **in parallel with the factory wall rockers**, which stay fully functional. Full wiring diagram and build spec: [DRAINMASTER-VALVES.md](DRAINMASTER-VALVES.md). |
 
 ## Memory budget
@@ -146,13 +158,26 @@ own `partitions.csv`.
 Measured on hardware from the boot log, `main_cabinet` (**non-B 7"**) on
 2026-08-28 with the 128 KiB LVGL pool in place:
 
-| Device | Internal heap free | RTC RAM | PSRAM free |
-|---|---|---|---|
-| `main_cabinet` (7B, after `board_display_init`) | ~123 KiB (125,803 B) | — | **~4.75 MiB (4,752,576 B)** |
-| `main_cabinet` (non-B 7", at boot) | 192 KiB (139 + 21 + 32) | 7 KiB | 7,054 KiB |
-| `mid_coach` | not measured | — | 8 MiB fitted |
-| `bedroom_remote` | not measured | — | 8 MiB fitted |
-| Bluetooth proxy basement | not measured | — | **none fitted** |
+All panel rows are now measured the same way — the
+`heap free after display init: internal … PSRAM …` line that both
+`board_4_3b.c` and `board_lcd7b.c` log right after `board_display_init()`
+returns. Capturing it is step 5 of [FLASHING.md](FLASHING.md)'s
+per-connection checklist, so these stay current as devices are reflashed.
+
+| Device | Internal heap free (after display init) | RTC RAM | PSRAM free | Captured |
+|---|---|---|---|---|
+| `main_cabinet` (7B) | ~108 KiB (108,531 B) | 7 KiB | **~4.47 MiB (4,685,968 B)** | v1.00-era, 2026-09-07 |
+| `main_cabinet` (non-B 7", at boot, retired) | 192 KiB (139 + 21 + 32) | 7 KiB | 7,054 KiB | 2026-08-28 |
+| `mid_coach` (4.3B) | **131 KiB (133,843 B)** | 7 KiB | **3.22 MiB (3,371,724 B)** | **v1.00, 2026-09-07** |
+| `hvac_panel` (4.3B) | **133 KiB (136,119 B)** | 7 KiB | **2.95 MiB (3,096,124 B)** | **v1.00, 2026-09-07** |
+| `bedroom_remote` (4.3B) | not measured | — | 8 MiB fitted | — |
+| Bluetooth proxy basement | not measured | — | **none fitted** | — |
+
+⚠️ `hvac_panel` has the *most* internal heap free of the 4.3B panels despite
+being the only one running Bluedroid — because its LVGL pool is 108 KiB
+rather than 128 KiB (`panels/sdkconfig.hvac_panel.defaults`), and that
+20 KiB comes straight back to the internal heap. Its PSRAM is
+correspondingly the lowest, since BT and WiFi/LWIP allocate there.
 
 The 7B row is measured on hardware (COM21, 2026-09-05) right after
 `board_display_init` returns. `board_lcd7b.c` runs `avoid_tearing`, which
@@ -190,6 +215,7 @@ failed allocation instead of failing cleanly.
 | `main_cabinet` (7B, #66) | 128 KiB | ~77,500 B (simulator, `LV_STDLIB_BUILTIN` 128 KiB) — flat across 12 nav cycles, no leak | ~50 KiB |
 | `mid_coach` | 128 KiB | 86,152 B | ~44 KiB |
 | `bedroom_remote` | 128 KiB | 66,088 B | ~65 KiB |
+| `hvac_panel` | **108 KiB** + 24 KiB expand | ~80,000 B (simulator, allocator matched) | ~28 KiB |
 
 `mid_coach` is the clearest illustration of why this is measured rather than
 assumed. Adding its battery and shore screens took it to **71,704 B** — some

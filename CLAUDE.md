@@ -57,6 +57,34 @@ build dir requires `fullclean`). Valid PANEL values = basenames of headers in
 `panels/`. Panel identity: `PANEL_INDEX` → RV-C source address `0x80 + index`;
 `mid_coach` = 0/0x80, `main_cabinet` = 3/0x83. Never reuse an index.
 
+## Firmware version + the device-connect checklist
+
+Every display panel shows its version in the status bar between the panel
+name and the right-hand readout (`MID COACH  v1.00  Grey-Black OK`) and on
+the first line of the boot log. `main/firefly_version.h`:
+**MAJOR** is global (bump ⇒ every device is stale); **MINOR** is per panel
+(`PANEL_VERSION_MINOR` in `panels/<name>.h`) — devices are *expected* to sit
+on different minors. Rendered `v%u.%02u` via `snprintf`.
+
+[docs/FLASHING.md](docs/FLASHING.md) → *Current flash status* is the
+authority on what needs reflashing: a **Last validated** column (what is
+actually on that unit) beside a **Recommended** column (what `main` builds).
+⚠️ **Bump the version and update that table in the same commit as the change.**
+
+⚠️ **Every time a device is connected** to flash, test or monitor, run the
+checklist in [docs/FLASHING.md](docs/FLASHING.md) → *Every time a device is
+connected*: capture the MAC, flash, **listen to the log for 15 seconds** and
+confirm a clean boot, capture the memory footprint and feature inventory, and
+update the version table. A flash nobody watched boot is not a flash that
+worked.
+
+⚠️ **Credentials never enter a committed file.** Device MACs, ESP-NOW
+PMK/LMK, BLE peer addresses and the EasyTouch account password live only in
+the gitignored `DEVICES.local.md` and each `build_<panel>/sdkconfig` — see
+*Local machine setup* in the flashing guide. Committed docs name devices by
+role. Run `git grep -nEi "([0-9a-f]{2}:){5}[0-9a-f]{2}"` before a docs commit;
+it should return only `AA:BB:CC:DD:EE:FF` placeholders.
+
 Sniffer mode (log every RV-C frame — how the instance map gets verified):
 `idf.py menuconfig` → *Firefly Touch Panel* → *RV-C sniffer mode*, or add
 `CONFIG_FIREFLY_SNIFFER_MODE=y` to `sdkconfig.defaults` for a bench build.
@@ -586,10 +614,11 @@ becomes several tiny frames (mode / cool_sp / heat_sp).
   `FIREFLY_ESPNOW_RX_PEER_MAC_1/_2` (extra nodes to *decrypt from*, not send
   to — hvac_panel lists bedroom_remote + main_cabinet). Any left at the
   `AA:BB:CC:DD:EE:FF` placeholder are skipped.
-- Coach MACs: hvac_panel `94:a9:90:ca:fd:38`, bedroom_remote
-  `44:1b:f6:8d:00:7c`, mid_coach `44:1b:f6:ca:4c:b4`, main_cabinet (7B)
-  `44:1b:f6:8e:d5:7c` (read via esptool 2026-09-07, now in `hvac_panel`'s
-  `RX_PEER_MAC_2`).
+- ⚠️ **Real MACs are NOT recorded here.** Every device's MAC, the ESP-NOW
+  PMK/LMK, the EasyTouch account password and the BLE peer addresses live in
+  **`DEVICES.local.md`** (gitignored) and in each `build_<panel>/sdkconfig`.
+  Committed files name devices by role only. See
+  [docs/FLASHING.md](docs/FLASHING.md) → *Local machine setup*.
 - PMK/LMK stay on the shared placeholder defaults (`firefly-pmk-0001` /
   `firefly-lmk-0001`) across every panel — encrypted unicast between them
   works with no key edit.

@@ -254,6 +254,12 @@ esp_err_t board_display_init(void)
     ESP_RETURN_ON_ERROR(lvgl_init(), TAG, "lvgl");
 
     ESP_RETURN_ON_ERROR(board_backlight_set_percent(100), TAG, "backlight");
+    /* Same measurement board_lcd7b.c logs, so every panel's memory footprint
+     * is captured the same way at flash time (docs/FLASHING.md's per-device
+     * checklist feeds docs/SYSTEM.md's memory-budget tables from this line). */
+    ESP_LOGI(TAG, "heap free after display init: internal %u B, PSRAM %u B",
+             (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL),
+             (unsigned)heap_caps_get_free_size(MALLOC_CAP_SPIRAM));
     ESP_LOGI(TAG, "display up: 800x480 RGB565, GT911 touch, LVGL on core 1");
     return ESP_OK;
 }

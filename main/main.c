@@ -23,6 +23,7 @@
 #include "esp_log.h"
 
 #include "board.h"
+#include "firefly_version.h"
 #include "panel_config.h"
 #include "ui.h"
 
@@ -336,7 +337,8 @@ static void tank_telemetry_timer_cb(TimerHandle_t t)
 
 void app_main(void)
 {
-    ESP_LOGI(TAG, "firefly-touch panel '%s' (index %d)", PANEL_NAME, PANEL_INDEX);
+    ESP_LOGI(TAG, "firefly-touch panel '%s' (index %d) " FIREFLY_VERSION_FMT,
+             PANEL_NAME, PANEL_INDEX, FIREFLY_VERSION_ARGS);
 
     /* Display + touch + LVGL (core 1). */
     ESP_ERROR_CHECK(board_display_init());
