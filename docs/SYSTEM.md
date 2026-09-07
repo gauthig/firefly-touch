@@ -148,11 +148,15 @@ checklist, so these stay current as devices are reflashed.
 | Device | App image | Partition | Used | Free | Captured |
 |---|---|---|---|---|---|
 | `main_cabinet` (7B) | 1,299,616 B (1.24 MiB) | 4 MiB | 31.0 % | **2.76 MiB (2,895,200 B)** | **v1.00, 2026-09-07** |
-| `mid_coach` | 1,284,256 B (1.22 MiB) | 4 MiB | 30.6 % | **2.78 MiB (2,913,616 B)** | **v1.00, 2026-09-07** |
+| `mid_coach` | 1,289,888 B (1.23 MiB) | 4 MiB | 30.8 % | **2.77 MiB (2,904,416 B)** | **v1.00, 2026-09-07** |
 | `bedroom_remote` | 1,280,176 B (1.22 MiB) | 4 MiB | 30.5 % | **2.78 MiB (2,913,616 B)** | **v1.00, 2026-09-07** |
-| `hvac_panel` | ~1,286,000 B (1.23 MiB) | 4 MiB | ~30.7 % | **~2.78 MiB** | **v1.00, 2026-09-07** |
+| `hvac_panel` | **1,549,840 B (1.48 MiB)** | 4 MiB | **37.0 %** | **2.52 MiB (2,643,952 B)** | **v1.00, 2026-09-07** |
 | `main_cabinet` (non-B, retired) | 1,280,352 B (1.22 MiB) | 4 MiB | 30.5 % | 2.78 MiB | 2026-08-28 |
 | Bluetooth proxy basement | 1,125,760 B (1.07 MiB) | 3 MiB | 35.8 % | 1.93 MiB |
+
+⚠️ **`hvac_panel` is ~260 KB larger than the other panels** — it is the only
+one linking Bluedroid (the EasyTouch BLE client), which costs it ~6 points of
+partition headroom. Still 2.5 MiB free, but it is the panel to watch.
 
 The proxy is the tightest, and deliberately so: a Bluedroid + WiFi build
 overruns the IDF default 1 MB app partition, which is why `proxy/` carries its
