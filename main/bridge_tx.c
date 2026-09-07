@@ -2,6 +2,41 @@
 
 #include "panel_config.h"
 
+#if PANEL_HAS_EASYTOUCH
+#include "easytouch_client.h"
+#endif
+#if PANEL_WANTS_HVAC_CONTROL
+#include "espnow_link.h"
+#endif
+
+#if PANEL_HAS_THERMOSTAT
+bool bridge_enqueue_hvac_change(const easytouch_change_t *change)
+{
+#if PANEL_HAS_EASYTOUCH
+    return easytouch_client_submit_change(change);
+#elif PANEL_WANTS_HVAC_CONTROL
+    bool sent = false;
+    espnow_hvac_cmd_msg_t m = { .zone = change->zone };
+    if (change->set_mode) {
+        m.op = ESPNOW_HVAC_OP_SET_MODE;    m.arg = change->mode;
+        sent |= espnow_link_send_hvac_cmd(&m);
+    }
+    if (change->set_cool_sp) {
+        m.op = ESPNOW_HVAC_OP_SET_COOL_SP; m.arg = change->cool_sp;
+        sent |= espnow_link_send_hvac_cmd(&m);
+    }
+    if (change->set_heat_sp) {
+        m.op = ESPNOW_HVAC_OP_SET_HEAT_SP; m.arg = change->heat_sp;
+        sent |= espnow_link_send_hvac_cmd(&m);
+    }
+    return sent;
+#else
+    (void)change;
+    return false;
+#endif
+}
+#endif
+
 #if PANEL_HAS_CAN
 
 #include "twai_tasks.h"

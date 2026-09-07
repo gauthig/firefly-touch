@@ -10,7 +10,8 @@ PSRAM, GT911 touch on I2C, CH422G IO expander, TJA1051 CAN transceiver,
 7-36 V input. Three board configs, two compiled today:
 
 - Waveshare **ESP32-S3-Touch-LCD-4.3B** — 4.3" 800x480, run rotated to
-  portrait. `mid_coach`, `ent_center`, `bedroom_remote`. (`board_4_3b`)
+  portrait. `mid_coach`, `ent_center`, `bedroom_remote`, `hvac_panel`.
+  (`board_4_3b`)
 - Waveshare **ESP32-S3-Touch-LCD-7B** — 7" 1024x600, run landscape.
   `main_cabinet`. (`board_lcd7b`, `BOARD_LCD7B`; issue #66)
 - Waveshare **ESP32-S3-Touch-LCD-7** (non-B) — 7" 800x480 EK9716. Was
@@ -538,6 +539,153 @@ is already fixed).
   were deleted outright rather than left as dead code.
   See *Dual screens* below for how screen 2 picks this layout vs. the tank
   one.
+
+## EasyTouch RV thermostat — `hvac_panel` (issue #72)
+
+Micro-Air EasyTouch RV thermostat (a **355**, 3 zones). The one BLE link
+lives on **`hvac_panel`** — the ex-`hvac_capture` Waveshare 4.3B, **installed
+in the stool room at the Firefly G6**. ⚠️ Not on the basement proxy: the
+thermostat is on an interior wall, the proxy is behind a steel bay door.
+`hvac_panel` is the coach's **thermostat bridge** (Option B, like `mid_coach`
+is for lights): it controls the thermostat from its own screen, **broadcasts
+each zone** (`ESPNOW_TELEM_HVAC`) so other panels can display it, and
+**accepts `ESPNOW_FRAME_HVAC_CMD`** from `bedroom_remote` / `main_cabinet`,
+feeding them to its local client. It sends no unicast itself. Full protocol +
+captures + the "as built" section:
+[docs/EASYTOUCH-THERMOSTAT.md](docs/EASYTOUCH-THERMOSTAT.md) (§10).
+
+### Capability flags (`main/panel_config.h`)
+
+| flag | meaning | who |
+|---|---|---|
+| `PANEL_HAS_THERMOSTAT` | carries a `PANEL_BTN_THERMOSTAT` widget + `ui_on_hvac_status()` display path | hvac_panel, bedroom_remote, main_cabinet |
+| `PANEL_HAS_EASYTOUCH` | ...and runs the BLE client locally (`components/easytouch`, `ble_host`). Implies `PANEL_HAS_THERMOSTAT`. | hvac_panel |
+| `PANEL_HVAC_BRIDGE` | ...and accepts `ESPNOW_FRAME_HVAC_CMD` from other panels → local client. Requires `PANEL_HAS_EASYTOUCH`. | hvac_panel |
+| `PANEL_WANTS_HVAC_CONTROL` | display-only thermostat panel that sends changes to the bridge over ESP-NOW (needs `FIREFLY_ESPNOW_HVAC_PEER_MAC`). Requires `PANEL_HAS_THERMOSTAT` and NOT `PANEL_HAS_EASYTOUCH`. | bedroom_remote, main_cabinet |
+
+`main/bridge_tx.c` `bridge_enqueue_hvac_change()` is the one place `ui_thermostat`'s
+controls call: resolves at build time to `easytouch_client_submit_change()`
+(local) or `espnow_link_send_hvac_cmd()` (to the bridge). `ui.c` never
+branches on role. On a control panel a change with several `set_*` flags
+becomes several tiny frames (mode / cool_sp / heat_sp).
+
+### ESP-NOW additions (wire format UNCHANGED — both `_Static_assert`s stay green)
+
+- `ESPNOW_TELEM_HVAC = 5` + `espnow_hvac_msg_t` — exactly 16 bytes, fits the
+  telemetry union slot. One frame per zone, `hvac_panel` broadcasts every
+  `CONFIG_FIREFLY_HVAC_BROADCAST_INTERVAL_MS` (default 30 s). A viewing panel
+  rebuilds the whole `easytouch_status_t` in `main.c`'s `remote_telem_rx`
+  and ages it out on silence (3x), like battery/shore/solar.
+- `ESPNOW_FRAME_HVAC_CMD = 4` + `espnow_hvac_cmd_msg_t` (4 bytes) — rides the
+  existing 16-byte control frame's union. `op` = SET_MODE / SET_COOL_SP /
+  SET_HEAT_SP; `arg` = the value.
+- **Multi-peer.** `espnow_link` no longer keys peers off `role`. Kconfig MACs
+  (in each project's `main/Kconfig.projbuild`; `#ifndef` fallbacks in
+  `espnow_link.c` for `proxy/` / `valves/`):
+  `FIREFLY_ESPNOW_PEER_MAC` (dimmer bridge, `send_cmd`),
+  `FIREFLY_ESPNOW_HVAC_PEER_MAC` (thermostat bridge, `send_hvac_cmd`),
+  `FIREFLY_ESPNOW_RX_PEER_MAC_1/_2` (extra nodes to *decrypt from*, not send
+  to — hvac_panel lists bedroom_remote + main_cabinet). Any left at the
+  `AA:BB:CC:DD:EE:FF` placeholder are skipped.
+- Coach MACs: hvac_panel `94:a9:90:ca:fd:38`, bedroom_remote
+  `44:1b:f6:8d:00:7c`, mid_coach `44:1b:f6:ca:4c:b4`, main_cabinet (7B)
+  `44:1b:f6:8e:d5:7c` (read via esptool 2026-09-07, now in `hvac_panel`'s
+  `RX_PEER_MAC_2`).
+- PMK/LMK stay on the shared placeholder defaults (`firefly-pmk-0001` /
+  `firefly-lmk-0001`) across every panel — encrypted unicast between them
+  works with no key edit.
+
+### hvac_panel screens
+
+**5 screens** (`PANEL_HAS_SCREEN_5`, mirrors `_4` verbatim): screen 0 is a
+launcher menu of `PANEL_BTN_SCREEN_SWITCH` buttons; 1 Thermostat, 2 Power,
+3 Batteries, 4 Tanks, each with BACK. `idle_timer_cb` returns to
+`PANEL_DEFAULT_SCREEN 0` (the menu). `bedroom_remote` gets a Thermostat
+screen 3 (the old spacer slot on the grid is now the nav button);
+`main_cabinet` gets a CLIMATE rail section (screen index 4 =
+`PANEL_BUTTONS_5`; `PANEL_BUTTONS_N` lays out screen N-1).
+- `components/easytouch` — `easytouch_protocol.c` (pure-C JSON codec,
+  host-tested like `rvc_protocol`) + `easytouch_client.c` (Bluedroid GATTC:
+  connect → auth `Matched` → drain per-zone Change queue → Get Status →
+  **disconnect**, every `CONFIG_FIREFLY_EASYTOUCH_POLL_INTERVAL_MS`; MAC
+  pinned after first name-scan; `BLE_HOST_APP_ID_EASYTOUCH 30`;
+  poll-and-release so the phone app stays usable). No command ack — the next
+  status is the confirmation, same as RV-C dimmers.
+- `PANEL_BTN_THERMOSTAT` → `components/ui_common/ui_thermostat.c`: 3 zone
+  cards (inside °F, mode via a **tap-to-open picker popup** Off/Fan/Cool/Heat/
+  Aqua/Auto, the mode's fan, setpoint with −/+). **Per-zone off is `mode:0`** —
+  the widget never sends a `power` key (that is system-wide).
+  - **Optimistic UI:** setpoint −/+ moves the shown value instantly and
+    accumulates; one debounced Change goes out ~0.65 s after the last tap.
+    Pending values show amber, turn white when the next status/broadcast
+    confirms; a `PENDING_STALE_MS` (25 s) fallback drops the override if the
+    command was lost. This is a deliberate departure from the strict
+    status-driven rule (right for dimmers, wrong for a spinner).
+  - The **mode picker is built once** on `lv_layer_top()` and shown/hidden
+    like the idle-dim overlay — NOT rebuilt per tap (that flickered on the
+    RGB panel and, deleting it from a child button's callback, fell through
+    to the BACK button underneath).
+  - `ui_on_hvac_status()` (`main/ui/ui.c`) caches; `hvac_status_timer_cb`
+    repaints and owns staleness. On hvac_panel `main.c`'s `hvac_pump_timer_cb`
+    pumps the client in every second (and broadcasts every 30 s); on a
+    control panel `main.c`'s `remote_telem_rx` feeds broadcasts in.
+  - `easytouch_client.c` `submit_change()` schedules the reconnect ~1.2 s
+    out (not *now*) to dodge the HCI-0x3e "failed to establish" retry.
+- ⚠️ **LVGL task stack.** The thermostat widget is the deepest object tree
+  in the project and overflows the default 8 KiB LVGL render stack —
+  intermittently, presenting as "the screen blinks and jumps to the menu"
+  (task-WDT reboot to screen 0). `components/board/board_4_3b.c` honours
+  `BOARD_LVGL_TASK_STACK` / `BOARD_LVGL_TASK_STACK_PSRAM`, and
+  `components/board/CMakeLists.txt` sets **24 KiB in PSRAM** for `hvac_panel`
+  and `bedroom_remote` (keyed on `PANEL`) — zero internal-DRAM cost
+  (`SPIRAM_ALLOW_STACK_EXTERNAL_MEMORY` + `FREERTOS_TASK_CREATE_ALLOW_EXT_MEM`
+  are on). Measured LVGL heap peak for the 5-screen UI + popup: ~80 KiB.
+- Mode enum (bench-confirmed, §8b/§8c): 0 off, 1 fan, 2 cool, **4 Aqua-Hot**,
+  **7 electric heat** (touchscreen labels it Heat Pump *or* Heat Strip per
+  zone — protocol has one value), 11 auto. `current_mode`: 0 idle,
+  2 cooling, 4 heating (either source).
+- ⚠️ **BLE 4.2 required.** `easytouch_client` uses `ble_host`'s GAP scan,
+  whose `esp_ble_gap_*scan*` calls are the legacy 4.2 API and are **not
+  linked** under the S3 default `BT_BLE_50_FEATURES_SUPPORTED` (link:
+  "undefined reference to esp_ble_gap_set_scan_params"). `jbd_bms_client`
+  never hit this because it connects by fixed MAC and `--gc-sections` drops
+  its scan code. `build_hvac_panel/sdkconfig` sets
+  `CONFIG_BT_BLE_42_FEATURES_SUPPORTED=y` / `_50_=n` (edited in place, same
+  workaround as `hvac_capture/sdkconfig.defaults`). A real ext-scan branch
+  in `ble_host.c` is deferred shared-component work.
+- ⚠️ **First panel to run Bluedroid + WiFi + LVGL together** — the default
+  config boot-loops on internal-RAM exhaustion (`BTU_StartUp Unable to
+  allocate resources for bt_workqueue`). `build_hvac_panel/sdkconfig` moves
+  Bluedroid + WiFi/LWIP allocations to PSRAM
+  (`BT_ALLOCATION_FROM_SPIRAM_FIRST`, `SPIRAM_TRY_ALLOCATE_WIFI_LWIP`),
+  trims the WiFi RX/TX buffer counts, turns off `BT_GATTS_ENABLE` and
+  `BT_SMP_ENABLE` (client-only, no pairing), right-sizes the BLE connection
+  count, sets `LV_MEM_SIZE_KILOBYTES` 108 with a 24 KiB expansion pool.
+  **~11 in-place `sdkconfig` edits — see `CLAUDE.local.md`; do not regenerate
+  that file.** ⚠️ The LVGL pool is a **static internal `.bss` array** here
+  (`LV_ATTRIBUTE_LARGE_RAM_ARRAY` empty), so `LV_MEM_SIZE` trades directly
+  against Bluedroid's internal budget — if the UI outgrows it, move the pool
+  to PSRAM rather than shrink Bluedroid.
+- ⚠️ **The real thermostat pretty-prints its JSON** — TAB after every `:`,
+  NEWLINE between entries (`"Z_sts":\t{`, `"0":\t[`). The first parser
+  skipped only `:`/` `, so a real 410-byte status read as "0 zones".
+  `easytouch_parse_status()` now skips `\t`/`\n`; `k_real_status_355` in
+  `host_test/test_easytouch.c` is the captured frame.
+- `CONFIG_FIREFLY_EASYTOUCH_PASSWORD` (the Micro-Air account password) is a
+  per-build-dir secret — `build_hvac_panel/sdkconfig` only, **never**
+  `sdkconfig.defaults`. Same for the zone-name Kconfigs' real values.
+- Sim: `sim_stubs.c` `hvac_sweep_timer_cb` + `bridge_enqueue_hvac_change()`
+  fake the feed and the round trip through `ui_on_hvac_status()` (gated on
+  `PANEL_HAS_THERMOSTAT`, so bedroom_remote / main_cabinet sims exercise it
+  too). `easytouch_protocol.c` compiles straight into the sim. Capture with
+  `.\build.ps1 -Panel <panel> -Shot x.bmp -Section THERMOSTAT` (bedroom_remote)
+  / `-Section CLIMATE` (main_cabinet) / `-Section THERMOSTAT` etc.
+- **Bench-verified 2026-09-06** on real hardware: hvac_panel (COM23) +
+  bedroom_remote (COM11). Thermostat screen shows all 3 zones on both;
+  bedroom_remote's mode/setpoint controls actuate the real thermostat
+  through hvac_panel (`main: hvac cmd from panel: zone 0 op 0 arg 0` logged
+  on hvac_panel, applied on the next BLE poll). No stack overflow, no
+  boot loop. main_cabinet coded but not flashed (not connected).
 
 ## Basement BLE proxy + broadcast telemetry (issues #33/#34)
 

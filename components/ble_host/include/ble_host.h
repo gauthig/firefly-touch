@@ -53,14 +53,21 @@ extern "C" {
  *   0, 1, 2  jbd_bms_client — one app per battery slot, app_id == slot index
  *   10       hughes_wd_client — the Power Watchdog
  *   20       renogy_solar_client — the MPPT charge controller via its BT-2
+ *   30       easytouch_client — the Micro-Air EasyTouch RV thermostat
  *
  * Leave a gap after the batteries: their IDs are slot indices, so a fourth
  * pack would want 3. The others are spaced by 10 for the same reason —
  * room to grow without renumbering anything already deployed.
+ *
+ * The proxy runs 0/1/2/10/20; the hvac_panel runs 30 on its own node. They
+ * are recorded together because the allocation is per *project* only by
+ * accident — keep every id distinct so a future node that runs several
+ * clients at once inherits a clean namespace.
  */
 #define BLE_HOST_APP_ID_BATTERY_BASE 0
 #define BLE_HOST_APP_ID_WATCHDOG     10
 #define BLE_HOST_APP_ID_SOLAR        20
+#define BLE_HOST_APP_ID_EASYTOUCH    30
 
 /*
  * Brings up the BT controller (BLE mode) and Bluedroid, and registers the

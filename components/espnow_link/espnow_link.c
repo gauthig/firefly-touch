@@ -15,6 +15,24 @@
 #include "nvs_flash.h"
 #include "sdkconfig.h"
 
+/*
+ * The named-peer Kconfig lives in each *project's* main/Kconfig.projbuild
+ * (that is how FIREFLY_ESPNOW_PEER_MAC etc. have always worked -- proxy/ and
+ * valves/ carry their own copies). Projects that don't need the thermostat
+ * bridge just never define these three, so fall back to the placeholder,
+ * which configured_mac() then rejects -- no peer is added, behaviour
+ * unchanged.
+ */
+#ifndef CONFIG_FIREFLY_ESPNOW_HVAC_PEER_MAC
+#define CONFIG_FIREFLY_ESPNOW_HVAC_PEER_MAC "AA:BB:CC:DD:EE:FF"
+#endif
+#ifndef CONFIG_FIREFLY_ESPNOW_RX_PEER_MAC_1
+#define CONFIG_FIREFLY_ESPNOW_RX_PEER_MAC_1 "AA:BB:CC:DD:EE:FF"
+#endif
+#ifndef CONFIG_FIREFLY_ESPNOW_RX_PEER_MAC_2
+#define CONFIG_FIREFLY_ESPNOW_RX_PEER_MAC_2 "AA:BB:CC:DD:EE:FF"
+#endif
+
 static const char *TAG = "espnow_link";
 
 #define ESPNOW_TASK_CORE        0
@@ -27,20 +45,22 @@ typedef enum {
     ESPNOW_FRAME_CMD = 1,
     ESPNOW_FRAME_STATUS = 2,
     ESPNOW_FRAME_TELEMETRY = 3,
+    ESPNOW_FRAME_HVAC_CMD = 4,
 } espnow_frame_type_t;
 
 /*
- * Control frame (command/status). ⚠️ ITS SIZE IS PART OF THE WIRE FORMAT --
- * the RX path validates length, so growing this struct makes new firmware
- * incompatible with any node still running the old build, silently (frames
- * are just dropped). Telemetry therefore lives in its own frame below
- * rather than being bolted onto this union. Don't merge them.
+ * Control frame (command/status/hvac-command). ⚠️ ITS SIZE IS PART OF THE
+ * WIRE FORMAT -- the RX path validates length, so growing this struct makes
+ * new firmware incompatible with any node still running the old build,
+ * silently (frames are just dropped). New command kinds go in the union as
+ * long as they fit; telemetry stays in its own frame below. Don't merge them.
  */
 typedef struct {
     uint8_t type;
     union {
-        espnow_cmd_msg_t    cmd;
-        espnow_status_msg_t status;
+        espnow_cmd_msg_t      cmd;
+        espnow_status_msg_t   status;
+        espnow_hvac_cmd_msg_t hvac_cmd;
     };
 } espnow_frame_t;
 
@@ -81,6 +101,14 @@ _Static_assert(sizeof(espnow_telem_frame_t) == 20,
                "espnow telemetry frame size changed -- broadcasts from nodes "
                "still on older firmware will be dropped as malformed");
 
+/* The HVAC additions must NOT grow either frame: espnow_hvac_msg_t fits the
+ * 16-byte telemetry union slot, espnow_hvac_cmd_msg_t fits the 16-byte
+ * control frame. If either assert above fires after touching these, shrink
+ * the new struct -- do not bump a frame size. */
+_Static_assert(sizeof(espnow_hvac_msg_t) == 16, "espnow_hvac_msg_t must be 16 bytes");
+_Static_assert(sizeof(espnow_hvac_cmd_msg_t) <= sizeof(espnow_cmd_msg_t),
+               "espnow_hvac_cmd_msg_t must fit the existing control-frame union");
+
 /* Big enough for the largest frame; the queue carries raw bytes + length so
  * adding another frame type later doesn't require touching the queue. */
 #define RX_ITEM_MAX 48
@@ -92,8 +120,13 @@ typedef struct {
 static const uint8_t k_broadcast_mac[6] = { 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF };
 
 static QueueHandle_t s_rx_queue;
-static uint8_t s_peer_mac[6];
-static bool    s_have_unicast_peer;
+
+/* Named unicast targets. Extra receive-only peers (RX_PEER_MAC_1/_2) are
+ * added to the esp_now table but not tracked here -- nothing sends to them. */
+static uint8_t s_cmd_peer[6];
+static bool    s_have_cmd_peer;
+static uint8_t s_hvac_peer[6];
+static bool    s_have_hvac_peer;
 
 static espnow_cmd_rx_cb_t s_cmd_cb;
 static void *s_cmd_cb_ctx;
@@ -101,6 +134,8 @@ static espnow_status_rx_cb_t s_status_cb;
 static void *s_status_cb_ctx;
 static espnow_telem_rx_cb_t s_telem_cb;
 static void *s_telem_cb_ctx;
+static espnow_hvac_cmd_rx_cb_t s_hvac_cmd_cb;
+static void *s_hvac_cmd_cb_ctx;
 
 /* 32-bit aligned tick write/read is atomic on Xtensa; no lock needed
  * (same pattern as state_manager_bus_healthy()). */
@@ -132,6 +167,39 @@ static bool parse_mac(const char *str, uint8_t mac[6])
     return true;
 }
 
+/* True and fills `mac` only for a real, configured MAC -- not the
+ * AA:BB:CC:DD:EE:FF placeholder and not all-zero. */
+static bool configured_mac(const char *str, uint8_t mac[6])
+{
+    static const uint8_t placeholder[6] = { 0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF };
+    static const uint8_t zero[6] = { 0 };
+    uint8_t tmp[6];
+    if (!parse_mac(str, tmp)) {
+        return false;
+    }
+    if (memcmp(tmp, placeholder, 6) == 0 || memcmp(tmp, zero, 6) == 0) {
+        return false;
+    }
+    memcpy(mac, tmp, 6);
+    return true;
+}
+
+static void add_encrypted_peer(const uint8_t mac[6])
+{
+    esp_now_peer_info_t peer = {0};
+    memcpy(peer.peer_addr, mac, 6);
+    peer.channel = CONFIG_FIREFLY_ESPNOW_CHANNEL;
+    peer.ifidx = WIFI_IF_STA;
+    peer.encrypt = true;
+    copy_key(peer.lmk, sizeof(peer.lmk), CONFIG_FIREFLY_ESPNOW_LMK);
+    const esp_err_t err = esp_now_add_peer(&peer);
+    if (err != ESP_OK && err != ESP_ERR_ESPNOW_EXIST) {
+        ESP_LOGW(TAG, "add_peer %02X:%02X:%02X:%02X:%02X:%02X failed: %s",
+                 mac[0], mac[1], mac[2], mac[3], mac[4], mac[5],
+                 esp_err_to_name(err));
+    }
+}
+
 /* Runs in the WiFi driver's internal task context — never blocks, just
  * hands the frame to espnow_rx_task like twai_rx_task does for the bus. */
 /* Expected wire length for a frame type, or 0 if the type is unknown. */
@@ -140,6 +208,7 @@ static size_t expected_len(uint8_t type)
     switch (type) {
     case ESPNOW_FRAME_CMD:
     case ESPNOW_FRAME_STATUS:
+    case ESPNOW_FRAME_HVAC_CMD:
         return sizeof(espnow_frame_t);
     case ESPNOW_FRAME_TELEMETRY:
         return sizeof(espnow_telem_frame_t);
@@ -206,16 +275,19 @@ static void espnow_rx_task(void *arg)
             s_cmd_cb(&frame.cmd, s_cmd_cb_ctx);
         } else if (frame.type == ESPNOW_FRAME_STATUS && s_status_cb != NULL) {
             s_status_cb(&frame.status, s_status_cb_ctx);
+        } else if (frame.type == ESPNOW_FRAME_HVAC_CMD && s_hvac_cmd_cb != NULL) {
+            s_hvac_cmd_cb(&frame.hvac_cmd, s_hvac_cmd_cb_ctx);
         }
     }
 }
 
-static bool espnow_send_frame(const espnow_frame_t *frame)
+static bool espnow_send_frame_to(const uint8_t *peer, bool have_peer,
+                                 const espnow_frame_t *frame)
 {
-    if (!s_have_unicast_peer) {
-        return false;   /* telemetry-only node has no control peer */
+    if (!have_peer) {
+        return false;
     }
-    const esp_err_t err = esp_now_send(s_peer_mac, (const uint8_t *)frame, sizeof(*frame));
+    const esp_err_t err = esp_now_send(peer, (const uint8_t *)frame, sizeof(*frame));
     if (err != ESP_OK) {
         ESP_LOGW(TAG, "esp_now_send failed: %s", esp_err_to_name(err));
         return false;
@@ -240,14 +312,21 @@ bool espnow_link_send_cmd(const espnow_cmd_msg_t *msg)
 {
     espnow_frame_t frame = { .type = ESPNOW_FRAME_CMD };
     frame.cmd = *msg;
-    return espnow_send_frame(&frame);
+    return espnow_send_frame_to(s_cmd_peer, s_have_cmd_peer, &frame);
 }
 
 bool espnow_link_send_status(const espnow_status_msg_t *msg)
 {
     espnow_frame_t frame = { .type = ESPNOW_FRAME_STATUS };
     frame.status = *msg;
-    return espnow_send_frame(&frame);
+    return espnow_send_frame_to(s_cmd_peer, s_have_cmd_peer, &frame);
+}
+
+bool espnow_link_send_hvac_cmd(const espnow_hvac_cmd_msg_t *msg)
+{
+    espnow_frame_t frame = { .type = ESPNOW_FRAME_HVAC_CMD };
+    frame.hvac_cmd = *msg;
+    return espnow_send_frame_to(s_hvac_peer, s_have_hvac_peer, &frame);
 }
 
 bool espnow_link_healthy(void)
@@ -276,6 +355,12 @@ void espnow_link_set_telem_rx_cb(espnow_telem_rx_cb_t cb, void *ctx)
     s_telem_cb_ctx = ctx;
 }
 
+void espnow_link_set_hvac_cmd_rx_cb(espnow_hvac_cmd_rx_cb_t cb, void *ctx)
+{
+    s_hvac_cmd_cb = cb;
+    s_hvac_cmd_cb_ctx = ctx;
+}
+
 static const char *role_str(espnow_role_t role)
 {
     switch (role) {
@@ -288,14 +373,15 @@ static const char *role_str(espnow_role_t role)
 
 esp_err_t espnow_link_init(espnow_role_t role)
 {
-    /* A telemetry-only producer broadcasts and never unicasts, so it has no
-     * peer to configure -- don't fail it for a placeholder MAC it will
-     * never use. */
-    const bool wants_unicast = (role != ESPNOW_ROLE_TELEMETRY);
-    if (wants_unicast && !parse_mac(CONFIG_FIREFLY_ESPNOW_PEER_MAC, s_peer_mac)) {
-        ESP_LOGE(TAG, "bad CONFIG_FIREFLY_ESPNOW_PEER_MAC '%s' (expected AA:BB:CC:DD:EE:FF)",
+    /* Peers come from Kconfig MACs, not from `role`. A REMOTE panel genuinely
+     * needs its dimmer bridge, so warn loudly if that one is unset; everyone
+     * else may legitimately have no send-peer. */
+    s_have_cmd_peer  = configured_mac(CONFIG_FIREFLY_ESPNOW_PEER_MAC, s_cmd_peer);
+    s_have_hvac_peer = configured_mac(CONFIG_FIREFLY_ESPNOW_HVAC_PEER_MAC, s_hvac_peer);
+    if (role == ESPNOW_ROLE_REMOTE && !s_have_cmd_peer) {
+        ESP_LOGW(TAG, "role=remote but FIREFLY_ESPNOW_PEER_MAC is unset "
+                      "('%s') -- dimmer commands will go nowhere",
                  CONFIG_FIREFLY_ESPNOW_PEER_MAC);
-        return ESP_ERR_INVALID_ARG;
     }
 
     esp_err_t err = nvs_flash_init();
@@ -330,15 +416,21 @@ esp_err_t espnow_link_init(espnow_role_t role)
     ESP_ERROR_CHECK(esp_now_set_pmk(pmk));
     ESP_ERROR_CHECK(esp_now_register_recv_cb(espnow_recv_cb));
 
-    if (wants_unicast) {
-        esp_now_peer_info_t peer = {0};
-        memcpy(peer.peer_addr, s_peer_mac, sizeof(s_peer_mac));
-        peer.channel = CONFIG_FIREFLY_ESPNOW_CHANNEL;
-        peer.ifidx = WIFI_IF_STA;
-        peer.encrypt = true;
-        copy_key(peer.lmk, sizeof(peer.lmk), CONFIG_FIREFLY_ESPNOW_LMK);
-        ESP_ERROR_CHECK(esp_now_add_peer(&peer));
-        s_have_unicast_peer = true;
+    /* Every real unicast MAC becomes an encrypted peer: the two send targets
+     * (cmd/hvac) plus up to two extra receive-only peers, so a bridge that
+     * serves several panels can decrypt from all of them. */
+    if (s_have_cmd_peer) {
+        add_encrypted_peer(s_cmd_peer);
+    }
+    if (s_have_hvac_peer) {
+        add_encrypted_peer(s_hvac_peer);
+    }
+    uint8_t rx_mac[6];
+    if (configured_mac(CONFIG_FIREFLY_ESPNOW_RX_PEER_MAC_1, rx_mac)) {
+        add_encrypted_peer(rx_mac);
+    }
+    if (configured_mac(CONFIG_FIREFLY_ESPNOW_RX_PEER_MAC_2, rx_mac)) {
+        add_encrypted_peer(rx_mac);
     }
 
     /* Broadcast peer, needed to SEND telemetry. Receiving broadcasts needs
@@ -360,15 +452,18 @@ esp_err_t espnow_link_init(espnow_role_t role)
         return ESP_ERR_NO_MEM;
     }
 
-    if (wants_unicast) {
-        ESP_LOGI(TAG, "ESP-NOW link up (%s), peer %02X:%02X:%02X:%02X:%02X:%02X, channel %d",
-                 role_str(role),
-                 s_peer_mac[0], s_peer_mac[1], s_peer_mac[2],
-                 s_peer_mac[3], s_peer_mac[4], s_peer_mac[5],
-                 CONFIG_FIREFLY_ESPNOW_CHANNEL);
-    } else {
-        ESP_LOGI(TAG, "ESP-NOW up (%s), broadcast only, channel %d",
-                 role_str(role), CONFIG_FIREFLY_ESPNOW_CHANNEL);
+    ESP_LOGI(TAG, "ESP-NOW up (%s), channel %d, cmd-peer %s, hvac-peer %s",
+             role_str(role), CONFIG_FIREFLY_ESPNOW_CHANNEL,
+             s_have_cmd_peer ? "set" : "-", s_have_hvac_peer ? "set" : "-");
+    if (s_have_cmd_peer) {
+        ESP_LOGI(TAG, "  cmd  -> %02X:%02X:%02X:%02X:%02X:%02X",
+                 s_cmd_peer[0], s_cmd_peer[1], s_cmd_peer[2],
+                 s_cmd_peer[3], s_cmd_peer[4], s_cmd_peer[5]);
+    }
+    if (s_have_hvac_peer) {
+        ESP_LOGI(TAG, "  hvac -> %02X:%02X:%02X:%02X:%02X:%02X",
+                 s_hvac_peer[0], s_hvac_peer[1], s_hvac_peer[2],
+                 s_hvac_peer[3], s_hvac_peer[4], s_hvac_peer[5]);
     }
     return ESP_OK;
 }

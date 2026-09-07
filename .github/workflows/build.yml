@@ -84,6 +84,11 @@ jobs:
         run: |
           gcc -Wall -Wextra -Werror -I../include ../valve_control.c test_valve_control.c -o test_valve_control
           ./test_valve_control
+      - name: Compile and run easytouch tests
+        working-directory: components/easytouch/host_test
+        run: |
+          gcc -Wall -Wextra -Werror -I../include ../easytouch_protocol.c test_easytouch.c -o test_easytouch
+          ./test_easytouch
 
   # The basement BLE proxy is a separate project on a different chip
   # (classic ESP32, not the panels' S3), so the panel matrix above cannot

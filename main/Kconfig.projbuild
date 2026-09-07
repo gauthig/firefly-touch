@@ -23,6 +23,31 @@ menu "Firefly Touch Panel"
                 `idf.py -p COMx read-mac` before flashing either side. v1
                 supports exactly one peer per panel.
 
+        config FIREFLY_ESPNOW_HVAC_PEER_MAC
+            string "ESP-NOW thermostat-bridge peer MAC (AA:BB:CC:DD:EE:FF)"
+            default "AA:BB:CC:DD:EE:FF"
+            help
+                MAC of the panel that holds the EasyTouch BLE link
+                (hvac_panel). A panel with PANEL_WANTS_HVAC_CONTROL sends its
+                mode/setpoint changes here as encrypted unicast. Leave at the
+                placeholder on hvac_panel itself and on panels with no
+                thermostat screen.
+
+        config FIREFLY_ESPNOW_RX_PEER_MAC_1
+            string "ESP-NOW extra receive peer 1 MAC (AA:BB:CC:DD:EE:FF)"
+            default "AA:BB:CC:DD:EE:FF"
+            help
+                An extra node to accept encrypted unicast FROM. hvac_panel
+                serves several panels' thermostat commands, so it lists each
+                of them here (bedroom_remote, main_cabinet). Not a send
+                target -- only a decrypt permission. Placeholder = unused.
+
+        config FIREFLY_ESPNOW_RX_PEER_MAC_2
+            string "ESP-NOW extra receive peer 2 MAC (AA:BB:CC:DD:EE:FF)"
+            default "AA:BB:CC:DD:EE:FF"
+            help
+                Second extra receive peer -- see RX_PEER_MAC_1.
+
         config FIREFLY_ESPNOW_CHANNEL
             int "ESP-NOW WiFi channel"
             default 1
@@ -125,6 +150,84 @@ menu "Firefly Touch Panel"
                 staleness window from this value (3x), so raising the
                 interval automatically widens the window instead of making
                 every pack look permanently offline.
+
+    endmenu
+
+    menu "EasyTouch RV thermostat"
+
+        comment "Only the hvac_panel build uses these (PANEL_HAS_EASYTOUCH)"
+
+        config FIREFLY_EASYTOUCH_PASSWORD
+            string "Micro-Air account password"
+            default ""
+            help
+                Password of the Micro-Air account already paired to the
+                coach's EasyTouch thermostat -- the same one the phone app
+                uses over Bluetooth. This is the ONLY credential the protocol
+                uses; there is no separate BLE pairing (see
+                docs/EASYTOUCH-THERMOSTAT.md section 2).
+
+                Set this in the per-build-dir sdkconfig only
+                (build_hvac_panel/sdkconfig) -- NEVER in sdkconfig.defaults,
+                same handling as the ESP-NOW keys and battery MACs above.
+                Empty = the client logs and idles.
+
+        config FIREFLY_EASYTOUCH_EMAIL
+            string "Micro-Air account e-mail (optional)"
+            default ""
+            help
+                Only consulted by the hvac_capture bench tool's A/B test. The
+                production client (easytouch_client.c) never sends EM or TM:
+                the panel has no clock, and a bogus TM would set the
+                thermostat's schedule clock. Leave blank.
+
+        config FIREFLY_EASYTOUCH_NAME_PREFIX
+            string "Advertised name prefix to scan for"
+            default "EasyTouch"
+            help
+                The thermostat advertises as "EasyTouch <serial>". Prefix
+                match is enough for one thermostat in range; the client pins
+                the MAC after the first hit.
+
+        config FIREFLY_EASYTOUCH_POLL_INTERVAL_MS
+            int "Status poll interval (ms)"
+            default 30000
+            range 20000 60000
+            help
+                How often the client connects, reads status, and
+                disconnects. It does NOT hold the link between polls, so the
+                phone app stays usable (docs/EASYTOUCH-THERMOSTAT.md section
+                6). easytouch_client.c derives its staleness window from this
+                (3x), so raising it widens the window rather than making the
+                readout flicker to "--".
+
+        config FIREFLY_EASYTOUCH_ZONE0_NAME
+            string "Zone 0 label"
+            default "FRONT"
+            help
+                On-screen name for Z_sts zone 0. This coach's 355 orders the
+                zones Front / Mid Coach / Rear (docs/EASYTOUCH-THERMOSTAT.md
+                section 8a).
+
+        config FIREFLY_EASYTOUCH_ZONE1_NAME
+            string "Zone 1 label"
+            default "MID COACH"
+
+        config FIREFLY_EASYTOUCH_ZONE2_NAME
+            string "Zone 2 label"
+            default "REAR"
+
+        config FIREFLY_HVAC_BROADCAST_INTERVAL_MS
+            int "HVAC telemetry broadcast interval (ms)"
+            default 30000
+            range 5000 120000
+            help
+                How often hvac_panel re-broadcasts each thermostat zone over
+                ESP-NOW (one frame per present zone). A viewing panel derives
+                its "reading has gone stale" window from this (3x), the same
+                way it does for battery / shore / solar. Keep it near the BLE
+                poll interval -- there is nothing fresher to send between
+                polls anyway.
 
     endmenu
 
