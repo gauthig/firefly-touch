@@ -173,6 +173,14 @@ idf.py -C proxy -B proxy/build set-target esp32
 idf.py -C proxy -B proxy/build -p COM4 flash monitor
 ```
 
+So is the dump-valve node (an ESP32-S3, headless; `valves/sdkconfig` holds its
+real ESP-NOW peer MAC and key, so never regenerate it):
+
+```powershell
+idf.py -C valves -B valves/build set-target esp32s3
+idf.py -C valves -B valves/build -p COM20 flash monitor
+```
+
 > ⚠️ Panels that use ESP-NOW or BLE keep real peer MACs and keys in their
 > per-build `sdkconfig`, which is **not** in git. Pass
 > `-D SDKCONFIG=build_<panel>/sdkconfig` on every invocation, and never
@@ -244,6 +252,12 @@ Confirmed on the coach: RV-C lighting control against a real G6, tank levels
 from the SeeLevel, the ESP-NOW bridge and remote panel, all three battery
 packs over BLE with the combined bank readout, and the Power Watchdog with
 values matching the unit's own display.
+
+**Dump valves** (2026-10-16): the position-sense circuits read both valves
+correctly, a valve moved with the wall rocker shows on `mid_coach`, and the
+panel opens and closes the real valve. The board's digital inputs turned out to
+be **active-low**, and the internal pull-ups have to be on — see
+[docs/DRAINMASTER-VALVES.md](docs/DRAINMASTER-VALVES.md). Merge pending (PR #79).
 
 `main_cabinet` (the 7" side-nav panel) was confirmed on the coach
 2026-08-23: RV-C CAN works on the 7" board's GPIO20/19 pins, the battery

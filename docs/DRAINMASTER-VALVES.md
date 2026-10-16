@@ -3,10 +3,14 @@
 Panel-commanded grey and black waste valves, driven by a sixth node: a
 Waveshare **ESP32-S3-ETH-8DI-8RO** relay board in the basement bay.
 
-> **Status: designed and specified. Nothing built, no firmware written.**
-> Wiring fully measured on the coach 2026-08-30; the controller board is
-> ordered. This document is the build spec — it is what an engineer needs to
-> wire the thing, plus the control requirements the firmware must satisfy.
+> **Status: built. Sensors and panel control hardware-verified 2026-10-16**
+> (branch #79, merge pending). The wiring was measured on the coach
+> 2026-08-30; the sense circuits are built and read correctly on both valves,
+> the valve node reports the sensed position, and `mid_coach` v1.02 opens and
+> closes the real valve from the tank screen. This document is the build spec
+> and the control requirements the firmware satisfies. Where a number here
+> was an assumption that the bench later changed, it says so — notably the DI
+> polarity in §4.
 >
 > Printable build sheet (same content, laid out for the shop, prints
 > letter-landscape with nothing split across a page):
@@ -151,8 +155,16 @@ DI COM ── +12 V (WAGO P1)
   2N7000's 3 V worst-case threshold.
 - `Q1` **sinks** the digital input; `DI COM` sits at +12 V. The opto's current
   therefore comes from *our* supply.
-- **DI high = valve fully closed.** DI low = not fully closed (open, or in
-  transit).
+- **The board's DI is ACTIVE-LOW — measured 2026-10-16 on the real valves:
+  GPIO `0` = valve fully closed (`Q1` on, opto conducting), GPIO `1` = not
+  closed (open, or in transit).** An earlier revision of this document said
+  "DI high = closed"; that was an assumption and it was backwards.
+  `FIREFLY_VALVE_DI_ACTIVE_LOW` (default on) applies it, and the sensor-test
+  build logs the raw level so it can be re-measured.
+- ⚠️ **The firmware turns the ESP32's internal pull-ups on for the DI pins.**
+  Idle (opto off) must read `1`. DI1 (GPIO4) has no working external pull-up
+  and floated LOW with nothing connected, which looked exactly like a dead
+  input. A DI that reads `0` with its board LED off is floating, not broken.
 
 ⚠️ **Do not wire the reed pair directly to a digital input.** The board's DI
 channels are opto-isolated and want a few milliamps; that current flows
@@ -409,13 +421,19 @@ if that task blocks, the motor stays energised.
 
 ### Close is verified, open is not
 
-- **CLOSE** — drive, confirm DI goes high within the ceiling. If it does not:
-  stop, flag a fault, report to the panel. **Do not retry automatically.**
-- **OPEN** — DI going low confirms the valve *left* closed, which is real
-  evidence the motor ran, but does not prove full travel. Drive the full
-  nominal time and report `OPEN (timed)`, never `OPEN (confirmed)`.
+- **CLOSE** — drive, confirm the sensor reads closed (GPIO `0`, active-low)
+  within the ceiling. If it does not: stop, flag a fault, report to the panel,
+  and **latch UNKNOWN until the valve is next seen closed** — never relabel it
+  OPEN. **Do not retry automatically.**
+- **OPEN** — the sensor leaving closed (GPIO `1`) confirms the valve *left*
+  closed, which is real evidence the motor ran, but does not prove full travel
+  (the reed flips early in the stroke). Drive the full nominal time and report
+  `OPEN (timed)`, never `OPEN (confirmed)`.
 - **Startup** — read both inputs before any drive and adopt that as the
-  initial state. Never assume closed.
+  initial state: closed seeds CLOSED, not-closed seeds OPEN.
+- **The reported position follows the sensor at all times**, not only after a
+  drive, so a valve moved with the wall rocker shows on the panel too. It is
+  skipped while a drive is in flight and for 400 ms after it.
 
 ---
 
@@ -433,11 +451,11 @@ Replaces the inert `PANEL_BTN_LOCAL_TOGGLE` placeholders on the tank screens
   single tap — CLOSE is the safe direction, and otherwise a CLOSE that never
   reached the sensor (latched unknown) could only be retried by opening the
   valve first. OPEN is never sent from a state that does not read closed, and
-  the arm is dropped the moment the valve is seen leaving closed. The node
-  mirrors this: it ignores a CLOSE when its sensor already reads closed (no
-  relay pulse), but never ignores an OPEN, because the reed leaves its closed
-  position early in the stroke and a repeat OPEN is how a part-open valve
-  finishes opening.
+  the arm is dropped the moment the valve is seen leaving closed. **The node
+  does not filter commands** — keeping a CLOSE away from an already-closed
+  valve is the panel's job, and an OPEN must never be suppressed, because the
+  reed leaves its closed position early in the stroke and a repeat OPEN is how
+  a part-open valve finishes opening.
 - **Red background while open**, driven by *sensed* state, not by what was
   last commanded.
 - **Three visual states, not two** — closed, open, unknown/fault.
@@ -471,9 +489,9 @@ listing photos; only the part number distinguishes them.
 |---|---|
 | 2 | DrainMaster Wye harness **PN 5603** |
 | 2 | DM extension cable **PN 5218** (cut in half for pigtails) |
-| 2 | **2N7000** MOSFET (or BSS138) |
+| 2 | **2N3904** NPN (**built this way**; a 2N7000 MOSFET or BSS138 also works — see §4). Flat face LEFT, E in the top row. |
 | 4 | **100 kΩ** ¼ W resistor |
-| 2 | **100 nF** ceramic capacitor |
+| 2 | **100 nF** ceramic capacitor, marked `104` — ⚠️ **not 100 µF**: an electrolytic is polarised, a thousand times too big, and turns the 5 ms debounce into a 5 s lag |
 | 1 | **5 A** inline fuse — only if the DM tap point turns out unfused |
 | 2 | **WAGO 221-415** (5-port) — P1, G1 splices |
 | 4 | **WAGO 221-413** (3-port) — W-GY, R-GY, W-BK, R-BK |
@@ -511,6 +529,12 @@ Nothing connects to a valve until the interlock has been watched working.
 8. **Black valve**, after confirming its motor polarity matches grey.
 9. **ESP-NOW last.** Everything above is provable without a panel in the loop.
 
+**Progress (2026-10-16):** steps 1–3 on the scaffold earlier; step 5 done with the
+sensor-test build (`FIREFLY_VALVE_SENSE_TEST`, relays never driven); step 7
+confirmed (rocker works and its LED is unaffected); step 9 done — `mid_coach`
+v1.01/v1.02 pairs with the node, shows the sensed state, and opened and closed
+the real valve. The v1.02 toggle still needs a pass on **both** valves.
+
 ---
 
 ## 11. Open items
@@ -518,13 +542,17 @@ Nothing connects to a valve until the interlock has been watched working.
 - [x] ~~`DI COM` terminal naming~~ — resolved from the enclosure legend:
       the DI block is `COM` / `DGND` / `DI1`–`DI8`
 - [x] ~~Relay nomenclature~~ — resolved: the board says `CH1`–`CH8`
-- [ ] Black valve motor polarity — probe before first power-up
+- [x] ~~Black valve motor polarity~~ — reported to match grey (2026-10-16). The
+      dump is plumbed to sewer, so a wrong-direction drive is not a spill risk;
+      the 2 s ceiling and interlock apply regardless
 - [ ] Per-channel screw order (`NO`/`COM`/`NC`) — confirm with a meter on
       arrival, then annotate this doc
 - [ ] Buzzer GPIO — not in the wiki pin table, pull from the vendor demo
-- [ ] ESP-NOW valve command frame — design inside the 16-byte limit
-- [ ] Second unicast peer support in `espnow_link`
-- [ ] `main_cabinet` role change (TELEMETRY → also a command sender)
+- [x] ~~ESP-NOW valve command frame~~ — own 3-byte frame, types 5/6
+- [x] ~~Second unicast peer support in `espnow_link`~~ — `espnow_link_add_valve_peer()`
+- [ ] `main_cabinet` role change (TELEMETRY → also a command sender); its TANKS
+      valve controls stay inert until then
+- [ ] Exercise the v1.02 toggle on both valves from the panel
 - [x] ~~GitHub issue + branch~~ — [issue #62](https://github.com/gauthig/firefly-touch/issues/62),
       `feature/62-valve-node-scaffold`. Scaffold covers bring-up steps 1-3
       only (relay interlock, watchdog, DI reads); ESP-NOW valve commands and

@@ -22,9 +22,10 @@ panel opens and closes the real valve.
   latched failed-CLOSE can be retried without opening first). The arm is
   dropped the moment the valve is seen anywhere but closed, so the confirming
   tap can't fire an OPEN on a valve that already opened, or turn into a
-  surprise CLOSE. The node also ignores a CLOSE when its sensor already reads
-  closed (no relay pulse); OPEN is never ignored, because the reed leaves its
-  closed position early in the stroke and a repeat OPEN finishes the job.
+  surprise CLOSE. The valve node does **not** filter commands — keeping a
+  CLOSE away from an already-closed valve is the panel's job, and an OPEN must
+  never be suppressed because the reed leaves its closed position early in the
+  stroke and a repeat OPEN is how a part-open valve finishes opening.
 - **The reported position follows the reed sensor**, so a valve moved with the
   wall rocker shows on the panel too. CLOSE is closed-loop on the sensor; OPEN
   stays a timed 1 s drive under the 2 s watchdog. A CLOSE that never reaches
@@ -47,7 +48,7 @@ panel opens and closes the real valve.
 
 Panels: `mid_coach` v1.02 flashed and boot-verified over 15 s on 2026-10-16;
 the other three are unaffected. The valve node was reflashed the same day
-(the CLOSE-ignored guard is in the source but not yet on the node).
+with the sensor-driven build.
 
 ## [1.00] — 2026-09-07
 

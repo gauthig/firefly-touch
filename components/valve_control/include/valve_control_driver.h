@@ -50,10 +50,11 @@ esp_err_t valve_control_release_all(void);
  * effect on the wire. */
 esp_err_t valve_control_read_relays(uint8_t *mask_out);
 
-/* Position sense: true = DI reads valve fully closed (DI high per the
- * sense front-end in DRAINMASTER-VALVES.md §4). Informational only until
- * the sense circuit is wired — reading a floating input before that is
- * expected and not a fault. */
+/* Position sense: true = the valve is fully closed. The board's DI is
+ * ACTIVE-LOW (measured on the real valves 2026-10-16: GPIO 0 when closed), so
+ * this inverts the pin when CONFIG_FIREFLY_VALVE_DI_ACTIVE_LOW is set, which
+ * is the default. The internal pull-ups are enabled so an unconnected input
+ * reads "not closed" rather than floating. */
 bool valve_control_read_di(valve_id_t valve);
 
 /* The unmodified GPIO level, before CONFIG_FIREFLY_VALVE_DI_ACTIVE_LOW is

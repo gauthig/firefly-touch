@@ -329,7 +329,7 @@ is the **ESP-NOW router/bridge** between the RV-C bus and all remotes
 (`PANEL_IS_BRIDGE 1`).
 
 ⚠️ This convention covers **panels only**. The headless nodes — `proxy/` and
-the planned `valves/` — are not panels: no display, no LVGL, no
+`valves/` — are not panels: no display, no LVGL, no
 `PANEL_INDEX`, no row in `panels/REGISTRY.md`, and each is its own ESP-IDF
 project. They are ESP-NOW participants without being `_remote` anything.
 
@@ -874,7 +874,7 @@ levels, so read-only remotes can show tanks — previously out of scope).
 default 1) — there is no AP to negotiate one, and a mismatch is silently
 invisible, exactly like a wrong peer MAC.
 
-## Dump-valve node (`valves/`) — scaffold merged, control unmerged
+## Dump-valve node (`valves/`) — built, sensors + panel control hardware-verified 2026-10-16
 
 A **sixth node**: a Waveshare **ESP32-S3-ETH-8DI-8RO** relay board in the
 basement bay, driving the two DrainMaster Premium dump valves from the
@@ -882,26 +882,35 @@ panels' tank screens. Like `proxy/` it is a **separate ESP-IDF project**,
 headless, pulling shared components individually rather than pointing at
 `components/` (which would drag LVGL into a build with no display).
 
-**Status — three separate things, don't collapse them:**
+**Status — separate layers, don't collapse them:**
 
 | Layer | State |
 |---|---|
 | Hardware wiring + build spec | ✅ measured and specified — [docs/DRAINMASTER-VALVES.md](docs/DRAINMASTER-VALVES.md) |
-| Node firmware scaffold (`valves/`, `components/valve_control`) | ✅ **merged to `main`** and built by CI (*Build valve node*) |
-| ESP-NOW valve control (panel → node) | ❌ **on a branch, not merged** — issue #64, held until the sense circuit is wired |
-| Sense circuit (reed → DI) | ❌ not built — this is what #64 waits on |
+| Node firmware (`valves/`, `components/valve_control`) | ✅ relay interlock, 2 s watchdog, sensor task, ESP-NOW command handling. Scaffold merged to `main` and built by CI (*Build valve node*); the sensor-driven build is on branch #79 |
+| Sense circuits (reed → 2N3904 → DI) | ✅ **built and verified on both real valves, 2026-10-16** — wall rocker moves a valve, the reported state follows it |
+| Panel → node control (`mid_coach` v1.02, issue #64) | ✅ hardware-verified: the panel opens and closes the real valve. Branch #79, **merge pending** |
 
-⚠️ **The firmware exists.** An earlier version of this section said "no
-firmware written and no GitHub issue opened", which was wrong on both counts
-and led to a session concluding the valve work did not exist and offering to
-rebuild it — the real code was sitting unmerged on `feature/64-*`. **Check
-`git branch -a` and `gh pr list` before concluding a feature is missing.**
+⚠️ **Check `git branch -a` and `gh pr list` before concluding a feature is
+missing.** An earlier version of this section said "no firmware written and no
+GitHub issue opened", which was wrong, and a session offered to rebuild work
+that was sitting unmerged on `feature/64-*`.
 
-The scaffold covers bring-up steps 1–3 of §10: TCA9554 relay expander
-present at 0x20, individual relay clicks, the interlock refusing a shorting
-mask, and the independent 2 s watchdog releasing relays even if the driving
-code never calls release. It deliberately stops short of driving a connected
-valve on request.
+**How the panel behaves (v1.02).** `PANEL_BTN_VALVE` is a **strict toggle on the
+sensed state** and never repeats what the valve already reads: reads closed →
+tap arms ("TAP AGAIN TO OPEN", 5 s) and a second tap sends OPEN; reads open →
+single tap sends CLOSE; unknown/stale → single tap sends CLOSE (the safe
+direction; otherwise a latched failed-CLOSE could only be undone by opening
+first). The arm is dropped the moment the valve is seen anywhere but closed. The
+valve node deliberately does **not** filter commands: a CLOSE to an already-closed
+valve is the panel's job to not send, and an OPEN must never be suppressed because
+"not closed" only means the reed has left its stop (it flips early in the stroke).
+
+**The reported position follows the sensor** (`valve_sense_task`), so a valve moved
+with the wall rocker shows on the panel too. Not closed is shown as OPEN (red); a
+CLOSE that never reaches the sensor latches UNKNOWN until the valve is seen closed.
+`FIREFLY_VALVE_SENSE_TEST` is a read-only build that logs DI1/DI2 plus an 8-pin
+scan and drops every drive command — use it for any sense-circuit work.
 
 ⚠️ **Nothing about `proxy/` changes.** The proxy keeps its five BLE links and
 its telemetry broadcasts. This is a second board on the same ESP-NOW channel,
@@ -932,13 +941,43 @@ The facts most likely to be re-derived the hard way:
   `vTaskDelay` inside the drive routine.
 - ⚠️ **Do not land the reed pair on a digital input directly.** The DI optos
   want milliamps, which lights DrainMaster's own indicator LED when it should
-  be dark. Sense is a 100 kΩ/100 kΩ divider → 2N7000 sinking the DI, 60 µA.
+  be dark. Sense is a 100 kΩ/100 kΩ divider + 100 nF → a transistor sinking the
+  DI. **Built with a 2N3904 NPN** (a 2N7000 also works). Verified: the wall
+  switch LED is fully dark closed and full red open, so the divider is fine.
+- ⚠️ **The board's DI is ACTIVE-LOW**, measured on the real valves: `raw=0` =
+  fully closed (transistor on), `raw=1` = not closed. The docs had assumed
+  the opposite. `CONFIG_FIREFLY_VALVE_DI_ACTIVE_LOW` (default on) applies it.
+- ⚠️ **DI1 (GPIO4) floated LOW with its terminal empty** and looked like a dead
+  input for hours: the driver had the pull-ups off and that channel has no
+  working external one. `valve_control_driver.c` enables the internal pull-ups.
+  A pin that reads 0 with its opto LED off is a floating pin, not a dead one.
+- ⚠️ **TO-92 orientation: turning the part round swaps C and E.** Flat face
+  toward you, legs down = E-B-C left to right, so in a breadboard column the
+  top leg is E with the flat face LEFT and C with it RIGHT. Both sense
+  transistors sit flat-face-LEFT, E in row 5, C in row 7. The black half of the
+  breadboard diagram was once drawn flat-face-right with E still on top, which
+  is impossible; built that way the part is reversed and, with the sensor
+  signal removed, reads base ≈ 0.6 V / collector ≈ 7 V (the E-B junction
+  breaks down like a Zener) while holding the DI on. Healthy: ≈ 0 V / 10–12 V.
+- ⚠️ **The magnet test does nothing with the valve CLOSED** — its own magnet
+  already holds the reed. Use the wall rocker, or pull the GREEN wire, to
+  make the sensor leave closed.
+- **The valve node's USB is plugged in only at the bench.** It is outside the
+  RV on its own 12 V, `mid_coach` is inside, and the laptop can reach one at a
+  time. ESP-NOW is the real link between them, so verifying one from the
+  other's USB is a genuine range test.
 
-**The real work is ESP-NOW, not valve logic.** `espnow_frame_t` is pinned at
-16 bytes by a `_Static_assert`; the link layer allows one fixed unicast peer
-per node and this needs a second; and `main_cabinet` — whose TANKS section
-hosts the buttons — runs the peerless TELEMETRY role. Broadcast is not
-available: it is unencrypted and these frames actuate real loads.
+**The ESP-NOW side.** `espnow_frame_t` is pinned at 16 bytes by a
+`_Static_assert`, so valve traffic is its own 3-byte frame
+(`ESPNOW_FRAME_VALVE_CMD = 5` / `_VALVE_STATUS = 6`; `HVAC_CMD` already owns 4).
+`mid_coach` holds the valve node as its **second** unicast peer
+(`FIREFLY_ESPNOW_VALVE_PEER_MAC` + `FIREFLY_ESPNOW_VALVE_LMK`), and the node's
+`PEER_MAC` / `LMK` must match it. ⚠️ **LMKs are 16 bytes and longer strings are
+silently truncated**, so two ends that differ only after byte 16 still match —
+use a clean 16-character key on both. `main_cabinet`'s TANKS controls remain the
+inert `PANEL_BTN_LOCAL_TOGGLE`: it runs the peerless TELEMETRY role, and broadcast
+is not available because these frames actuate real loads and ESP-NOW cannot
+encrypt it.
 
 ## RV-C protocol
 
@@ -1504,7 +1543,7 @@ no workflow change (the matrix comes from the registry).
 ## Repo hygiene — what belongs in git
 
 Two separate ESP-IDF projects live alongside the panel app and follow the
-same rules: `proxy/` (built) and `valves/` (planned).
+same rules: `proxy/` (built) and `valves/` (built).
 
 Committed: C/H sources, `CMakeLists.txt`, `idf_component.yml`,
 `dependencies.lock` (pins component versions — do **not** delete it),
@@ -1590,6 +1629,15 @@ Hard-won during setup — check here before re-debugging:
   `idf.py build` on a fresh clone before building `sim/`.
 - Long ESP-IDF operations (clone, `install.ps1`, first build) take many
   minutes — run them in the background rather than blocking on a timeout.
+- **Capturing a serial log can reset the board.** Opening a PowerShell
+  `SerialPort` with DTR/RTS at their defaults toggles the reset lines and can
+  drop an S3 into ROM download mode. Set `DtrEnable=$false; RtsEnable=$false`
+  before `Open()`, and for a clean reset hold DTR low and pulse RTS once.
+  Start the capture **before** asking someone to touch hardware, make it long
+  (5+ minutes — people take two to start), and have them name each wire they
+  touch: the log only shows pin numbers.
+- This `esptool` takes underscore subcommands (`read_mac`, `chip_id`,
+  `flash_id`), not hyphenated ones.
 
 Hard-won during the 7B migration (2026-09-05, `main_cabinet` on COM21,
 issue #66). The best 7B reference by far is

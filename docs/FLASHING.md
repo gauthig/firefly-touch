@@ -474,16 +474,11 @@ shared scan starts — nothing more. Real readings need the coach.
 
 ## Valve node
 
-> **Planned, not built.** The board is ordered; no firmware exists yet. This
-> section is a placeholder so the flash procedure lands next to the others
-> when it does. Full build spec:
-> [DRAINMASTER-VALVES.md](DRAINMASTER-VALVES.md).
-
 A Waveshare **ESP32-S3-ETH-8DI-8RO** in the basement bay driving the two
-DrainMaster dump valves. Like the proxy it will be a separate ESP-IDF project
-(`valves/`), headless, with its own `sdkconfig`.
-
-Expected shape, once it exists:
+DrainMaster dump valves. Like the proxy it is a separate ESP-IDF project
+(`valves/`), headless, with its own `sdkconfig`. Sensor-driven position and
+panel control were **hardware-verified 2026-10-16** (branch #79). Full build
+spec: [DRAINMASTER-VALVES.md](DRAINMASTER-VALVES.md).
 
 ```powershell
 idf.py -C valves -B valves/build set-target esp32s3      # once
@@ -491,18 +486,31 @@ idf.py -C valves -B valves/build build
 idf.py -C valves -B valves/build -p COM5 flash monitor
 ```
 
-Notes that already apply:
-
-- It is an **ESP32-S3**, unlike the classic-ESP32 proxy — so the BLE
+- It is an **ESP32-S3**, unlike the classic-ESP32 proxy — the BLE
   chip-portability guard is irrelevant here (there is no BLE at all).
+- Its USB is the **native USB-Serial/JTAG** port, which carries the app
+  console. The board runs from its own 12 V in the bay; **unplug the USB
+  when you are done** — `mid_coach` is inside the RV and the laptop reaches
+  one of them at a time, and the ESP-NOW link between them keeps working.
 - `FIREFLY_ESPNOW_CHANNEL` **must** match every other node (default 1).
-- Unlike the proxy's telemetry role, this node needs a **real unicast peer**,
-  so its `sdkconfig` will carry a genuine `FIREFLY_ESPNOW_PEER_MAC` — treat
-  it with the same care as the panels' (never regenerate the file; re-apply
-  by hand if you must).
-- ⚠️ **Do not flash it with a valve connected.** Work through the bring-up
-  order in [DRAINMASTER-VALVES.md](DRAINMASTER-VALVES.md#10-bring-up-order);
-  the interlock and watchdog tests come before any motor is wired.
+- Unlike the proxy's telemetry role, this node has **one real unicast peer,
+  `mid_coach`**: `valves/sdkconfig` carries `FIREFLY_ESPNOW_PEER_MAC` =
+  `mid_coach`'s MAC and `FIREFLY_ESPNOW_LMK`, and `build_mid_coach/sdkconfig`
+  carries the node's MAC in `FIREFLY_ESPNOW_VALVE_PEER_MAC` with a matching
+  `FIREFLY_ESPNOW_VALVE_LMK`. Use a clean **16-character** key on both — longer
+  strings are silently truncated, so ends that differ only after byte 16 still
+  match. Never regenerate either file; re-apply by hand if you must.
+- Sense settings (`valves/sdkconfig`, in place): `FIREFLY_VALVE_SENSE_ENABLED=y`,
+  `FIREFLY_VALVE_DI_ACTIVE_LOW=y` (the board's DI reads 0 when a valve is fully
+  closed), `FIREFLY_VALVE_SENSE_TEST` off.
+- ⚠️ **Sense-circuit work uses the read-only build.** Set
+  `CONFIG_FIREFLY_VALVE_SENSE_TEST=y`: it logs DI1/DI2 plus an eight-pin scan on
+  every change and **drops every drive command**, so no relay can fire. Start the
+  serial capture *before* touching a wire, open the port with DTR/RTS held low
+  (see CLAUDE.md), and read pin numbers against DI1 = GPIO4, DI2 = GPIO5.
+- ⚠️ **Do not flash a drive-capable build with a valve connected until the
+  interlock and watchdog tests have passed** — see
+  [DRAINMASTER-VALVES.md](DRAINMASTER-VALVES.md#10-bring-up-order).
 
 ## If the board will not enter download mode
 
