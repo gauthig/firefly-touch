@@ -144,15 +144,18 @@
   <line x1="364" y1="258" x2="380" y2="258" stroke="#14181d" stroke-width="2.4"/>
   <text x="359" y="252" text-anchor="end" font-family="IBM Plex Mono, monospace" font-size="10" font-weight="700" fill="#14181d">C2</text>
 
-  <!-- Q2 2N3904: legs into f5 (E) f6 (B) f7 (C); flat face right -->
-  <path d="M328 210 L318 210 A 32 32 0 0 0 318 270 L328 270 Z" fill="#eef1f3" stroke="#14181d" stroke-width="1.7"/>
+  <!-- Q2 2N3904: legs into f5 (E) f6 (B) f7 (C); flat face LEFT, identical to Q1.
+       (An earlier revision drew this flat face RIGHT while keeping E on top, which is
+       physically impossible: turning the part round puts C on top. Built that way it is
+       reversed -- GREEN pulled reads base ~0.6 V / collector ~7 V and DI stays on.) -->
+  <path d="M318 210 L328 210 A 32 32 0 0 1 328 270 L318 270 Z" fill="#eef1f3" stroke="#14181d" stroke-width="1.7"/>
   <line x1="318" y1="216" x2="314" y2="216" stroke="#14181d" stroke-width="2"/>
   <line x1="318" y1="240" x2="314" y2="240" stroke="#14181d" stroke-width="2"/>
   <line x1="318" y1="264" x2="314" y2="264" stroke="#14181d" stroke-width="2"/>
   <circle cx="314" cy="216" r="3" fill="#14181d"/><circle cx="314" cy="240" r="3" fill="#14181d"/><circle cx="314" cy="264" r="3" fill="#14181d"/>
   <text x="323" y="200" text-anchor="middle" font-family="IBM Plex Sans Condensed, sans-serif" font-size="10" font-weight="700" fill="#14181d">Q2</text>
   <g font-family="IBM Plex Mono, monospace" font-size="8" fill="#5a6672">
-    <text x="330" y="219">E</text><text x="330" y="243">B</text><text x="330" y="267">C</text>
+    <text x="353" y="219">E</text><text x="353" y="243">B</text><text x="353" y="267">C</text>
   </g>
 
   <!-- black GND jumpers to right - rail -->
@@ -198,9 +201,9 @@
   <rect x="536" y="312" width="428" height="66" rx="5" fill="#fff4f2" stroke="#c0392b" stroke-width="1.3"/>
   <g font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="#14181d">
     <text x="548" y="330" font-weight="700" fill="#c0392b">&#9888; 2N3904 legs = E &#183; B &#183; C</text>
-    <text x="548" y="345">flat printed face toward you, legs pointing down. This is <tspan font-weight="700">not</tspan> the</text>
-    <text x="548" y="360">2N7000&#8217;s S&#183;G&#183;D order &#8212; wire by function. A 2SC1815 is E&#183;C&#183;B;</text>
-    <text x="548" y="373">verify your own part against its datasheet before landing it.</text>
+    <text x="548" y="345">flat face toward you, legs down. <tspan font-weight="700">Not</tspan> the 2N7000&#8217;s S&#183;G&#183;D order.</text>
+    <text x="548" y="360"><tspan font-weight="700">Q1 AND Q2: flat face LEFT</tspan>, E at row 5 (top), C at row 7 (bottom).</text>
+    <text x="548" y="373">Turned round, C and E swap: it reads base ~0.6 V / collector ~7 V.</text>
   </g>
 
   <rect x="536" y="386" width="428" height="34" rx="5" fill="#fff4f2" stroke="#c0392b" stroke-width="1.3"/>

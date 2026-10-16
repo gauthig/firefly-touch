@@ -206,6 +206,16 @@ stay empty (DI COM's +12 V lands on the board's DI COM screw, not the
 breadboard); tie **both `−` rails together** and run one wire to board
 `DGND` / WAGO `G1`.
 
+⚠️ **Both transistors sit the same way: flat face LEFT, E in row 5 (top), C in
+row 7 (bottom).** The black half is a mirror image for the *parts*, not for
+the transistor — turning a TO-92 round swaps which leg is on top, so a part
+seated "flipped to match the mirror" has C and E reversed. That cost a bench
+session (2026-10-16): with GREEN removed a reversed part reads base ≈ 0.6 V
+and collector ≈ 7 V (the emitter-base junction breaks down like a Zener and
+the base-collector junction conducts), which holds the DI on whatever the
+sensor does. A healthy circuit with GREEN removed reads base ≈ 0 V and
+collector ≈ 10–12 V.
+
 ![Breadboard layout for both DrainMaster position-sense circuits: a 30-row board with a 5-plus-5 column split and a power-rail pair on each side. The grey valve circuit is in the left half columns a to e and the black valve circuit mirror-imaged in the right half f to j, each an R1/R2 100k divider from the GREEN MAG wire to a node J, a 100nF ceramic cap from J to the ground rail, and a 2N3904 NPN whose base is J, collector is the DI pin and emitter is the ground rail. Both negative rails are tied together and run to board DGND.](images/drainmaster-sense-breadboard.svg)
 
 ### Digital-input terminal block
@@ -225,6 +235,13 @@ and **`DI1`–`DI8`**.
 coach 12 V system, giving up channel isolation on DI 1 and DI 2. Acceptable —
 it is one battery ground — and the optocoupler still keeps the field side off
 the MCU. Recorded as a deliberate choice.
+
+**Verified 2026-10-16 on both valves:** the wall switch LED is fully *off*
+(not merely dim) with the valve closed, and shows the same full red as before
+the sensors were added when the valve is open — so 100 kΩ / 100 kΩ does not
+load the LED circuit and the 470 kΩ step-up below is not needed. Both inputs
+read `raw=0` closed / `raw=1` not closed (the board's DI is active-low), with
+single clean transitions from the wall rocker.
 
 **Verify on the bench:** with the valve closed, look at the wall switch LED in
 a dark bay. Any glow means the divider is loading the LED circuit — step up to

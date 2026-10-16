@@ -56,6 +56,11 @@ esp_err_t valve_control_read_relays(uint8_t *mask_out);
  * expected and not a fault. */
 bool valve_control_read_di(valve_id_t valve);
 
+/* The unmodified GPIO level, before CONFIG_FIREFLY_VALVE_DI_ACTIVE_LOW is
+ * applied. The sensor test logs this so polarity can be measured rather
+ * than assumed. */
+bool valve_control_read_di_raw(valve_id_t valve);
+
 #ifdef __cplusplus
 }
 #endif

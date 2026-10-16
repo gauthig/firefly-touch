@@ -2,11 +2,16 @@ menu "Firefly Valve Node"
 
     config FIREFLY_VALVE_SENSE_ENABLED
         bool "DI position sense circuits are wired (grey DI1 / black DI2)"
-        default n
+        default y
         help
-            Off until the physical sense circuit (2N3904 divider,
-            docs/DRAINMASTER-VALVES.md #4) is actually built on both
-            valves -- currently blocked on a missing capacitor.
+            The sense circuits (2N3904 divider, docs/DRAINMASTER-VALVES.md
+            #4) are built and were verified on both real valves 2026-10-16,
+            so this defaults on. Turn it off only on a bench node with no
+            sense wiring.
+
+            With it on, the reported position FOLLOWS THE SENSOR -- a valve
+            moved by the wall rocker shows up on the panel too -- and CLOSE
+            is closed-loop on DI.
 
             While off, CLOSE is a TIMED drive exactly like OPEN: it runs
             for VALVE_DRIVE_NOMINAL_MS (1 s) and is then assumed to have
@@ -23,6 +28,28 @@ menu "Firefly Valve Node"
             goes back to polling and either confirms within the drive
             ceiling or reports unknown and gives up, per docs/
             DRAINMASTER-VALVES.md #7.
+
+    config FIREFLY_VALVE_DI_ACTIVE_LOW
+        bool "DI GPIO reads LOW when the valve is fully closed"
+        default y
+        help
+            The sense front-end sinks the board's opto input when the valve
+            is closed (docs/DRAINMASTER-VALVES.md #4). MEASURED 2026-10-16 on
+            the real valves with the sensor test: the GPIO reads LOW (0)
+            when fully closed and HIGH (1) when not closed, so this is on.
+            (The docs had assumed the opposite.) If you ever change the
+            sense front-end, re-run FIREFLY_VALVE_SENSE_TEST and match the
+            "raw=" level the log shows with the valve closed.
+
+    config FIREFLY_VALVE_SENSE_TEST
+        bool "Sensor test build: log DI1/DI2 and never drive a relay"
+        default n
+        help
+            Read-only bench/coach test for the position-sense circuits. The
+            node logs the raw and interpreted level of DI1 (grey) and DI2
+            (black) on every change and once a second, and DROPS every
+            ESP-NOW drive command, so no relay can be energized from this
+            build. Use it with the magnet test and the wall rocker.
 
     config FIREFLY_VALVE_TEST_MODE
         bool "Run bench self-test sequence on boot"
