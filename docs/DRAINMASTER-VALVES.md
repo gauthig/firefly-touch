@@ -4,7 +4,7 @@ Panel-commanded grey and black waste valves, driven by a sixth node: a
 Waveshare **ESP32-S3-ETH-8DI-8RO** relay board in the basement bay.
 
 > **Status: built. Sensors and panel control hardware-verified 2026-10-16**
-> (branch #79, merge pending). The wiring was measured on the coach
+> (PR #79). The wiring was measured on the coach
 > 2026-08-30; the sense circuits are built and read correctly on both valves,
 > the valve node reports the sensed position, and `mid_coach` v1.02 opens and
 > closes the real valve from the tank screen. This document is the build spec
@@ -533,7 +533,7 @@ Nothing connects to a valve until the interlock has been watched working.
 sensor-test build (`FIREFLY_VALVE_SENSE_TEST`, relays never driven); step 7
 confirmed (rocker works and its LED is unaffected); step 9 done — `mid_coach`
 v1.01/v1.02 pairs with the node, shows the sensed state, and opened and closed
-the real valve. The v1.02 toggle still needs a pass on **both** valves.
+the real valve. The v1.02 toggle was then confirmed on **both** valves.
 
 ---
 
@@ -552,7 +552,7 @@ the real valve. The v1.02 toggle still needs a pass on **both** valves.
 - [x] ~~Second unicast peer support in `espnow_link`~~ — `espnow_link_add_valve_peer()`
 - [ ] `main_cabinet` role change (TELEMETRY → also a command sender); its TANKS
       valve controls stay inert until then
-- [ ] Exercise the v1.02 toggle on both valves from the panel
+- [x] ~~Exercise the v1.02 toggle on both valves from the panel~~ — confirmed 2026-10-16
 - [x] ~~GitHub issue + branch~~ — [issue #62](https://github.com/gauthig/firefly-touch/issues/62),
       `feature/62-valve-node-scaffold`. Scaffold covers bring-up steps 1-3
       only (relay interlock, watchdog, DI reads); ESP-NOW valve commands and

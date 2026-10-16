@@ -257,7 +257,7 @@ values matching the unit's own display.
 correctly, a valve moved with the wall rocker shows on `mid_coach`, and the
 panel opens and closes the real valve. The board's digital inputs turned out to
 be **active-low**, and the internal pull-ups have to be on — see
-[docs/DRAINMASTER-VALVES.md](docs/DRAINMASTER-VALVES.md). Merge pending (PR #79).
+[docs/DRAINMASTER-VALVES.md](docs/DRAINMASTER-VALVES.md). Merged in PR #79.
 
 `main_cabinet` (the 7" side-nav panel) was confirmed on the coach
 2026-08-23: RV-C CAN works on the 7" board's GPIO20/19 pins, the battery

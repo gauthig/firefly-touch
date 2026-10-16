@@ -46,8 +46,7 @@ panel opens and closes the real valve.
   Built that way the part is reversed: with the sensor signal removed it reads
   base ≈ 0.6 V / collector ≈ 7 V and holds the input on. Diagram and doc fixed.
 
-Panels: `mid_coach` v1.02 flashed and boot-verified over 15 s on 2026-10-16;
-the other three are unaffected. The valve node was reflashed the same day
+Panels: `mid_coach` v1.02 flashed and boot-verified over 15 s on 2026-10-16, and the v1.02 toggle confirmed on both valves; the other three are unaffected. The valve node was reflashed the same day
 with the sensor-driven build.
 
 ## [1.00] — 2026-09-07

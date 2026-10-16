@@ -84,12 +84,12 @@ and MACs are machine-specific — see *Local machine setup* below.
 
 | Device | Board | Last validated | Recommended | Notes |
 |---|---|---|---|---|
-| `mid_coach` ("MID COACH") | 4.3B | **v1.02** (2026-10-16) | **v1.02** | ✅ up to date, from branch #79 (not yet merged). 15 s boot clean. v1.01 valve controls were hardware-verified (rocker shows on the panel, panel opens/closes the real valve); v1.02 makes the tap a strict toggle on the sensed state, **hardware check pending**. Bridge; lights / tanks+valves / battery+solar / shore |
+| `mid_coach` ("MID COACH") | 4.3B | **v1.02** (2026-10-16) | **v1.02** | ✅ up to date (PR #79). 15 s boot clean. Valve controls hardware-verified on both valves: the rocker shows on the panel, the panel opens and closes the real valve, and the v1.02 tap is a strict toggle on the sensed state. Bridge; lights / tanks+valves / battery+solar / shore |
 | `hvac_panel` ("HVAC") | 4.3B | **v1.00** (2026-09-07) | **v1.00** | ✅ up to date. EasyTouch BLE + thermostat bridge, 5-screen launcher |
 | `main_cabinet` ("MAIN CABINET") | 7B `lcd7b` | **v1.00** (2026-09-07) | **v1.00** | ✅ up to date. Nav rail: Climate / Power / Solar / Tanks / Lights. Boot confirms `USB/CAN mux OK: EXIO5=1` |
 | `bedroom_remote` ("BED REMOTE") | 4.3B | **v1.00** (2026-09-07) | **v1.00** | ✅ up to date. Lights / battery+solar / shore / thermostat |
 | Basement BLE proxy | classic ESP32 | *unversioned* | *unversioned* | Separate project (`proxy/`), not on this scheme. Solar build, 5 BLE links, coach-verified |
-| Dump-valve node | S3-ETH-8DI-8RO | *unversioned* | *unversioned* | Separate project (`valves/`). Sensor build flashed 2026-10-16: both sense circuits verified on the real valves, boot clean. ESP-NOW control is on branch #79, not merged |
+| Dump-valve node | S3-ETH-8DI-8RO | *unversioned* | *unversioned* | Separate project (`valves/`). Sensor build flashed 2026-10-16: both sense circuits verified on the real valves, boot clean. Panel control merged in PR #79 |
 
 ## Local machine setup
 
@@ -477,7 +477,7 @@ shared scan starts — nothing more. Real readings need the coach.
 A Waveshare **ESP32-S3-ETH-8DI-8RO** in the basement bay driving the two
 DrainMaster dump valves. Like the proxy it is a separate ESP-IDF project
 (`valves/`), headless, with its own `sdkconfig`. Sensor-driven position and
-panel control were **hardware-verified 2026-10-16** (branch #79). Full build
+panel control were **hardware-verified 2026-10-16** (PR #79). Full build
 spec: [DRAINMASTER-VALVES.md](DRAINMASTER-VALVES.md).
 
 ```powershell

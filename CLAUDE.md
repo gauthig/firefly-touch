@@ -887,9 +887,9 @@ headless, pulling shared components individually rather than pointing at
 | Layer | State |
 |---|---|
 | Hardware wiring + build spec | ✅ measured and specified — [docs/DRAINMASTER-VALVES.md](docs/DRAINMASTER-VALVES.md) |
-| Node firmware (`valves/`, `components/valve_control`) | ✅ relay interlock, 2 s watchdog, sensor task, ESP-NOW command handling. Scaffold merged to `main` and built by CI (*Build valve node*); the sensor-driven build is on branch #79 |
+| Node firmware (`valves/`, `components/valve_control`) | ✅ relay interlock, 2 s watchdog, sensor task, ESP-NOW command handling. Scaffold merged to `main` and built by CI (*Build valve node*); the sensor-driven build merged with PR #79 |
 | Sense circuits (reed → 2N3904 → DI) | ✅ **built and verified on both real valves, 2026-10-16** — wall rocker moves a valve, the reported state follows it |
-| Panel → node control (`mid_coach` v1.02, issue #64) | ✅ hardware-verified: the panel opens and closes the real valve. Branch #79, **merge pending** |
+| Panel → node control (`mid_coach` v1.02, issue #64) | ✅ hardware-verified 2026-10-16 on **both** valves (open, close, and the toggle). Merged in PR #79 |
 
 ⚠️ **Check `git branch -a` and `gh pr list` before concluding a feature is
 missing.** An earlier version of this section said "no firmware written and no
