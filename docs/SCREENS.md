@@ -70,8 +70,9 @@ retries a command on its own.
 deliberately inert**: it flips its own caption and sends nothing, because that
 actuation isn't built. It is coloured like any other on-state rather than with
 the warn colour on purpose — an alarm colour on a button that actuates nothing
-would announce something that is not happening. (The tank-screen capture
-above predates the valve controls and needs regenerating.)
+would announce something that is not happening. (The capture above is the
+simulator at `mid_coach` v1.02 with both valves reading closed; an open valve
+turns its button red and an armed one turns amber with "TAP AGAIN TO OPEN".)
 
 **Battery bank and shore power** arrive as ESP-NOW broadcasts from the
 basement proxy. Being the bridge grants no special access to that data: it is
