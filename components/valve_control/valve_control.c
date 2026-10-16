@@ -33,3 +33,23 @@ uint8_t valve_drive_mask(valve_id_t valve, valve_action_t action)
     return open ? (VALVE_RELAY_BK_W_HI | VALVE_RELAY_BK_R_LO)
                  : (VALVE_RELAY_BK_W_LO | VALVE_RELAY_BK_R_HI);
 }
+
+valve_step_result_t valve_decide_step(valve_action_t action, uint32_t elapsed_ms,
+                                      bool di_closed)
+{
+    if (action == VALVE_ACTION_CLOSE) {
+        if (di_closed) {
+            return VALVE_STEP_RELEASE_CLOSED;
+        }
+        if (elapsed_ms >= VALVE_DRIVE_CEILING_MS) {
+            return VALVE_STEP_RELEASE_UNKNOWN;
+        }
+        return VALVE_STEP_CONTINUE;
+    }
+
+    /* OPEN: never sensor-confirmed, just timed. */
+    if (elapsed_ms >= VALVE_DRIVE_NOMINAL_MS) {
+        return VALVE_STEP_RELEASE_OPEN;
+    }
+    return VALVE_STEP_CONTINUE;
+}

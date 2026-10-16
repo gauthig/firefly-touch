@@ -59,7 +59,7 @@ bay — is held by the proxy in that bay and broadcast to the panels.
 | `bedroom_remote` | Waveshare ESP32-S3-Touch-LCD-4.3B | ESP-NOW only |
 | `main_cabinet` | Waveshare ESP32-S3-Touch-LCD-7B (1024×600) | RV-C CAN + ESP-NOW telemetry (listen only) |
 | Bluetooth proxy basement | ESP32-D0WD-V3, 4 MB | BLE (3 battery packs + Power Watchdog + Renogy solar) + ESP-NOW broadcast |
-| `valve_node` *(planned)* | Waveshare ESP32-S3-ETH-8DI-8RO | ESP-NOW unicast — drives the two dump valves |
+| `valve_node` | Waveshare ESP32-S3-ETH-8DI-8RO | ESP-NOW unicast — senses and drives the two dump valves (commanded by `mid_coach`) |
 
 Panel boards are ESP32-S3-WROOM-1 with 16 MB flash / 8 MB octal PSRAM, GT911
 touch, CH422G expander, onboard TJA1051 CAN transceiver and 7–36 V input.
@@ -100,7 +100,7 @@ firefly-touch/
 │   └── TEMPLATE.h            #   copy this to add a panel
 ├── proxy/                    # basement BLE proxy — SEPARATE project,
 │                             #   classic ESP32 target, no display
-│                             #   (valves/ will join it: dump-valve relay
+│                             #   (valves/ is its sibling: the dump-valve relay
 │                             #    controller, also headless — see
 │                             #    docs/DRAINMASTER-VALVES.md)
 ├── sim/                      # PC simulator (see the UI without hardware)
@@ -171,6 +171,14 @@ builds on its own:
 ```powershell
 idf.py -C proxy -B proxy/build set-target esp32
 idf.py -C proxy -B proxy/build -p COM4 flash monitor
+```
+
+So is the dump-valve node (an ESP32-S3, headless; `valves/sdkconfig` holds its
+real ESP-NOW peer MAC and key, so never regenerate it):
+
+```powershell
+idf.py -C valves -B valves/build set-target esp32s3
+idf.py -C valves -B valves/build -p COM20 flash monitor
 ```
 
 > ⚠️ Panels that use ESP-NOW or BLE keep real peer MACs and keys in their
@@ -244,6 +252,12 @@ Confirmed on the coach: RV-C lighting control against a real G6, tank levels
 from the SeeLevel, the ESP-NOW bridge and remote panel, all three battery
 packs over BLE with the combined bank readout, and the Power Watchdog with
 values matching the unit's own display.
+
+**Dump valves** (2026-10-16): the position-sense circuits read both valves
+correctly, a valve moved with the wall rocker shows on `mid_coach`, and the
+panel opens and closes the real valve. The board's digital inputs turned out to
+be **active-low**, and the internal pull-ups have to be on — see
+[docs/DRAINMASTER-VALVES.md](docs/DRAINMASTER-VALVES.md). Merged in PR #79.
 
 `main_cabinet` (the 7" side-nav panel) was confirmed on the coach
 2026-08-23: RV-C CAN works on the 7" board's GPIO20/19 pins, the battery

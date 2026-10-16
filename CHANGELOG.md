@@ -5,7 +5,49 @@ Notable changes to firefly-touch. Format follows
 
 ## [Unreleased]
 
-Nothing yet.
+### Added — panel-commanded dump valves with sensor-driven position (#64)
+
+`mid_coach` v1.01–v1.02. The GREY and BLACK controls on the tank screen now drive
+the real DrainMaster dump valves through the valve node (`valves/`) over
+encrypted ESP-NOW, and show the valve's **sensed** state. Hardware-verified
+2026-10-16: a valve moved with the wall rocker shows on the panel, and the
+panel opens and closes the real valve.
+
+- **Close is a single tap; open is tap-to-arm then tap again within 5 s.**
+  Three states — closed, open (red, meaning *not closed*), unknown — driven
+  only by the sensors, never by the tap.
+- **v1.02: the tap is a strict toggle on the sensed state** — it never repeats
+  what the valve already reads. Reads closed → arm, then OPEN on the second
+  tap; reads open → CLOSE; unknown or stale → CLOSE (the safe direction, so a
+  latched failed-CLOSE can be retried without opening first). The arm is
+  dropped the moment the valve is seen anywhere but closed, so the confirming
+  tap can't fire an OPEN on a valve that already opened, or turn into a
+  surprise CLOSE. The valve node does **not** filter commands — keeping a
+  CLOSE away from an already-closed valve is the panel's job, and an OPEN must
+  never be suppressed because the reed leaves its closed position early in the
+  stroke and a repeat OPEN is how a part-open valve finishes opening.
+- **The reported position follows the reed sensor**, so a valve moved with the
+  wall rocker shows on the panel too. CLOSE is closed-loop on the sensor; OPEN
+  stays a timed 1 s drive under the 2 s watchdog. A CLOSE that never reaches
+  the sensor latches *unknown* rather than being relabelled open.
+- New `FIREFLY_VALVE_SENSE_TEST` build on the valve node: logs DI1/DI2 plus an
+  eight-pin scan and drops every drive command, so no relay can fire.
+
+### Fixed — found while bringing the sense circuits up
+
+- **DI1 floated LOW with nothing connected** and looked like a dead input for
+  hours. The driver had the DI pull-ups off and that channel has no working
+  external one; the internal pull-ups are now on.
+- **The board's DI is active-low** (`raw=0` = fully closed). The docs had
+  assumed the opposite; now measured on the real valves
+  (`FIREFLY_VALVE_DI_ACTIVE_LOW`, default on).
+- **The breadboard diagram drew the black transistor wrongly** (flat face right
+  with E still on top, which is impossible — turning a TO-92 swaps C and E).
+  Built that way the part is reversed: with the sensor signal removed it reads
+  base ≈ 0.6 V / collector ≈ 7 V and holds the input on. Diagram and doc fixed.
+
+Panels: `mid_coach` v1.02 flashed and boot-verified over 15 s on 2026-10-16, and the v1.02 toggle confirmed on both valves; the other three are unaffected. The valve node was reflashed the same day
+with the sensor-driven build.
 
 ## [1.00] — 2026-09-07
 

@@ -50,7 +50,8 @@
  * Bump this ONLY for a fix that touches just this panel, and update
  * docs/FLASHING.md's status table in the same commit. Panels are
  * expected to sit on different minors — that is the design, not drift. */
-#define PANEL_VERSION_MINOR 0
+#define PANEL_VERSION_MINOR 2   /* 1.01: GREY/BLACK valve controls driven by the valve node's sensors (#64)
+                                 * 1.02: valve tap is a strict toggle on the sensed state */
 
 /* This panel is the ESP-NOW bridge/router between the RV-C CAN bus and all
  * remote panels (any panel whose ID ends in _remote, e.g.
@@ -58,6 +59,10 @@
  * mirrors real status back to them. See main/panel_config.h and
  * components/espnow_link. */
 #define PANEL_IS_BRIDGE 1
+
+/* Commands the DrainMaster valve node (valves/) over a second ESP-NOW peer.
+ * See main/panel_config.h and components/espnow_link. */
+#define PANEL_HAS_VALVE_CONTROL 1
 
 #define PANEL_HAS_SCREEN_2 1
 #define PANEL_HAS_SCREEN_3 1
@@ -79,23 +84,21 @@ static const panel_btn_def_t PANEL_BUTTONS[] = {
 #define PANEL_BUTTON_COUNT (sizeof(PANEL_BUTTONS) / sizeof(PANEL_BUTTONS[0]))
 
 /*
- * The three dump-valve controls mirror main_cabinet's TANKS section.
+ * GREY/BLACK actuate the real DrainMaster valves via the valve node
+ * (valves/) over ESP-NOW -- see PANEL_BTN_VALVE (components/ui_common/
+ * include/panel_def.h) and docs/DRAINMASTER-VALVES.md #8. instances[0] is
+ * the valve id (0 = grey, 1 = black), not an RV-C instance.
  *
- * ⚠️ They are PANEL_BTN_LOCAL_TOGGLE: they flip their own caption and send
- * NOTHING. The valves' actuation is not built yet — the control surface
- * exists so the layout is settled when it is. State is in memory only and
- * does not survive a reboot, and it reflects what someone last tapped, not
- * what the valve is actually doing. They are coloured like any other
- * on-state rather than with the warn colour on purpose: an alarm colour on
- * a button that actuates nothing would announce an open dump valve that
- * does not exist.
+ * GRAVITY/MACERATOR stays PANEL_BTN_LOCAL_TOGGLE: that selector's actuation
+ * still isn't built, so it keeps flipping its own caption and sending
+ * nothing, same as it always has.
  */
 static const panel_btn_def_t PANEL_BUTTONS_2[] = {
     { .label = "FRESH", .type = PANEL_BTN_TANK_LEVEL, .instances = {0}, .instance_count = 1 },
     { .label = "GREY", .type = PANEL_BTN_TANK_LEVEL, .instances = {2}, .instance_count = 1 },
     { .label = "BLACK", .type = PANEL_BTN_TANK_LEVEL, .instances = {1}, .instance_count = 1 },
-    { .label = "GREY CLOSED", .type = PANEL_BTN_LOCAL_TOGGLE, .instances = {0}, .instance_count = 0, .label_alt = "GREY OPEN" },
-    { .label = "BLACK CLOSED", .type = PANEL_BTN_LOCAL_TOGGLE, .instances = {0}, .instance_count = 0, .label_alt = "BLACK OPEN" },
+    { .label = "GREY", .type = PANEL_BTN_VALVE, .instances = {0}, .instance_count = 1 },
+    { .label = "BLACK", .type = PANEL_BTN_VALVE, .instances = {1}, .instance_count = 1 },
     { .label = "GRAVITY", .type = PANEL_BTN_LOCAL_TOGGLE, .instances = {0}, .instance_count = 0, .label_alt = "MACERATOR" },
     { .label = "BACK", .type = PANEL_BTN_SCREEN_SWITCH, .instances = {0}, .instance_count = 1 },
 };

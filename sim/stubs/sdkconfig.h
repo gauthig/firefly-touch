@@ -33,3 +33,8 @@
 #define CONFIG_FIREFLY_EASYTOUCH_ZONE1_NAME "MID COACH"
 #define CONFIG_FIREFLY_EASYTOUCH_ZONE2_NAME "REAR"
 #define CONFIG_FIREFLY_HVAC_BROADCAST_INTERVAL_MS 30000
+
+/* DrainMaster valve control: ui.c derives its valve-staleness window (3x)
+ * from this. Real value lives in each PANEL_HAS_VALVE_CONTROL panel's
+ * build_<panel>/sdkconfig. */
+#define CONFIG_FIREFLY_VALVE_RESYNC_INTERVAL_MS 15000

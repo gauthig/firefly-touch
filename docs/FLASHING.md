@@ -74,8 +74,8 @@ It is also on the first line of the boot log. Scheme (`main/firefly_version.h`):
 
 ## Current flash status
 
-**All four panels are on v1.00 as of 2026-09-07** — each flashed and
-boot-verified over 15 s.
+**Three panels are on v1.00 (2026-09-07) and `mid_coach` is on v1.02
+(2026-10-16)** — each flashed and boot-verified over 15 s.
 
 **Read this table to decide what to reflash**: if *Last validated* is behind
 *Recommended*, that device is due. *Recommended* is what `main` builds today
@@ -84,12 +84,12 @@ and MACs are machine-specific — see *Local machine setup* below.
 
 | Device | Board | Last validated | Recommended | Notes |
 |---|---|---|---|---|
-| `mid_coach` ("MID COACH") | 4.3B | **v1.00** (2026-09-07) | **v1.00** | ✅ up to date. Bridge; lights / tanks / battery+solar / shore |
+| `mid_coach` ("MID COACH") | 4.3B | **v1.02** (2026-10-16) | **v1.02** | ✅ up to date (PR #79). 15 s boot clean. Valve controls hardware-verified on both valves: the rocker shows on the panel, the panel opens and closes the real valve, and the v1.02 tap is a strict toggle on the sensed state. Bridge; lights / tanks+valves / battery+solar / shore |
 | `hvac_panel` ("HVAC") | 4.3B | **v1.00** (2026-09-07) | **v1.00** | ✅ up to date. EasyTouch BLE + thermostat bridge, 5-screen launcher |
 | `main_cabinet` ("MAIN CABINET") | 7B `lcd7b` | **v1.00** (2026-09-07) | **v1.00** | ✅ up to date. Nav rail: Climate / Power / Solar / Tanks / Lights. Boot confirms `USB/CAN mux OK: EXIO5=1` |
 | `bedroom_remote` ("BED REMOTE") | 4.3B | **v1.00** (2026-09-07) | **v1.00** | ✅ up to date. Lights / battery+solar / shore / thermostat |
 | Basement BLE proxy | classic ESP32 | *unversioned* | *unversioned* | Separate project (`proxy/`), not on this scheme. Solar build, 5 BLE links, coach-verified |
-| Dump-valve node | S3-ETH-8DI-8RO | *unversioned* | *unversioned* | Separate project (`valves/`). ESP-NOW control is on a branch, not merged |
+| Dump-valve node | S3-ETH-8DI-8RO | *unversioned* | *unversioned* | Separate project (`valves/`). Sensor build flashed 2026-10-16: both sense circuits verified on the real valves, boot clean. Panel control merged in PR #79 |
 
 ## Local machine setup
 
@@ -474,16 +474,11 @@ shared scan starts — nothing more. Real readings need the coach.
 
 ## Valve node
 
-> **Planned, not built.** The board is ordered; no firmware exists yet. This
-> section is a placeholder so the flash procedure lands next to the others
-> when it does. Full build spec:
-> [DRAINMASTER-VALVES.md](DRAINMASTER-VALVES.md).
-
 A Waveshare **ESP32-S3-ETH-8DI-8RO** in the basement bay driving the two
-DrainMaster dump valves. Like the proxy it will be a separate ESP-IDF project
-(`valves/`), headless, with its own `sdkconfig`.
-
-Expected shape, once it exists:
+DrainMaster dump valves. Like the proxy it is a separate ESP-IDF project
+(`valves/`), headless, with its own `sdkconfig`. Sensor-driven position and
+panel control were **hardware-verified 2026-10-16** (PR #79). Full build
+spec: [DRAINMASTER-VALVES.md](DRAINMASTER-VALVES.md).
 
 ```powershell
 idf.py -C valves -B valves/build set-target esp32s3      # once
@@ -491,18 +486,31 @@ idf.py -C valves -B valves/build build
 idf.py -C valves -B valves/build -p COM5 flash monitor
 ```
 
-Notes that already apply:
-
-- It is an **ESP32-S3**, unlike the classic-ESP32 proxy — so the BLE
+- It is an **ESP32-S3**, unlike the classic-ESP32 proxy — the BLE
   chip-portability guard is irrelevant here (there is no BLE at all).
+- Its USB is the **native USB-Serial/JTAG** port, which carries the app
+  console. The board runs from its own 12 V in the bay; **unplug the USB
+  when you are done** — `mid_coach` is inside the RV and the laptop reaches
+  one of them at a time, and the ESP-NOW link between them keeps working.
 - `FIREFLY_ESPNOW_CHANNEL` **must** match every other node (default 1).
-- Unlike the proxy's telemetry role, this node needs a **real unicast peer**,
-  so its `sdkconfig` will carry a genuine `FIREFLY_ESPNOW_PEER_MAC` — treat
-  it with the same care as the panels' (never regenerate the file; re-apply
-  by hand if you must).
-- ⚠️ **Do not flash it with a valve connected.** Work through the bring-up
-  order in [DRAINMASTER-VALVES.md](DRAINMASTER-VALVES.md#10-bring-up-order);
-  the interlock and watchdog tests come before any motor is wired.
+- Unlike the proxy's telemetry role, this node has **one real unicast peer,
+  `mid_coach`**: `valves/sdkconfig` carries `FIREFLY_ESPNOW_PEER_MAC` =
+  `mid_coach`'s MAC and `FIREFLY_ESPNOW_LMK`, and `build_mid_coach/sdkconfig`
+  carries the node's MAC in `FIREFLY_ESPNOW_VALVE_PEER_MAC` with a matching
+  `FIREFLY_ESPNOW_VALVE_LMK`. Use a clean **16-character** key on both — longer
+  strings are silently truncated, so ends that differ only after byte 16 still
+  match. Never regenerate either file; re-apply by hand if you must.
+- Sense settings (`valves/sdkconfig`, in place): `FIREFLY_VALVE_SENSE_ENABLED=y`,
+  `FIREFLY_VALVE_DI_ACTIVE_LOW=y` (the board's DI reads 0 when a valve is fully
+  closed), `FIREFLY_VALVE_SENSE_TEST` off.
+- ⚠️ **Sense-circuit work uses the read-only build.** Set
+  `CONFIG_FIREFLY_VALVE_SENSE_TEST=y`: it logs DI1/DI2 plus an eight-pin scan on
+  every change and **drops every drive command**, so no relay can fire. Start the
+  serial capture *before* touching a wire, open the port with DTR/RTS held low
+  (see CLAUDE.md), and read pin numbers against DI1 = GPIO4, DI2 = GPIO5.
+- ⚠️ **Do not flash a drive-capable build with a valve connected until the
+  interlock and watchdog tests have passed** — see
+  [DRAINMASTER-VALVES.md](DRAINMASTER-VALVES.md#10-bring-up-order).
 
 ## If the board will not enter download mode
 

@@ -28,7 +28,7 @@ graph TB
     MAIN["<b>main_cabinet</b> · 0x83<br/>ESP32-S3 7-inch panel<br/><i>CAN + listens to broadcasts</i>"]
     HVAC["<b>hvac_panel</b> · 0x84<br/>ESP32-S3 panel<br/><i>no CAN · thermostat bridge</i>"]
     PROXY["<b>Bluetooth proxy basement</b><br/>classic ESP32 · headless<br/><i>in the bay</i>"]
-    VALVE["<b>valve_node</b><br/>ESP32-S3-ETH-8DI-8RO<br/><i>in the bay · scaffold only</i>"]
+    VALVE["<b>valve_node</b><br/>ESP32-S3-ETH-8DI-8RO<br/><i>in the bay · senses + drives the valves</i>"]
 
     ET["Micro-Air EasyTouch 355<br/>3-zone RV thermostat<br/><i>stool room, at the G6</i>"]
 
@@ -49,7 +49,7 @@ graph TB
     FSW === G6A
 
     MID <-->|"ESP-NOW unicast<br/>encrypted · ch 1"| BED
-    MID <-.->|"ESP-NOW unicast<br/>valve cmd + position<br/><i>planned</i>"| VALVE
+    MID <-->|"ESP-NOW unicast<br/>valve cmd + sensed position<br/>encrypted · ch 1"| VALVE
 
     HVAC -->|"BLE GATT<br/>poll-and-release"| ET
     HVAC -.->|"ESP-NOW broadcast<br/>thermostat zones"| BED
@@ -95,7 +95,7 @@ shared RV-C CAN bus, where every node is a peer.
 | **`main_cabinet`** | Waveshare ESP32-S3-Touch-LCD-7B (1024×600) | Climate, lights, tanks, power and solar on a side-nav rail. Landscape, larger UI variant. | RV-C CAN, ESP-NOW (broadcast + thermostat commands) |
 | **`hvac_panel`** | Waveshare ESP32-S3-Touch-LCD-4.3B | 5-screen launcher: menu → Thermostat / Power / Batteries / Tanks. Holds the coach's only EasyTouch BLE link and is the **thermostat bridge**. **No CAN.** | BLE (EasyTouch), ESP-NOW (thermostat commands in, zone telemetry out) |
 | **Bluetooth proxy basement** | ESP32-D0WD-V3 (classic ESP32, 4 MB, no PSRAM) | Headless. Holds every BLE link in the coach and re-broadcasts what it reads. | BLE (5 links), ESP-NOW broadcast |
-| **`valve_node`** *(scaffold merged; control unmerged)* | Waveshare ESP32-S3-ETH-8DI-8RO | Headless. Drives the two DrainMaster dump valves and reports their position. **No BLE, no CAN, no Ethernet.** The `valves/` project and `components/valve_control` are on `main` and built by CI — relay interlock, 2 s watchdog and DI sense. Panel→node ESP-NOW control is on a branch (issue #64), held until the reed sense circuit is wired. | ESP-NOW unicast |
+| **`valve_node`** *(hardware-verified 2026-10-16)* | Waveshare ESP32-S3-ETH-8DI-8RO | Headless. Drives the two DrainMaster dump valves and reports their position **from the reed sense circuits**, so a valve moved with the wall rocker shows on the panel too. **No BLE, no CAN, no Ethernet.** Relay interlock and an independent 2 s watchdog; CLOSE is closed-loop on the sensor, OPEN is a timed 1 s drive. Commanded by `mid_coach` over encrypted unicast ESP-NOW (issue #64). The DI inputs are active-low and need the internal pull-ups on. | ESP-NOW unicast |
 
 Panel boards: ESP32-S3-WROOM-1, 16 MB flash / 8 MB octal PSRAM, GT911
 capacitive touch on I²C, CH422G IO expander, onboard TJA1051 CAN
@@ -148,7 +148,7 @@ checklist, so these stay current as devices are reflashed.
 | Device | App image | Partition | Used | Free | Captured |
 |---|---|---|---|---|---|
 | `main_cabinet` (7B) | 1,299,616 B (1.24 MiB) | 4 MiB | 31.0 % | **2.76 MiB (2,895,200 B)** | **v1.00, 2026-09-07** |
-| `mid_coach` | 1,289,888 B (1.23 MiB) | 4 MiB | 30.8 % | **2.77 MiB (2,904,416 B)** | **v1.00, 2026-09-07** |
+| `mid_coach` | 1,291,440 B (1.23 MiB) | 4 MiB | 30.8 % | **2.77 MiB (2,902,864 B)** | **v1.02, 2026-10-16** |
 | `bedroom_remote` | 1,280,176 B (1.22 MiB) | 4 MiB | 30.5 % | **2.78 MiB (2,913,616 B)** | **v1.00, 2026-09-07** |
 | `hvac_panel` | **1,549,840 B (1.48 MiB)** | 4 MiB | **37.0 %** | **2.52 MiB (2,643,952 B)** | **v1.00, 2026-09-07** |
 | `main_cabinet` (non-B, retired) | 1,280,352 B (1.22 MiB) | 4 MiB | 30.5 % | 2.78 MiB | 2026-08-28 |
@@ -177,7 +177,7 @@ per-connection checklist, so these stay current as devices are reflashed.
 |---|---|---|---|---|
 | `main_cabinet` (7B) | **106 KiB (108,531 B)** | 7 KiB | **4.47 MiB (4,685,952 B)** | **v1.00, 2026-09-07** |
 | `main_cabinet` (non-B 7", at boot, retired) | 192 KiB (139 + 21 + 32) | 7 KiB | 7,054 KiB | 2026-08-28 |
-| `mid_coach` (4.3B) | **131 KiB (133,843 B)** | 7 KiB | **3.22 MiB (3,371,724 B)** | **v1.00, 2026-09-07** |
+| `mid_coach` (4.3B) | **131 KiB (133,803 B)** | 7 KiB | **3.15 MiB (3,305,676 B)** | **v1.02, 2026-10-16** |
 | `hvac_panel` (4.3B) | **133 KiB (136,119 B)** | 7 KiB | **2.95 MiB (3,096,124 B)** | **v1.00, 2026-09-07** |
 | `bedroom_remote` (4.3B) | **140 KiB (143,279 B)** | 7 KiB | **3.19 MiB (3,349,136 B)** | **v1.00, 2026-09-07** |
 | Bluetooth proxy basement | not measured | — | **none fitted** | — |
@@ -293,7 +293,7 @@ the bus — never by the command you just sent.
 Two distinct traffic classes, deliberately kept separate.
 
 **Encrypted unicast** carries commands and status between `bedroom_remote`
-and `mid_coach`, and — once built — valve commands and position between
+and `mid_coach`, and valve commands and sensed position between
 `mid_coach` and `valve_node`. These frames actuate real loads, so they use a
 PMK plus a per-peer LMK.
 
@@ -361,8 +361,8 @@ knows nothing of its siblings, so bank aggregation happens in our firmware
   has recovered the wire framing, and writes are accepted at the GATT layer
   and ignored. Only Gen 2 (EPOW models) has a working `SetOpen`.
 - **One remote per bridge.** ESP-NOW pairing is fixed at build time — no
-  runtime pairing, no mesh. ⚠️ `valve_node` needs a **second** unicast peer,
-  which is the single largest piece of work in that feature — see
+  runtime pairing, no mesh. `mid_coach` holds `valve_node` as a **second**
+  unicast peer (`espnow_link_add_valve_peer()`, its own MAC and LMK) — see
   [DRAINMASTER-VALVES.md](DRAINMASTER-VALVES.md#8-panel-side).
 - **Dump valves have no full-open sensor.** The DrainMaster reed senses
   *fully closed* only, so closing is closed-loop and opening is a timed run

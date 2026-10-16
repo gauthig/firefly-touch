@@ -46,6 +46,11 @@ typedef enum {
     ESPNOW_FRAME_STATUS = 2,
     ESPNOW_FRAME_TELEMETRY = 3,
     ESPNOW_FRAME_HVAC_CMD = 4,
+    /* 5/6, not 4/5: HVAC_CMD=4 already shipped on main, and expected_len()
+     * switches on this value -- two frame kinds sharing 4 is a duplicate
+     * case label. Nothing was deployed with the valve frames yet. */
+    ESPNOW_FRAME_VALVE_CMD = 5,
+    ESPNOW_FRAME_VALVE_STATUS = 6,
 } espnow_frame_type_t;
 
 /*
@@ -109,6 +114,24 @@ _Static_assert(sizeof(espnow_hvac_msg_t) == 16, "espnow_hvac_msg_t must be 16 by
 _Static_assert(sizeof(espnow_hvac_cmd_msg_t) <= sizeof(espnow_cmd_msg_t),
                "espnow_hvac_cmd_msg_t must fit the existing control-frame union");
 
+/*
+ * Valve control frame. Its own struct/assert for the same reason telemetry
+ * has one -- mid_coach and the valve node are flashed independently, so a
+ * size change here would make an updated one's frames silently invisible
+ * to the other until both are reflashed.
+ */
+typedef struct {
+    uint8_t type;
+    union {
+        espnow_valve_cmd_msg_t    cmd;
+        espnow_valve_status_msg_t status;
+    };
+} espnow_valve_frame_t;
+
+_Static_assert(sizeof(espnow_valve_frame_t) == 3,
+               "espnow valve frame size changed -- mid_coach and the valve "
+               "node must be reflashed together");
+
 /* Big enough for the largest frame; the queue carries raw bytes + length so
  * adding another frame type later doesn't require touching the queue. */
 #define RX_ITEM_MAX 48
@@ -128,6 +151,12 @@ static bool    s_have_cmd_peer;
 static uint8_t s_hvac_peer[6];
 static bool    s_have_hvac_peer;
 
+/* mid_coach's SECOND peer (the valve node). Every other role leaves this
+ * unused -- s_have_valve_peer stays false unless espnow_link_add_valve_peer()
+ * is called. */
+static uint8_t s_valve_peer_mac[6];
+static bool    s_have_valve_peer;
+
 static espnow_cmd_rx_cb_t s_cmd_cb;
 static void *s_cmd_cb_ctx;
 static espnow_status_rx_cb_t s_status_cb;
@@ -136,6 +165,10 @@ static espnow_telem_rx_cb_t s_telem_cb;
 static void *s_telem_cb_ctx;
 static espnow_hvac_cmd_rx_cb_t s_hvac_cmd_cb;
 static void *s_hvac_cmd_cb_ctx;
+static espnow_valve_cmd_rx_cb_t s_valve_cmd_cb;
+static void *s_valve_cmd_cb_ctx;
+static espnow_valve_status_rx_cb_t s_valve_status_cb;
+static void *s_valve_status_cb_ctx;
 
 /* 32-bit aligned tick write/read is atomic on Xtensa; no lock needed
  * (same pattern as state_manager_bus_healthy()). */
@@ -212,6 +245,9 @@ static size_t expected_len(uint8_t type)
         return sizeof(espnow_frame_t);
     case ESPNOW_FRAME_TELEMETRY:
         return sizeof(espnow_telem_frame_t);
+    case ESPNOW_FRAME_VALVE_CMD:
+    case ESPNOW_FRAME_VALVE_STATUS:
+        return sizeof(espnow_valve_frame_t);
     default:
         return 0;
     }
@@ -251,11 +287,15 @@ static void espnow_rx_task(void *arg)
             continue;
         }
 
-        /* Telemetry is a broadcast from an unrelated node, so it must not
-         * count as evidence that our unicast peer is alive -- otherwise a
-         * dead bridge would still look "healthy" to a remote panel. */
+        /* Telemetry and valve frames are not evidence the PRIMARY peer is
+         * alive: telemetry because it's a broadcast from an unrelated node,
+         * valve traffic because on mid_coach it comes from the SECOND peer
+         * -- otherwise a dead bridge/valve link could each look "healthy"
+         * via the other's traffic. */
         const bool is_telem = item.data[0] == ESPNOW_FRAME_TELEMETRY;
-        if (!is_telem) {
+        const bool is_valve = item.data[0] == ESPNOW_FRAME_VALVE_CMD ||
+                              item.data[0] == ESPNOW_FRAME_VALVE_STATUS;
+        if (!is_telem && !is_valve) {
             s_last_rx_tick = xTaskGetTickCount();
             s_rx_seen = true;
         }
@@ -265,6 +305,17 @@ static void espnow_rx_task(void *arg)
                 espnow_telem_frame_t frame;
                 memcpy(&frame, item.data, sizeof(frame));
                 s_telem_cb(&frame.telem, s_telem_cb_ctx);
+            }
+            continue;
+        }
+
+        if (is_valve) {
+            espnow_valve_frame_t frame;
+            memcpy(&frame, item.data, sizeof(frame));
+            if (frame.type == ESPNOW_FRAME_VALVE_CMD && s_valve_cmd_cb != NULL) {
+                s_valve_cmd_cb(&frame.cmd, s_valve_cmd_cb_ctx);
+            } else if (frame.type == ESPNOW_FRAME_VALVE_STATUS && s_valve_status_cb != NULL) {
+                s_valve_status_cb(&frame.status, s_valve_status_cb_ctx);
             }
             continue;
         }
@@ -329,6 +380,38 @@ bool espnow_link_send_hvac_cmd(const espnow_hvac_cmd_msg_t *msg)
     return espnow_send_frame_to(s_hvac_peer, s_have_hvac_peer, &frame);
 }
 
+bool espnow_link_send_valve_cmd(const espnow_valve_cmd_msg_t *msg)
+{
+    if (!s_have_valve_peer) {
+        return false;   /* espnow_link_add_valve_peer() was never called */
+    }
+    espnow_valve_frame_t frame = { .type = ESPNOW_FRAME_VALVE_CMD };
+    frame.cmd = *msg;
+    const esp_err_t err = esp_now_send(s_valve_peer_mac, (const uint8_t *)&frame, sizeof(frame));
+    if (err != ESP_OK) {
+        ESP_LOGW(TAG, "valve cmd send failed: %s", esp_err_to_name(err));
+        return false;
+    }
+    return true;
+}
+
+bool espnow_link_send_valve_status(const espnow_valve_status_msg_t *msg)
+{
+    /* The valve node's one peer IS mid_coach, so this reuses the normal
+     * primary-peer send path, unlike espnow_link_send_valve_cmd() above. */
+    if (!s_have_cmd_peer) {
+        return false;
+    }
+    espnow_valve_frame_t frame = { .type = ESPNOW_FRAME_VALVE_STATUS };
+    frame.status = *msg;
+    const esp_err_t err = esp_now_send(s_cmd_peer, (const uint8_t *)&frame, sizeof(frame));
+    if (err != ESP_OK) {
+        ESP_LOGW(TAG, "valve status send failed: %s", esp_err_to_name(err));
+        return false;
+    }
+    return true;
+}
+
 bool espnow_link_healthy(void)
 {
     if (!s_rx_seen) {
@@ -361,13 +444,67 @@ void espnow_link_set_hvac_cmd_rx_cb(espnow_hvac_cmd_rx_cb_t cb, void *ctx)
     s_hvac_cmd_cb_ctx = ctx;
 }
 
+void espnow_link_set_valve_cmd_rx_cb(espnow_valve_cmd_rx_cb_t cb, void *ctx)
+{
+    s_valve_cmd_cb = cb;
+    s_valve_cmd_cb_ctx = ctx;
+}
+
+void espnow_link_set_valve_status_rx_cb(espnow_valve_status_rx_cb_t cb, void *ctx)
+{
+    s_valve_status_cb = cb;
+    s_valve_status_cb_ctx = ctx;
+}
+
+esp_err_t espnow_link_add_valve_peer(void)
+{
+    if (!parse_mac(CONFIG_FIREFLY_ESPNOW_VALVE_PEER_MAC, s_valve_peer_mac)) {
+        ESP_LOGE(TAG, "bad CONFIG_FIREFLY_ESPNOW_VALVE_PEER_MAC '%s' (expected AA:BB:CC:DD:EE:FF)",
+                 CONFIG_FIREFLY_ESPNOW_VALVE_PEER_MAC);
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    /* A unicast MAC has bit 0 of the first octet clear. A value with it set
+     * (e.g. a mistyped "3f:..." from a per-machine sdkconfig) is a
+     * multicast address the driver will reject -- catch it here rather than
+     * letting esp_now_add_peer() fail an ESP_ERROR_CHECK and boot-loop an
+     * installed panel over a config typo. */
+    if (s_valve_peer_mac[0] & 0x01u) {
+        ESP_LOGE(TAG, "CONFIG_FIREFLY_ESPNOW_VALVE_PEER_MAC '%s' is not a "
+                      "unicast address (first octet is odd) -- valve control "
+                      "disabled", CONFIG_FIREFLY_ESPNOW_VALVE_PEER_MAC);
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    esp_now_peer_info_t peer = {0};
+    memcpy(peer.peer_addr, s_valve_peer_mac, sizeof(s_valve_peer_mac));
+    peer.channel = CONFIG_FIREFLY_ESPNOW_CHANNEL;
+    peer.ifidx = WIFI_IF_STA;
+    peer.encrypt = true;
+    copy_key(peer.lmk, sizeof(peer.lmk), CONFIG_FIREFLY_ESPNOW_VALVE_LMK);
+    const esp_err_t err = esp_now_add_peer(&peer);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "esp_now_add_peer(valve) failed: %s -- valve control disabled",
+                 esp_err_to_name(err));
+        return err;
+    }
+    s_have_valve_peer = true;
+
+    ESP_LOGI(TAG, "valve peer added %02X:%02X:%02X:%02X:%02X:%02X, channel %d",
+             s_valve_peer_mac[0], s_valve_peer_mac[1], s_valve_peer_mac[2],
+             s_valve_peer_mac[3], s_valve_peer_mac[4], s_valve_peer_mac[5],
+             CONFIG_FIREFLY_ESPNOW_CHANNEL);
+    return ESP_OK;
+}
+
 static const char *role_str(espnow_role_t role)
 {
     switch (role) {
-    case ESPNOW_ROLE_BRIDGE:    return "bridge";
-    case ESPNOW_ROLE_REMOTE:    return "remote";
-    case ESPNOW_ROLE_TELEMETRY: return "telemetry";
-    default:                    return "?";
+    case ESPNOW_ROLE_BRIDGE:     return "bridge";
+    case ESPNOW_ROLE_REMOTE:     return "remote";
+    case ESPNOW_ROLE_TELEMETRY:  return "telemetry";
+    case ESPNOW_ROLE_VALVE_NODE: return "valve_node";
+    default:                     return "?";
     }
 }
 

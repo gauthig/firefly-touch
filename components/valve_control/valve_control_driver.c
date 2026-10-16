@@ -81,7 +81,11 @@ esp_err_t valve_control_driver_init(i2c_master_bus_handle_t bus)
     const gpio_config_t di_cfg = {
         .pin_bit_mask = (1ULL << VALVE_DI_GPIO_GREY) | (1ULL << VALVE_DI_GPIO_BLACK),
         .mode = GPIO_MODE_INPUT,
-        .pull_up_en = GPIO_PULLUP_DISABLE,
+        /* Idle (opto off) must read HIGH. Bench 2026-10-16: DI1 (GPIO4) read
+         * LOW with its terminal empty and its board LED off, while DI3..DI8
+         * idled high -- a pin with no working external pull-up floats. The
+         * internal pull-up is harmless where the board already has one. */
+        .pull_up_en = GPIO_PULLUP_ENABLE,
         .pull_down_en = GPIO_PULLDOWN_DISABLE,
         .intr_type = GPIO_INTR_DISABLE,
     };
@@ -130,8 +134,18 @@ esp_err_t valve_control_read_relays(uint8_t *mask_out)
     return tca9554_read_reg(TCA9554_REG_INPUT, mask_out);
 }
 
-bool valve_control_read_di(valve_id_t valve)
+bool valve_control_read_di_raw(valve_id_t valve)
 {
     const gpio_num_t pin = (valve == VALVE_GREY) ? VALVE_DI_GPIO_GREY : VALVE_DI_GPIO_BLACK;
     return gpio_get_level(pin) != 0;
+}
+
+bool valve_control_read_di(valve_id_t valve)
+{
+    const bool raw = valve_control_read_di_raw(valve);
+#if CONFIG_FIREFLY_VALVE_DI_ACTIVE_LOW
+    return !raw;
+#else
+    return raw;
+#endif
 }
