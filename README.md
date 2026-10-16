@@ -59,7 +59,7 @@ bay — is held by the proxy in that bay and broadcast to the panels.
 | `bedroom_remote` | Waveshare ESP32-S3-Touch-LCD-4.3B | ESP-NOW only |
 | `main_cabinet` | Waveshare ESP32-S3-Touch-LCD-7B (1024×600) | RV-C CAN + ESP-NOW telemetry (listen only) |
 | Bluetooth proxy basement | ESP32-D0WD-V3, 4 MB | BLE (3 battery packs + Power Watchdog + Renogy solar) + ESP-NOW broadcast |
-| `valve_node` *(planned)* | Waveshare ESP32-S3-ETH-8DI-8RO | ESP-NOW unicast — drives the two dump valves |
+| `valve_node` | Waveshare ESP32-S3-ETH-8DI-8RO | ESP-NOW unicast — senses and drives the two dump valves (commanded by `mid_coach`) |
 
 Panel boards are ESP32-S3-WROOM-1 with 16 MB flash / 8 MB octal PSRAM, GT911
 touch, CH422G expander, onboard TJA1051 CAN transceiver and 7–36 V input.
@@ -100,7 +100,7 @@ firefly-touch/
 │   └── TEMPLATE.h            #   copy this to add a panel
 ├── proxy/                    # basement BLE proxy — SEPARATE project,
 │                             #   classic ESP32 target, no display
-│                             #   (valves/ will join it: dump-valve relay
+│                             #   (valves/ is its sibling: the dump-valve relay
 │                             #    controller, also headless — see
 │                             #    docs/DRAINMASTER-VALVES.md)
 ├── sim/                      # PC simulator (see the UI without hardware)

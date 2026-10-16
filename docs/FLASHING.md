@@ -74,8 +74,8 @@ It is also on the first line of the boot log. Scheme (`main/firefly_version.h`):
 
 ## Current flash status
 
-**All four panels are on v1.00 as of 2026-09-07** — each flashed and
-boot-verified over 15 s.
+**Three panels are on v1.00 (2026-09-07) and `mid_coach` is on v1.01
+(2026-10-16)** — each flashed and boot-verified over 15 s.
 
 **Read this table to decide what to reflash**: if *Last validated* is behind
 *Recommended*, that device is due. *Recommended* is what `main` builds today
@@ -84,12 +84,12 @@ and MACs are machine-specific — see *Local machine setup* below.
 
 | Device | Board | Last validated | Recommended | Notes |
 |---|---|---|---|---|
-| `mid_coach` ("MID COACH") | 4.3B | **v1.00** (2026-09-07) | **v1.00** | ✅ up to date. Bridge; lights / tanks / battery+solar / shore |
+| `mid_coach` ("MID COACH") | 4.3B | **v1.01** (2026-10-16) | **v1.01** | ✅ up to date, from branch #79 (not yet merged). 15 s boot clean; valve controls hardware-verified (rocker shows on the panel, panel opens/closes the real valve). Bridge; lights / tanks+valves / battery+solar / shore |
 | `hvac_panel` ("HVAC") | 4.3B | **v1.00** (2026-09-07) | **v1.00** | ✅ up to date. EasyTouch BLE + thermostat bridge, 5-screen launcher |
 | `main_cabinet` ("MAIN CABINET") | 7B `lcd7b` | **v1.00** (2026-09-07) | **v1.00** | ✅ up to date. Nav rail: Climate / Power / Solar / Tanks / Lights. Boot confirms `USB/CAN mux OK: EXIO5=1` |
 | `bedroom_remote` ("BED REMOTE") | 4.3B | **v1.00** (2026-09-07) | **v1.00** | ✅ up to date. Lights / battery+solar / shore / thermostat |
 | Basement BLE proxy | classic ESP32 | *unversioned* | *unversioned* | Separate project (`proxy/`), not on this scheme. Solar build, 5 BLE links, coach-verified |
-| Dump-valve node | S3-ETH-8DI-8RO | *unversioned* | *unversioned* | Separate project (`valves/`). ESP-NOW control is on a branch, not merged |
+| Dump-valve node | S3-ETH-8DI-8RO | *unversioned* | *unversioned* | Separate project (`valves/`). Sensor build flashed 2026-10-16: both sense circuits verified on the real valves, boot clean. ESP-NOW control is on branch #79, not merged |
 
 ## Local machine setup
 

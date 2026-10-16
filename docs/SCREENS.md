@@ -53,15 +53,22 @@ bar carries a Grey/Black summary that turns amber at 80 % and blinks red at
 89 %, where it also pins the backlight on — a "go empty the tank" alert
 should not dim out of view.
 
-⚠️ The three controls beneath the gauges are **deliberately inert**, exactly
-as on `main_cabinet`: they flip their own caption and send nothing. The dump
-valves and the gravity/macerator selector aren't wired yet; the control
-surface is here so the layout is settled when they are. State is in memory
-only, so it shows what someone last tapped rather than what the valve is
-doing, and it does not survive a reboot. They are coloured like any other
-on-state rather than with the warn colour on purpose — an alarm colour on a
-button that actuates nothing would announce an open dump valve that does not
-exist.
+The **GREY and BLACK controls beneath the gauges drive the real dump valves**
+(issue #64, hardware-verified 2026-10-16), through the valve node over
+encrypted ESP-NOW. Their state comes only from the valve node's **reed
+sensors**, never from the tap, so a valve moved with the wall rocker shows up
+too. Three states: **closed**, **open** (red — it means *not closed*; the reed
+leaves its closed position early in the stroke, so this is not "fully open"),
+and **unknown** (no recent report from the node, or a CLOSE that never reached
+the sensor). **Close is a single tap; open is tap-to-arm then tap again within
+5 s.** The panel never retries a command on its own.
+
+⚠️ The third control, the **gravity/macerator selector, is still
+deliberately inert**: it flips its own caption and sends nothing, because that
+actuation isn't built. It is coloured like any other on-state rather than with
+the warn colour on purpose — an alarm colour on a button that actuates nothing
+would announce something that is not happening. (The tank-screen capture
+above predates the valve controls and needs regenerating.)
 
 **Battery bank and shore power** arrive as ESP-NOW broadcasts from the
 basement proxy. Being the bridge grants no special access to that data: it is
