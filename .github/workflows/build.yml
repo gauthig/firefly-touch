@@ -10,6 +10,10 @@ on:
   pull_request:
   workflow_dispatch:
 
+# Runners are pinned to ubuntu-24.04, not ubuntu-latest: GitHub moves that label
+# to Ubuntu 26 from 2026-10-19 (actions/runner-images#14748), and an unannounced
+# OS change under the ESP-IDF v5.5.5 builds is not worth the risk. Move all of
+# them together, deliberately, after a green run on the new image.
 jobs:
   # Two lanes. The fast lane (lint, panels, host-tests, secrets) always runs
   # and costs ~20 s all told. The heavy lane -- six ESP-IDF builds at 3-5
@@ -23,7 +27,7 @@ jobs:
   # Fails SAFE: anything it cannot classify builds everything.
   changes:
     name: What changed
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     outputs:
       code: ${{ steps.filter.outputs.code }}
     steps:
@@ -94,7 +98,7 @@ jobs:
 
   lint:
     name: Lint
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-python@v6
@@ -145,7 +149,7 @@ jobs:
   # resolved and the real keys move to build_<panel>/sdkconfig.
   secrets:
     name: No credentials in tracked files
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v5
 
@@ -222,7 +226,7 @@ jobs:
 
   panels:
     name: Panel registry
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     outputs:
       matrix: ${{ steps.list.outputs.panels }}
     steps:
@@ -241,7 +245,7 @@ jobs:
 
   host-tests:
     name: Host-testable component tests
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v5
       - name: Compile and run rvc_protocol tests
@@ -283,7 +287,7 @@ jobs:
     name: Build ble proxy
     needs: [changes, lint, host-tests]
     if: needs.changes.outputs.code == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v5
       - name: idf.py build
@@ -300,7 +304,7 @@ jobs:
     name: Build valve node
     needs: [changes, lint, host-tests]
     if: needs.changes.outputs.code == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v5
       - name: idf.py build
@@ -314,7 +318,7 @@ jobs:
     name: Build ${{ matrix.panel }}
     needs: [changes, lint, panels, host-tests]
     if: needs.changes.outputs.code == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
       matrix:
@@ -350,7 +354,7 @@ jobs:
     name: Publish release
     needs: firmware
     if: startsWith(github.ref, 'refs/tags/v')
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       contents: write
     steps:
