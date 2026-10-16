@@ -31,6 +31,12 @@
 
 #define PANEL_NAME  "BED REMOTE"
 #define PANEL_INDEX 2
+
+/* Per-panel version minor; the major is global in main/firefly_version.h.
+ * Bump this ONLY for a fix that touches just this panel, and update
+ * docs/FLASHING.md's status table in the same commit. Panels are
+ * expected to sit on different minors — that is the design, not drift. */
+#define PANEL_VERSION_MINOR 0
 #define PANEL_HAS_CAN 0
 #define PANEL_HAS_SCREEN_2 1
 #define PANEL_HAS_SCREEN_3 1

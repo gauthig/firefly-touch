@@ -42,6 +42,7 @@ SKIP = {"TEMPLATE.h"}
 
 RE_NAME = re.compile(r'^\s*#define\s+PANEL_NAME\s+"([^"]*)"', re.MULTILINE)
 RE_INDEX = re.compile(r"^\s*#define\s+PANEL_INDEX\s+(\d+)", re.MULTILINE)
+RE_MINOR = re.compile(r"^\s*#define\s+PANEL_VERSION_MINOR\s+(\d+)", re.MULTILINE)
 RE_ROW = re.compile(r"^\|\s*`([A-Za-z0-9_]+)`\s*\|\s*(\d+)\s*\|", re.MULTILINE)
 # panel | index | source addr | board | ...
 RE_ROW_BOARD = re.compile(
@@ -67,6 +68,29 @@ def load_panels():
             continue
         if not name:
             errors.append(f"{path.name}: no #define PANEL_NAME")
+            continue
+        # The minor is the per-panel half of the version scheme
+        # (main/firefly_version.h). It has an #ifndef fallback of 0, so a
+        # header that omits it still builds and still reports v<major>.00 --
+        # silently, which would let a panel-specific fix ship reading the
+        # same version as the build it replaced and leave FLASHING.md's
+        # "Recommended" column claiming a stale panel is current. Require it
+        # explicitly so the omission is a CI failure, not a quiet default.
+        minor = RE_MINOR.search(text)
+        if not minor:
+            errors.append(
+                f"{path.name}: no #define PANEL_VERSION_MINOR "
+                "(see panels/TEMPLATE.h; a new panel starts at 0)"
+            )
+            continue
+        # Mirrors the #error guard in main/firefly_version.h -- the version
+        # renders as v%u.%02u, so a minor above 99 would widen the field and
+        # overflow FIREFLY_VERSION_BUF_LEN.
+        if int(minor.group(1)) > 99:
+            errors.append(
+                f"{path.name}: PANEL_VERSION_MINOR {minor.group(1)} out of "
+                "range (0-99; it renders as two digits)"
+            )
             continue
         panels[path.stem] = (int(index.group(1)), name.group(1))
     return panels, errors

@@ -46,6 +46,12 @@
 #define PANEL_NAME  "HVAC"
 #define PANEL_INDEX 4
 
+/* Per-panel version minor; the major is global in main/firefly_version.h.
+ * Bump this ONLY for a fix that touches just this panel, and update
+ * docs/FLASHING.md's status table in the same commit. Panels are
+ * expected to sit on different minors — that is the design, not drift. */
+#define PANEL_VERSION_MINOR 0
+
 #define PANEL_HAS_CAN 0
 #define PANEL_HAS_EASYTOUCH 1   /* implies PANEL_HAS_THERMOSTAT */
 #define PANEL_HVAC_BRIDGE 1     /* accepts ESPNOW_FRAME_HVAC_CMD from other panels */

@@ -584,7 +584,10 @@ Off, Fan (assumed unchanged from upstream, not separately re-tested), Cool,
 Heat (Pump or Strip, per zone), Aqua-Hot. Auto remains the one mode never
 seen live; not expected to be needed for the panel UI's initial scope.
 
-**How to continue the capture** (per bench plan §8, steps 4-5, 7): run
+**How to continue the capture** (per bench plan §8, steps 4-5, 7) — ⚠️ the
+`hvac_capture` tool this command drove was removed in issue #83; see
+*Continuing a mode capture* at the end of §10 for the `hvac_panel`
+equivalent. Kept for the record:
 
 ```
 idf.py -C hvac_capture -B hvac_capture\build -p COM23 monitor
@@ -651,10 +654,10 @@ spacer slot is now the nav button); `main_cabinet` a CLIMATE rail section.
 frame). Both `_Static_assert`s in `espnow_link.c` stay green.
 `espnow_link` gained a small peer table: `FIREFLY_ESPNOW_PEER_MAC` (dimmer
 bridge), `FIREFLY_ESPNOW_HVAC_PEER_MAC` (thermostat bridge),
-`FIREFLY_ESPNOW_RX_PEER_MAC_1/_2` (extra decrypt-from peers). Coach MACs:
-hvac_panel `94:a9:90:ca:fd:38`, bedroom_remote `44:1b:f6:8d:00:7c`,
-mid_coach `44:1b:f6:ca:4c:b4`, main_cabinet (7B) `44:1b:f6:8e:d5:7c` (read
-via esptool 2026-09-07, now in hvac_panel's `RX_PEER_MAC_2`).
+`FIREFLY_ESPNOW_RX_PEER_MAC_1/_2` (extra decrypt-from peers). ⚠️ The real
+MACs live in `DEVICES.local.md` (gitignored) and each
+`build_<panel>/sdkconfig`, never in a committed file — see
+[FLASHING.md](FLASHING.md) → *Local machine setup*.
 
 ### Bench-verified 2026-09-06 / flashed 2026-09-07
 
@@ -749,7 +752,8 @@ bridge above is layered on top of it.)*
   **24 KiB in PSRAM** for `hvac_panel` (and `bedroom_remote`) — zero
   internal-DRAM cost.
 - **Bench-verified on hardware 2026-09-06** (COM23): boots clean, BLE stack
-  up, scan finds `EasyTouch 355003525` at `20:E7:C8:6B:76:C6`, connects,
+  up, the name scan finds the thermostat (its advertised name and BLE
+  address are in `DEVICES.local.md`), connects,
   auth `Matched`, parses 3 zones every 30 s poll, releases the link
   between. **Thermostat screen, setpoint −/+ (optimistic + debounced) and
   the mode-picker popup are user-confirmed working.** The
@@ -765,6 +769,20 @@ bridge above is layered on top of it.)*
 - **Deferred:** `ESPNOW_TELEM_HVAC` broadcast (so other panels could show
   thermostat data) — its own follow-up.
 
-### Continuing a mode capture (unchanged)
+### Continuing a mode capture
 
-The `hvac_capture/` bench tool still works for filling `?` rows; see §8c.
+⚠️ **The `hvac_capture/` bench tool has been removed** (issue #83) — it was
+superseded by `components/easytouch` + the `hvac_panel` panel, and nothing
+built it any more. §8a and §8c below are kept as the record of what it
+captured; the commands in them no longer run.
+
+To fill a remaining `?` row now, use the real panel: `hvac_panel` logs each
+parsed status at INFO every poll, so
+
+```
+idf.py -B build_hvac_panel "-DPANEL=hvac_panel" "-DSDKCONFIG=build_hvac_panel/sdkconfig" -p COM23 monitor
+```
+
+then cycle a zone on the physical thermostat and watch the `mode=` /
+`current=` values. The poll interval is 30 s here rather than the bench
+tool's 5 s, so allow a poll between changes.

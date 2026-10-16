@@ -7,7 +7,8 @@
  * to a re-scan after several failed direct connects.
  *
  * Modelled on components/jbd_bms/jbd_bms_client.c and the hvac_capture bench
- * tool (hvac_capture/main/easytouch_capture_main.c).
+ * tool that first proved this protocol on the coach (removed in issue #83;
+ * its captures live on in docs/EASYTOUCH-THERMOSTAT.md and the host tests).
  */
 #include "easytouch_client.h"
 
