@@ -427,6 +427,17 @@ Replaces the inert `PANEL_BTN_LOCAL_TOGGLE` placeholders on the tank screens
 - **Arm-then-fire on OPEN only.** First tap changes the button to
   `TAP AGAIN TO OPEN` and starts a 5 s window; a second tap inside that window
   sends the command. CLOSE stays a single tap.
+- **The tap is a toggle on the sensed state and never repeats it** (v1.02,
+  2026-10-16): a valve that reads closed arms the OPEN; one that reads open
+  closes on a single tap; one that reads unknown or stale also closes on a
+  single tap — CLOSE is the safe direction, and otherwise a CLOSE that never
+  reached the sensor (latched unknown) could only be retried by opening the
+  valve first. OPEN is never sent from a state that does not read closed, and
+  the arm is dropped the moment the valve is seen leaving closed. The node
+  mirrors this: it ignores a CLOSE when its sensor already reads closed (no
+  relay pulse), but never ignores an OPEN, because the reed leaves its closed
+  position early in the stroke and a repeat OPEN is how a part-open valve
+  finishes opening.
 - **Red background while open**, driven by *sensed* state, not by what was
   last commanded.
 - **Three visual states, not two** — closed, open, unknown/fault.

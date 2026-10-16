@@ -50,7 +50,8 @@
  * Bump this ONLY for a fix that touches just this panel, and update
  * docs/FLASHING.md's status table in the same commit. Panels are
  * expected to sit on different minors — that is the design, not drift. */
-#define PANEL_VERSION_MINOR 1   /* 1.01: GREY/BLACK valve controls driven by the valve node's sensors (#64) */
+#define PANEL_VERSION_MINOR 2   /* 1.01: GREY/BLACK valve controls driven by the valve node's sensors (#64)
+                                 * 1.02: valve tap is a strict toggle on the sensed state */
 
 /* This panel is the ESP-NOW bridge/router between the RV-C CAN bus and all
  * remote panels (any panel whose ID ends in _remote, e.g.

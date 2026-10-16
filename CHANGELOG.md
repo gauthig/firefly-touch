@@ -7,7 +7,7 @@ Notable changes to firefly-touch. Format follows
 
 ### Added — panel-commanded dump valves with sensor-driven position (#64)
 
-`mid_coach` v1.01. The GREY and BLACK controls on the tank screen now drive
+`mid_coach` v1.01–v1.02. The GREY and BLACK controls on the tank screen now drive
 the real DrainMaster dump valves through the valve node (`valves/`) over
 encrypted ESP-NOW, and show the valve's **sensed** state. Hardware-verified
 2026-10-16: a valve moved with the wall rocker shows on the panel, and the
@@ -16,6 +16,15 @@ panel opens and closes the real valve.
 - **Close is a single tap; open is tap-to-arm then tap again within 5 s.**
   Three states — closed, open (red, meaning *not closed*), unknown — driven
   only by the sensors, never by the tap.
+- **v1.02: the tap is a strict toggle on the sensed state** — it never repeats
+  what the valve already reads. Reads closed → arm, then OPEN on the second
+  tap; reads open → CLOSE; unknown or stale → CLOSE (the safe direction, so a
+  latched failed-CLOSE can be retried without opening first). The arm is
+  dropped the moment the valve is seen anywhere but closed, so the confirming
+  tap can't fire an OPEN on a valve that already opened, or turn into a
+  surprise CLOSE. The node also ignores a CLOSE when its sensor already reads
+  closed (no relay pulse); OPEN is never ignored, because the reed leaves its
+  closed position early in the stroke and a repeat OPEN finishes the job.
 - **The reported position follows the reed sensor**, so a valve moved with the
   wall rocker shows on the panel too. CLOSE is closed-loop on the sensor; OPEN
   stays a timed 1 s drive under the 2 s watchdog. A CLOSE that never reaches
@@ -36,8 +45,9 @@ panel opens and closes the real valve.
   Built that way the part is reversed: with the sensor signal removed it reads
   base ≈ 0.6 V / collector ≈ 7 V and holds the input on. Diagram and doc fixed.
 
-Panels: `mid_coach` v1.01 flashed and boot-verified over 15 s on 2026-10-16;
-the other three are unaffected. The valve node was reflashed the same day.
+Panels: `mid_coach` v1.02 flashed and boot-verified over 15 s on 2026-10-16;
+the other three are unaffected. The valve node was reflashed the same day
+(the CLOSE-ignored guard is in the source but not yet on the node).
 
 ## [1.00] — 2026-09-07
 

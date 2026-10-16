@@ -181,6 +181,26 @@ static void valve_drive_task(void *arg)
 
         const valve_action_t action = (cmd.action == ESPNOW_VALVE_ACTION_OPEN)
             ? VALVE_ACTION_OPEN : VALVE_ACTION_CLOSE;
+
+#if CONFIG_FIREFLY_VALVE_SENSE_ENABLED
+        /* A CLOSE for a valve the sensor already reads closed energizes
+         * nothing: the panel only sends CLOSE for a valve that reads open or
+         * unknown, so this is the race where it was stale. Re-report the true
+         * position so the panel catches up.
+         *
+         * Deliberately NOT done for OPEN. "Not closed" only means the reed has
+         * left its closed position, which happens EARLY in the stroke -- a
+         * valve reading not-closed may be mid-travel, and a repeated OPEN is
+         * how it finishes opening. */
+        if (action == VALVE_ACTION_CLOSE && valve_control_read_di(valve)) {
+            ESP_LOGI(TAG, "valve %u: CLOSE ignored, sensor already reads closed",
+                     (unsigned)valve);
+            s_close_fault[valve] = false;
+            s_position[valve] = ESPNOW_VALVE_POS_CLOSED;
+            send_status(valve);
+            continue;
+        }
+#endif
         run_drive(valve, action);
     }
 }

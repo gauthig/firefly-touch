@@ -60,8 +60,11 @@ sensors**, never from the tap, so a valve moved with the wall rocker shows up
 too. Three states: **closed**, **open** (red — it means *not closed*; the reed
 leaves its closed position early in the stroke, so this is not "fully open"),
 and **unknown** (no recent report from the node, or a CLOSE that never reached
-the sensor). **Close is a single tap; open is tap-to-arm then tap again within
-5 s.** The panel never retries a command on its own.
+the sensor). **A tap toggles on the sensed state and never repeats it:** a valve
+that reads closed arms ("TAP AGAIN TO OPEN" — tap again within 5 s to open it);
+one that reads open, or unknown, closes on a single tap. If the valve is seen
+leaving closed during the 5 s window the arm is dropped. The panel never
+retries a command on its own.
 
 ⚠️ The third control, the **gravity/macerator selector, is still
 deliberately inert**: it flips its own caption and sends nothing, because that

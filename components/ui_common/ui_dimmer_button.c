@@ -267,23 +267,38 @@ static void handle_tap(btn_ctx_t *ctx)
         return;
     }
     if (ctx->def->type == PANEL_BTN_VALVE) {
-        /* Armed takes priority: a tap while armed always fires the OPEN,
-         * even if a status frame flipped the reported position mid-window. */
+        /* A strict TOGGLE on the SENSED state -- the command sent is always
+         * the opposite of what the valve reads, never a repeat of it:
+         *   reads CLOSED          -> tap arms ("TAP AGAIN TO OPEN"), a second
+         *                            tap inside the window sends OPEN
+         *   reads OPEN            -> tap sends CLOSE (single tap)
+         *   unknown / stale       -> tap sends CLOSE. CLOSE is the safe
+         *                            direction, and without it a CLOSE that
+         *                            never reached the sensor (latched
+         *                            unknown) could only be undone by opening
+         *                            the valve first. OPEN is never sent
+         *                            from a state that does not read closed.
+         *
+         * The arm is dropped by ui_dimmer_button_update_valve() the moment
+         * the valve is seen anywhere other than closed, so reaching the
+         * confirming branch below means it still reads closed. */
         if (ctx->valve_armed) {
             if (ctx->valve_arm_timer != NULL) {
                 lv_timer_delete(ctx->valve_arm_timer);
                 ctx->valve_arm_timer = NULL;
             }
             ctx->valve_armed = false;
-            send(ctx, RVC_DIMMER_CMD_ON_DELAY);   /* reused to mean "open" */
+            if (ctx->valve_position == VALVE_POS_CLOSED && !ctx->valve_stale) {
+                send(ctx, RVC_DIMMER_CMD_ON_DELAY);   /* reused to mean "open" */
+            }
             refresh_visuals(ctx);
             return;
         }
-        if (ctx->valve_position == VALVE_POS_OPEN) {
-            send(ctx, RVC_DIMMER_CMD_OFF);        /* reused to mean "close" */
+        if (ctx->valve_position != VALVE_POS_CLOSED || ctx->valve_stale) {
+            send(ctx, RVC_DIMMER_CMD_OFF);            /* reused to mean "close" */
             return;
         }
-        /* Closed or unknown: arm the OPEN window rather than sending yet. */
+        /* Reads closed: arm the OPEN window rather than sending yet. */
         ctx->valve_armed = true;
         refresh_visuals(ctx);
         if (ctx->valve_arm_timer != NULL) {
@@ -730,5 +745,18 @@ void ui_dimmer_button_update_valve(lv_obj_t *btn, uint8_t valve,
     }
     ctx->valve_position = position;
     ctx->valve_stale = stale;
+
+    /* The arm only means anything while the valve reads CLOSED. If it is seen
+     * open (rocker, or an earlier command landing) or goes stale/unknown in
+     * the window, drop the arm: the confirming tap must not fire an OPEN on a
+     * valve that is no longer closed, and must not turn into a surprise
+     * CLOSE either -- the next tap toggles from whatever it now reads. */
+    if (ctx->valve_armed && (position != VALVE_POS_CLOSED || stale)) {
+        if (ctx->valve_arm_timer != NULL) {
+            lv_timer_delete(ctx->valve_arm_timer);
+            ctx->valve_arm_timer = NULL;
+        }
+        ctx->valve_armed = false;
+    }
     refresh_visuals(ctx);
 }
