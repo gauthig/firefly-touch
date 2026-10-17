@@ -149,7 +149,7 @@ checklist, so these stay current as devices are reflashed.
 |---|---|---|---|---|---|
 | `main_cabinet` (7B) | 1,299,616 B (1.24 MiB) | 4 MiB | 31.0 % | **2.76 MiB (2,895,200 B)** | **v1.00, 2026-09-07** |
 | `mid_coach` | 1,291,440 B (1.23 MiB) | 4 MiB | 30.8 % | **2.77 MiB (2,902,864 B)** | **v1.02, 2026-10-16** |
-| `bedroom_remote` | 1,280,176 B (1.22 MiB) | 4 MiB | 30.5 % | **2.78 MiB (2,913,616 B)** | **v1.00, 2026-09-07** |
+| `bedroom_remote` | 1,281,536 B (1.22 MiB) | 4 MiB | 30.6 % | **2.78 MiB (2,912,768 B)** | **v1.01, 2026-10-17** |
 | `hvac_panel` | **1,549,840 B (1.48 MiB)** | 4 MiB | **37.0 %** | **2.52 MiB (2,643,952 B)** | **v1.00, 2026-09-07** |
 | `main_cabinet` (non-B, retired) | 1,280,352 B (1.22 MiB) | 4 MiB | 30.5 % | 2.78 MiB | 2026-08-28 |
 | Bluetooth proxy basement | 1,125,760 B (1.07 MiB) | 3 MiB | 35.8 % | 1.93 MiB |
@@ -179,7 +179,7 @@ per-connection checklist, so these stay current as devices are reflashed.
 | `main_cabinet` (non-B 7", at boot, retired) | 192 KiB (139 + 21 + 32) | 7 KiB | 7,054 KiB | 2026-08-28 |
 | `mid_coach` (4.3B) | **131 KiB (133,803 B)** | 7 KiB | **3.15 MiB (3,305,676 B)** | **v1.02, 2026-10-16** |
 | `hvac_panel` (4.3B) | **133 KiB (136,119 B)** | 7 KiB | **2.95 MiB (3,096,124 B)** | **v1.00, 2026-09-07** |
-| `bedroom_remote` (4.3B) | **140 KiB (143,279 B)** | 7 KiB | **3.19 MiB (3,349,136 B)** | **v1.00, 2026-09-07** |
+| `bedroom_remote` (4.3B) | **140 KiB (143,247 B)** | 7 KiB | **3.19 MiB (3,348,688 B)** | **v1.01, 2026-10-17** |
 | Bluetooth proxy basement | not measured | — | **none fitted** | — |
 
 ⚠️ `hvac_panel` has the *most* internal heap free of the 4.3B panels despite

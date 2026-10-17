@@ -42,18 +42,26 @@ loads:
     type: dimmer
     source: [Entegra Bath Room fixture (Entegra-provided, not a wall switch
       panel), bedroom_remote]
-    verified: false
-    notes: User-confirmed naming 2026-08-13. Wired to the "BATHROOM" button
-      on panels/bedroom_remote.h as of 2026-08-13 -- still unverified,
-      first real-world test of this instance.
+    verified: true
+    notes: User-confirmed naming 2026-08-13. SNIFFER-VERIFIED 2026-10-17 (issue
+      #93): the bath wall switch (source 0x9C) sends a TOGGLE to this instance
+      and, 5 ms later, a separate TOGGLE to instance 14. The G6 turned both on
+      (level 200) on the first press and both off (0) on the second. Each
+      instance toggles from its OWN state, so driving only 13 leaves 14 behind
+      and the wall switch then swaps the pair. Wired, together with 14, to the
+      "BATHROOM" button on panels/bedroom_remote.h.
 
   - name: Lavatory Accent Light
     instances: [14]
     type: dimmer
     source: Entegra Bath Room fixture
-    verified: false
+    verified: true
     notes: User-confirmed naming 2026-08-13. Grouped under "CEILING" in the
-      factory diagram alongside 13, but is a distinct fixture.
+      factory diagram alongside 13, and a distinct fixture. SNIFFER-VERIFIED
+      2026-10-17 (issue #93): the bath wall switch toggles it together with
+      instance 13 (two separate TOGGLE frames), and the G6 reports it on/off
+      with 13. Driven, with 13, by the "BATHROOM" button on
+      panels/bedroom_remote.h.
 
   - name: Bathroom Accent Light
     instances: [16]

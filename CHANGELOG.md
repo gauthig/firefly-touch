@@ -5,7 +5,19 @@ Notable changes to firefly-touch. Format follows
 
 ## [Unreleased]
 
-Nothing yet.
+### Fixed — bathroom lights drifted apart from the bed remote (#93)
+
+`bedroom_remote` v1.01. The BATHROOM button drove only RV-C instance 13, but the
+bath wall switch (source `0x9C`) sends a separate TOGGLE to **13 and 14**, each
+from its own state. After the remote turned the bathroom off, light 14 stayed on
+and every wall-switch press then swapped the pair instead of toggling both. The
+button now drives `{13, 14}`, so it sends an explicit ON/OFF to both and
+re-syncs a pair that is already out of step. Found with a sniffer capture on
+`mid_coach`; instances 13 and 14 are now marked verified in
+`docs/instance_map.yaml`. Hardware-verified 2026-10-17: a second capture showed
+the remote's ON and OFF reaching both instances 17 ms apart, and the wall switch
+and remote staying in step. The wall switch itself is untouched, so a pair left
+out of step by it can still swap until the remote brings both to the same state.
 
 ## [1.02] — 2026-10-17
 

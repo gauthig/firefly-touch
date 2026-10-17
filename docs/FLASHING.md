@@ -74,8 +74,8 @@ It is also on the first line of the boot log. Scheme (`main/firefly_version.h`):
 
 ## Current flash status
 
-**Three panels are on v1.00 (2026-09-07) and `mid_coach` is on v1.02
-(2026-10-16)** — each flashed and boot-verified over 15 s.
+**Two panels are on v1.00 (2026-09-07), `mid_coach` is on v1.02
+(2026-10-16) and `bedroom_remote` is on v1.01 (2026-10-17)** — each flashed and boot-verified over 15 s.
 
 **Read this table to decide what to reflash**: if *Last validated* is behind
 *Recommended*, that device is due. *Recommended* is what `main` builds today
@@ -87,7 +87,7 @@ and MACs are machine-specific — see *Local machine setup* below.
 | `mid_coach` ("MID COACH") | 4.3B | **v1.02** (2026-10-16) | **v1.02** | ✅ up to date (PR #79). 15 s boot clean. Valve controls hardware-verified on both valves: the rocker shows on the panel, the panel opens and closes the real valve, and the v1.02 tap is a strict toggle on the sensed state. Bridge; lights / tanks+valves / battery+solar / shore |
 | `hvac_panel` ("HVAC") | 4.3B | **v1.00** (2026-09-07) | **v1.00** | ✅ up to date. EasyTouch BLE + thermostat bridge, 5-screen launcher |
 | `main_cabinet` ("MAIN CABINET") | 7B `lcd7b` | **v1.00** (2026-09-07) | **v1.00** | ✅ up to date. Nav rail: Climate / Power / Solar / Tanks / Lights. Boot confirms `USB/CAN mux OK: EXIO5=1` |
-| `bedroom_remote` ("BED REMOTE") | 4.3B | **v1.00** (2026-09-07) | **v1.00** | ✅ up to date. Lights / battery+solar / shore / thermostat |
+| `bedroom_remote` ("BED REMOTE") | 4.3B | **v1.01** (2026-10-17) | **v1.01** | ✅ up to date (issue #93, PR pending). 15 s boot clean. BATHROOM drives both bath lights, instances 13 and 14; hardware-verified with a CAN capture. Lights / battery+solar / shore / thermostat |
 | Basement BLE proxy | classic ESP32 | *unversioned* | *unversioned* | Separate project (`proxy/`), not on this scheme. Solar build, 5 BLE links, coach-verified |
 | Dump-valve node | S3-ETH-8DI-8RO | *unversioned* | *unversioned* | Separate project (`valves/`). Sensor build flashed 2026-10-16: both sense circuits verified on the real valves, boot clean. Panel control merged in PR #79 |
 
