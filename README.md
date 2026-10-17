@@ -235,9 +235,12 @@ that breaks a byte offset fails loudly.
 
 ## Releases
 
-Pushing a `v*.*.*` tag runs the full pipeline and publishes a GitHub Release
-with a zip per panel (app, bootloader, partition table, `flash_args`) for
-flashing via [docs/FLASHING.md](docs/FLASHING.md). No OTA and no deploy
+Pushing a `v*` tag (the project versions as `MAJOR.MINOR`, e.g. `v1.02`) runs the
+full pipeline and publishes a GitHub Release with a zip per panel (app,
+bootloader, partition table, `flash_args`) for flashing via
+[docs/FLASHING.md](docs/FLASHING.md). Zips are named after the **tag**, not each
+panel's own version, so a release can carry unchanged panels under a newer tag —
+check a panel's real version in its status bar or boot log. No OTA and no deploy
 target — these are wall panels updated over USB.
 
 ## Bench verification

@@ -5,6 +5,19 @@ Notable changes to firefly-touch. Format follows
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [1.02] — 2026-10-17
+
+Second tagged release, and the first with real dump-valve control.
+
+⚠️ **Only `mid_coach` changed: it is on v1.02.** `bedroom_remote`,
+`hvac_panel` and `main_cabinet` are unchanged and **still report v1.00** —
+their zips in this release hold the same firmware as v1.00. The zips are named
+after the tag, not after each panel's own version, so `bedroom_remote-v1.02.zip`
+is v1.00 firmware. Read the version on the panel's status bar or in its boot log,
+and `docs/FLASHING.md` → *Current flash status*.
+
 ### Added — panel-commanded dump valves with sensor-driven position (#64)
 
 `mid_coach` v1.01–v1.02. The GREY and BLACK controls on the tank screen now drive
