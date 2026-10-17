@@ -36,7 +36,7 @@
  * Bump this ONLY for a fix that touches just this panel, and update
  * docs/FLASHING.md's status table in the same commit. Panels are
  * expected to sit on different minors — that is the design, not drift. */
-#define PANEL_VERSION_MINOR 0
+#define PANEL_VERSION_MINOR 1   /* 1.01: BATHROOM drives both bath lights, 13 and 14 (#93) */
 #define PANEL_HAS_CAN 0
 #define PANEL_HAS_SCREEN_2 1
 #define PANEL_HAS_SCREEN_3 1
@@ -63,7 +63,11 @@ static const panel_btn_def_t PANEL_BUTTONS[] = {
     { .label = "BEDROOM CEILING", .type = PANEL_BTN_DIMMER, .instances = {17}, .instance_count = 1 },
     { .label = "BED O/H", .type = PANEL_BTN_DIMMER, .instances = {18}, .instance_count = 1 },
     { .label = "CENTER CEILING", .type = PANEL_BTN_DIMMER, .instances = {25}, .instance_count = 1 },
-    { .label = "BATHROOM", .type = PANEL_BTN_DIMMER, .instances = {13}, .instance_count = 1 },
+    /* The bath wall switch TOGGLEs instance 13 AND 14 (CAN capture 2026-10-17,
+     * issue #93), each from its own state. Driving only 13 left 14 behind, and
+     * every wall-switch press then swapped the pair. Both, so an explicit
+     * ON/OFF reaches both and a pair already out of step is re-synced. */
+    { .label = "BATHROOM", .type = PANEL_BTN_DIMMER, .instances = {13, 14}, .instance_count = 2 },
     { .label = "MIDSHIP", .type = PANEL_BTN_DIMMER, .instances = {35}, .instance_count = 1 },
     { .label = "COURTESY", .type = PANEL_BTN_DIMMER, .instances = {21}, .instance_count = 1 },
     { .label = "MOTION", .type = PANEL_BTN_SWITCH, .instances = {46}, .instance_count = 1 },

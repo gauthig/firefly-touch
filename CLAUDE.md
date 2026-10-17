@@ -400,7 +400,7 @@ Since `bridge_tx.c`/`state_manager`'s status sink forward whatever instance
 they're given regardless of what's in `mid_coach.h`'s `PANEL_BUTTONS[]`,
 the remote doesn't need to mirror the bridge's local button set — as of
 2026-08-13 `panels/bedroom_remote.h` was reprogrammed to a bedroom/
-bathroom-focused layout (instances 17, 25, 35, 46 left column; 18, 13, 21,
+bathroom-focused layout (instances 17, 25, 35, 46 left column; 18, 13+14, 21,
 Panel Lights right column) unrelated to `mid_coach`'s living-room-focused
 buttons. See [docs/instance_map.yaml](docs/instance_map.yaml) for the full
 RV-C instance map used to pick these.
