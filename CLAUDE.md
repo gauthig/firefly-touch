@@ -1449,18 +1449,19 @@ matrix from it, so a new panel gets build coverage automatically.
 
 `panels/TEMPLATE.h` carries an `#error` guard so it can never be flashed as-is.
 
-## OTA / Wi-Fi update path — removed, USB-only by design (2026-08-16)
+## OTA / Wi-Fi update path — a test, not pursued; USB-only by design (2026-08-16, restated 2026-10-16)
 
-Wi-Fi OTA (issues #15–#18) was implemented through a working Wi-Fi STA +
-`esp_https_ota` transport (issue #16, PR #20) and then removed. Bench testing
-found the target network is 5G-only with WPA3 + PMF required, which the
-ESP32-S3's Wi-Fi radio (WPA2-only) cannot associate to — auth fails with
-`reason=202` (AUTH_FAIL) despite strong RSSI and correct credentials. This is
-a hardware/protocol incompatibility, not a code defect.
+Wi-Fi OTA (issues #15–#18) was a **test**: a working Wi-Fi STA +
+`esp_https_ota` transport (issue #16, PR #20) was built and bench-tested, then
+removed. **Owner's decision, final (restated 2026-10-16): OTA is not being
+pursued.** For the record, the test also found that the target network is
+5G-only with WPA3 + PMF required, which the ESP32-S3's Wi-Fi radio (WPA2-only)
+cannot associate to — auth fails with `reason=202` (AUTH_FAIL) despite strong
+RSSI and correct credentials — so it could not have worked on this network
+without weakening its security, which was never on the table.
 
-**Decision (final): no networked update path at all.** Rather than weaken
-network security (e.g. disabling PMF) to work around the radio limitation,
-firmware updates are USB-flashed only — see
+**Decision: no networked update path at all.** Firmware updates are
+USB-flashed only — see
 [docs/FLASHING.md](docs/FLASHING.md). `components/ota_update/` (manifest
 parser + transport), the OTA Kconfig menu, `PANEL_HAS_OTA` panel guards, the
 dual-OTA partition layout, and bootloader rollback were all removed

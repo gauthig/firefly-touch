@@ -118,9 +118,10 @@ from [`panels/REGISTRY.md`](panels/REGISTRY.md), and run
 `python tools/check_panels.py`. Full procedure:
 [docs/FLASHING.md](docs/FLASHING.md#adding-a-new-panel).
 
-**Updates after installation.** No OTA — the ESP32-S3's Wi-Fi radio is
-WPA2-only and can't associate to a WPA3+PMF network, so updates stay
-USB-only by design (single-app `partitions.csv`, no Wi-Fi/OTA code). See
+**Updates after installation.** No OTA — it was a test the owner chose not to
+pursue (and the ESP32-S3's WPA2-only Wi-Fi radio couldn't join this WPA3+PMF
+network anyway), so updates are USB-only by design (single-app
+`partitions.csv`, no Wi-Fi/OTA code). See
 [docs/FLASHING.md](docs/FLASHING.md#firmware-updates-after-installation).
 
 ## Toolchain setup

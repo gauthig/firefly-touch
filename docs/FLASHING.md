@@ -549,12 +549,12 @@ idf.py -p COM5 erase-flash
 
 Panels are mounted **inside walls**, so an update means physically removing
 one and reflashing over USB per the steps above. There is no OTA path: a
-Wi-Fi STA + `esp_https_ota` transport was built and bench-tested (see
-[CLAUDE.md](../CLAUDE.md) → *OTA / Wi-Fi update path*), but the target
-network requires WPA3 + PMF, which the ESP32-S3's Wi-Fi radio (WPA2-only)
-cannot join. Rather than weaken network security to work around that,
-updates stay USB-only by design — `partitions.csv` is a single `factory`
-app partition, and there is no Wi-Fi/OTA code in the firmware.
+Wi-Fi STA + `esp_https_ota` transport was built as a **test** and
+bench-tested (see [CLAUDE.md](../CLAUDE.md) → *OTA / Wi-Fi update path*), and
+the owner decided not to pursue OTA. (It also could not have joined the target
+network, which requires WPA3 + PMF, while the ESP32-S3's Wi-Fi radio is
+WPA2-only.) Updates stay USB-only by design — `partitions.csv` is a single
+`factory` app partition, and there is no Wi-Fi/OTA code in the firmware.
 
 ## Bench / sniffer builds
 

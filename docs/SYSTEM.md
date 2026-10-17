@@ -353,9 +353,9 @@ knows nothing of its siblings, so bank aggregation happens in our firmware
 
 ## Deliberate limits
 
-- **No WiFi, no OTA, no cloud.** Updates are USB-only by design — the
-  ESP32-S3 radio is WPA2-only and cannot associate to the target WPA3+PMF
-  network. See [FLASHING.md](FLASHING.md).
+- **No WiFi, no OTA, no cloud.** Updates are USB-only by design — OTA was a
+  test the owner chose not to pursue (the ESP32-S3's WPA2-only radio also
+  can't associate to the target WPA3+PMF network). See [FLASHING.md](FLASHING.md).
 - **The Watchdog cannot be commanded.** Gen 1 has no working relay-control
   path: the ASCII command strings are known from the vendor app, but nobody
   has recovered the wire framing, and writes are accepted at the GATT layer

@@ -49,6 +49,13 @@ panel opens and closes the real valve.
 Panels: `mid_coach` v1.02 flashed and boot-verified over 15 s on 2026-10-16, and the v1.02 toggle confirmed on both valves; the other three are unaffected. The valve node was reflashed the same day
 with the sensor-driven build.
 
+### Docs — OTA decision restated (2026-10-16)
+
+No code change; no OTA code exists. The OTA work (2026-08-16) was a **test**, and
+the owner has decided not to pursue OTA. CLAUDE.md, README, FLASHING.md and
+SYSTEM.md now say so, keeping the WPA3+PMF finding as a side note. The leftover
+empty `components/ota_update` directories were deleted locally.
+
 ## [1.00] — 2026-09-07
 
 First tagged release. Published as a GitHub Release with a flashable
