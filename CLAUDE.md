@@ -102,6 +102,14 @@ Sniffer mode (log every RV-C frame — how the instance map gets verified):
 `idf.py menuconfig` → *Firefly Touch Panel* → *RV-C sniffer mode*, or add
 `CONFIG_FIREFLY_SNIFFER_MODE=y` to `sdkconfig.defaults` for a bench build.
 
+**Bus survey + custom-DGN probe** (issue #96, diagnostic only, off by default):
+`CONFIG_FIREFLY_BUS_SURVEY` / `CONFIG_FIREFLY_BUS_PROBE` on a `mid_coach` build record what is
+on the bus over time and, on serial command only, transmit synthetic frames in a candidate
+custom DGN block to see whether the G6 tolerates them. Build it from a *copy* of
+`build_mid_coach/sdkconfig`, capture with `tools/survey_capture.ps1` (works over the USB port
+too: the build polls the USB-Serial/JTAG RX FIFO for commands), and read
+[docs/BUS-SURVEY.md](docs/BUS-SURVEY.md) first.
+
 Host unit tests (pure-C protocol code, any host compiler):
 
 ```

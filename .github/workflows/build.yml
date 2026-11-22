@@ -132,7 +132,8 @@ jobs:
             components/espnow_link components/valve_control \
             components/ble_host components/easytouch \
             components/hughes_watchdog components/jbd_bms \
-            components/renogy_solar components/ws_io_expander
+            components/renogy_solar components/ws_io_expander \
+            components/bus_survey
 
   # The coach's real hardware identity -- device MACs, ESP-NOW PMK/LMK, BLE
   # peer addresses, the EasyTouch account password -- lives only in the
@@ -278,6 +279,11 @@ jobs:
         run: |
           gcc -Wall -Wextra -Werror -I../include ../easytouch_protocol.c test_easytouch.c -o test_easytouch
           ./test_easytouch
+      - name: Compile and run bus_survey tests
+        working-directory: components/bus_survey/host_test
+        run: |
+          gcc -Wall -Wextra -Werror -I../include ../bus_survey.c test_bus_survey.c -o test_bus_survey
+          ./test_bus_survey
 
   # The basement BLE proxy is a separate project on a different chip
   # (classic ESP32, not the panels' S3), so the panel matrix above cannot
