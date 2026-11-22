@@ -5,6 +5,19 @@ Notable changes to firefly-touch. Format follows
 
 ## [Unreleased]
 
+### Added — RV-C bus survey and custom-DGN probe, diagnostic build (#96)
+
+An opt-in `mid_coach` build (`CONFIG_FIREFLY_BUS_SURVEY`, `CONFIG_FIREFLY_BUS_PROBE`, both **off by
+default**, so production firmware is unchanged) that records what is actually on the coach's RV-C bus
+over time and can transmit synthetic frames in a candidate custom DGN block to test whether the G6 tolerates
+them. New pure-C component `bus_survey` (host-tested), `tools/survey_capture.ps1`, and
+[docs/BUS-SURVEY.md](docs/BUS-SURVEY.md). Commands work over the USB port (the build polls the
+USB-Serial/JTAG RX FIFO) as well as the UART.
+
+First coach session: about 9 frames/s and 0.5 % bus load, no address claiming, and **the G6 ignored the unknown
+DGNs** (7,282 probe frames, no rate changes, no diagnostics, no errors). The custom layouts built on that are
+designed in [docs/RVC-CUSTOM-DGNS.md](docs/RVC-CUSTOM-DGNS.md) (design only, not yet built).
+
 ### Fixed — bathroom lights drifted apart from the bed remote (#93)
 
 `bedroom_remote` v1.01. The BATHROOM button drove only RV-C instance 13, but the

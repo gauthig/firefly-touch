@@ -26,6 +26,10 @@
 #include "rvc_protocol.h"
 #include "state_manager.h"
 
+#if CONFIG_FIREFLY_BUS_SURVEY
+#include "bus_survey_task.h"
+#endif
+
 static const char *TAG = "twai_tasks";
 
 #define TWAI_TASK_CORE     0
@@ -55,6 +59,10 @@ static void twai_rx_task(void *arg)
         }
 
         state_manager_note_rx();
+
+#if CONFIG_FIREFLY_BUS_SURVEY
+        bus_survey_on_frame(&msg);   /* diagnostic build only; never logs here */
+#endif
 
         if (!msg.extd) {
             continue;   /* RV-C uses 29-bit IDs exclusively */
@@ -222,5 +230,11 @@ esp_err_t twai_tasks_start(void)
 
     ESP_LOGI(TAG, "RX/TX tasks running on core %d, source addr 0x%02X",
              TWAI_TASK_CORE, PANEL_SOURCE_ADDR);
+
+#if CONFIG_FIREFLY_BUS_SURVEY
+    if (bus_survey_start() != ESP_OK) {
+        ESP_LOGE(TAG, "bus survey failed to start; the panel keeps running without it");
+    }
+#endif
     return ESP_OK;
 }

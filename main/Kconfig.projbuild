@@ -10,6 +10,75 @@ menu "Firefly Touch Panel"
             capture the factory PANEL LIGHTS (PL1) frames. Very chatty on a
             live coach bus — disable for production builds.
 
+    config FIREFLY_BUS_SURVEY
+        bool "RV-C bus survey (diagnostic build, issue #96)"
+        default n
+        help
+            Record what is on the RV-C bus over time -- every (DGN, source
+            address, instance byte) with counts, intervals and payload changes,
+            plus address claims, requests, DM_RV and the TWAI error counters.
+            The CAN rx task never logs; a low-priority reporter does.
+            Commands are read from the UART console (stdin) and also from the
+            USB-Serial/JTAG RX FIFO, which this build polls directly because
+            the IDF USB console is output-only. See docs/BUS-SURVEY.md.
+            Off for production builds.
+
+    config FIREFLY_BUS_SURVEY_ENTRIES
+        int "Survey table entries"
+        depends on FIREFLY_BUS_SURVEY
+        default 768
+        range 64 2048
+        help
+            One entry per distinct (DGN, source, data[0]). The table lives in
+            PSRAM (about 44 bytes each). The G6 reports many dimmer instances,
+            so leave generous headroom.
+
+    config FIREFLY_BUS_SURVEY_REPORT_S
+        int "Survey summary interval (s)"
+        depends on FIREFLY_BUS_SURVEY
+        default 60
+        range 10 3600
+
+    config FIREFLY_BUS_SURVEY_TABLE_S
+        int "Full table + sources dump interval (s, 0 = on command only)"
+        depends on FIREFLY_BUS_SURVEY
+        default 300
+        range 0 86400
+        help
+            The USB-Serial/JTAG console is output-only, so a capture taken
+            over the USB port cannot send the t/a commands. A periodic dump
+            gives that capture the full table (rates, gaps, change counts)
+            without any input.
+
+    config FIREFLY_BUS_PROBE
+        bool "Allow probe transmit stages (on serial command only)"
+        depends on FIREFLY_BUS_SURVEY
+        default n
+        help
+            Compile in the probe: synthetic frames in a block of candidate
+            custom DGNs, sent ONLY after the operator types 1 or 2 on the UART
+            console, and stopped instantly by x. Idle at boot. It refuses to
+            start if the survey has run less than the minimum time or if any
+            DGN in the block has ever been seen on the bus, and aborts itself
+            on bus trouble. Never enable on an unattended panel.
+
+    config FIREFLY_PROBE_DGN_BASE
+        hex "First DGN of the 10-DGN probe block"
+        depends on FIREFLY_BUS_PROBE
+        default 0x0FFC0
+        range 0x0FF00 0x0FFF6
+        help
+            0x0FFxx is the J1939 proprietary-B parameter group space (PDU2, data
+            page 0). The probe checks the live survey table before it
+            transmits, so a collision with something the G6 already uses is
+            refused rather than assumed absent.
+
+    config FIREFLY_PROBE_MIN_SURVEY_S
+        int "Minimum survey time before a probe may start (s)"
+        depends on FIREFLY_BUS_PROBE
+        default 300
+        range 0 86400
+
     menu "ESP-NOW remote-panel link"
 
         config FIREFLY_ESPNOW_PEER_MAC
