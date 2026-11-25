@@ -5,6 +5,13 @@ Notable changes to firefly-touch. Format follows
 
 ## [Unreleased]
 
+### Changed — the bus probe covers all 16 custom DGNs (#99)
+
+Probe stage 2 now transmits the whole `0FFC0`–`0FFCF` block at the rates the spec plans (~5 frames/s,
+never two in one 100 ms tick); the command DGNs carry instance `0xFF` so nothing could act on them.
+Coach run 2026-11-25: 3,671 frames over 12 minutes, 0 rate changes on the bus, owner saw nothing odd —
+the whole block is now transmit-tested. Diagnostic build only; production firmware unchanged.
+
 ### Added — codec for the coach's custom DGN block (#100, epic #98)
 
 New pure-C component `components/firefly_dgn`: encode/decode for all 16 DGNs in `0FFC0`–`0FFCF`,

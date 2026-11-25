@@ -63,10 +63,10 @@ menu "Firefly Touch Panel"
             on bus trouble. Never enable on an unattended panel.
 
     config FIREFLY_PROBE_DGN_BASE
-        hex "First DGN of the 10-DGN probe block"
+        hex "First DGN of the 16-DGN probe block"
         depends on FIREFLY_BUS_PROBE
         default 0x0FFC0
-        range 0x0FF00 0x0FFF6
+        range 0x0FF00 0x0FFF0
         help
             0x0FFxx is the J1939 proprietary-B parameter group space (PDU2, data
             page 0). The probe checks the live survey table before it
