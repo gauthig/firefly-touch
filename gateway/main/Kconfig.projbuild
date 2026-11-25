@@ -1,0 +1,53 @@
+menu "Firefly gateway"
+
+    config FIREFLY_GW_CAN_TX_GPIO
+        int "CAN (TWAI) TX GPIO"
+        default 15
+        help
+            Confirmed from Waveshare's ESP32-S3-RS485-CAN schematic: IO15 -> TXD2 ->
+            digital isolator -> CAN_TXD -> TJA1051T/3 pin 1. The transceiver's S
+            (silent) pin is tied to ground through R18 (0 R), so it is always in
+            normal mode and needs no GPIO. RX is IO16 -> RXD2 -> CAN_RXD (pin 4).
+            Board's other pins: RS485 TX/RX/EN = GPIO17/18/21, RTC SCL/SDA/INT =
+            GPIO38/39/40; the CAN/RS485 LEDs sit on those nets, not on GPIOs.
+
+    config FIREFLY_GW_CAN_RX_GPIO
+        int "CAN (TWAI) RX GPIO"
+        default 16
+
+    config FIREFLY_GW_REPORT_S
+        int "Bring-up report interval (s)"
+        default 30
+        range 10 600
+
+    menu "BLE targets (bring-up scan)"
+
+        config FIREFLY_BATTERY_1_MAC
+            string "Battery pack 1 BLE MAC"
+            default "00:00:00:00:00:00"
+            help
+                Real values live only in this project's local sdkconfig, never in
+                a committed file. 00:00:00:00:00:00 = not configured.
+
+        config FIREFLY_BATTERY_2_MAC
+            string "Battery pack 2 BLE MAC"
+            default "00:00:00:00:00:00"
+
+        config FIREFLY_BATTERY_3_MAC
+            string "Battery pack 3 BLE MAC"
+            default "00:00:00:00:00:00"
+
+        config FIREFLY_EASYTOUCH_NAME_PREFIX
+            string "EasyTouch advertised name prefix"
+            default "EasyTouch"
+
+        config FIREFLY_SOLAR_NAME_PREFIX
+            string "Renogy BT module advertised name prefix"
+            default "BT-TH-"
+            help
+                Bring-up matches by prefix only. The real client matches the full
+                name exactly, because a neighbouring rig's module shares the prefix.
+
+    endmenu
+
+endmenu
