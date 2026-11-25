@@ -133,7 +133,7 @@ jobs:
             components/ble_host components/easytouch \
             components/hughes_watchdog components/jbd_bms \
             components/renogy_solar components/ws_io_expander \
-            components/bus_survey
+            components/bus_survey components/firefly_dgn
 
   # The coach's real hardware identity -- device MACs, ESP-NOW PMK/LMK, BLE
   # peer addresses, the EasyTouch account password -- lives only in the
@@ -284,6 +284,11 @@ jobs:
         run: |
           gcc -Wall -Wextra -Werror -I../include ../bus_survey.c test_bus_survey.c -o test_bus_survey
           ./test_bus_survey
+      - name: Compile and run firefly_dgn tests
+        working-directory: components/firefly_dgn/host_test
+        run: |
+          gcc -Wall -Wextra -Werror -I../include ../firefly_dgn.c test_firefly_dgn.c -lm -o test_firefly_dgn
+          ./test_firefly_dgn
 
   # The basement BLE proxy is a separate project on a different chip
   # (classic ESP32, not the panels' S3), so the panel matrix above cannot
