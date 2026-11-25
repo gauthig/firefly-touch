@@ -232,6 +232,13 @@ enqueuing locally, and status arrives the same way in reverse (see below).
 
 - `components/rvc_protocol` — pure C (no ESP deps): 29-bit ID pack/unpack,
   DGN encode/decode. Host-testable (`host_test/`).
+- `components/firefly_dgn` — pure C codec for this coach's **own** DGN block
+  `0FFC0`–`0FFCF` (climate, batteries, bank, shore lines, solar, valves, gateway
+  heartbeat), the single implementation of the layouts in
+  [docs/RVC-CUSTOM-DGNS.md](docs/RVC-CUSTOM-DGNS.md). Floats in engineering units
+  with `NAN` = not available; rounds to the nearest step and saturates, never
+  wraps. Command decoders reject anything not exact. Host-tested (`host_test/`,
+  `-lm`). Part of architecture v2 (epic #98); no producer or consumer uses it yet.
 - `components/board` — board bring-up: RGB timings, GT911, esp_lvgl_port
   glue, TWAI init. One component, one board compiled: `board_4_3b.c`,
   `board_lcd7b.c` (the 7B, `BOARD=lcd7b`), or `board_lcd7.c` (the non-B 7",
