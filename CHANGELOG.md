@@ -12,6 +12,14 @@ never two in one 100 ms tick); the command DGNs carry instance `0xFF` so nothing
 Coach run 2026-11-25: 3,671 frames over 12 minutes, 0 rate changes on the bus, owner saw nothing odd —
 the whole block is now transmit-tested. Diagnostic build only; production firmware unchanged.
 
+### Added — codec for the coach's custom DGN block (#100, epic #98)
+
+New pure-C component `components/firefly_dgn`: encode/decode for all 16 DGNs in `0FFC0`–`0FFCF`,
+including the three filled in for architecture v2 (`0FFCD` valve status, `0FFCE` valve command,
+`0FFCF` gateway heartbeat). Golden byte-vector host tests in CI. [docs/RVC-CUSTOM-DGNS.md](docs/RVC-CUSTOM-DGNS.md)
+is now v2: one stool-room gateway produces everything, CAN-only and broadcast-only panels. No firmware
+uses the codec yet, so no device changes.
+
 ### Added — RV-C bus survey and custom-DGN probe, diagnostic build (#96)
 
 An opt-in `mid_coach` build (`CONFIG_FIREFLY_BUS_SURVEY`, `CONFIG_FIREFLY_BUS_PROBE`, both **off by
