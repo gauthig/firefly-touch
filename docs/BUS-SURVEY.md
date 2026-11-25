@@ -56,7 +56,7 @@ default) it prints the source list and the full table on its own.
 | `c` | clear the survey and start over |
 | `p` | probe status and a free / SEEN check of every DGN in the block |
 | `1` | probe **stage 1**: one DGN at 1 frame/s |
-| `2` | probe **stage 2**: the whole family, about 10 frames/s |
+| `2` | probe **stage 2**: all 16 DGNs at their planned rates, about 5 frames/s |
 | `x` | **stop the probe immediately** |
 
 ## Output lines
@@ -86,24 +86,21 @@ everything else and from the TWAI counters.
 The G6 once wedged on mis-numbered ramp commands until power-cycled. New DGNs are a different
 risk, but run the probe only with someone watching the Firefly displays and app.
 
-## Provisional custom DGN family
+## What the probe sends
 
-Block starts at `CONFIG_FIREFLY_PROBE_DGN_BASE` (default `0x0FFC0`, J1939 proprietary-B space).
-**Provisional**: layouts are decided after the survey shows what is actually free. Per the project
-direction these are our own parameters for this coach; they are not meant to be adopted by the G6.
+The block starts at `CONFIG_FIREFLY_PROBE_DGN_BASE` (default `0x0FFC0`, J1939 proprietary-B space) and
+covers the **16 DGNs** of the custom family in [RVC-CUSTOM-DGNS.md](RVC-CUSTOM-DGNS.md) (offsets 0–F).
 
-| offset | content |
-|---|---|
-| +0 | HVAC zone status: instance = zone, mode, fan, heat/cool setpoints, ambient |
-| +1 | HVAC zone extras: heat source (Aqua-Hot / electric), current mode, per-mode fan |
-| +2 +3 +4 | battery pack 1 / 2 / 3: volts, amps, SOC, temperatures, online |
-| +5 | battery bank aggregate: volts, amps, watts, SOC, time remaining, N-of-M |
-| +6 | shore power: instance = line A / line B, volts, amps, watts, frequency, error |
-| +7 | solar controller |
-| +8 +9 | spare |
+- **Stage 1:** offset 0 only, one frame per second.
+- **Stage 2:** all 16, at the rates the spec plans (HVAC status 2 s per zone, shore lines 2 s, packs,
+  banks, solar and heartbeat 5 s, extras/detail/pedestal 10 s; valve status and both command DGNs once per
+  10 s). That is 52 frames per 10 s cycle, about 5 frames/s, placed so no 100 ms tick ever carries two.
 
 Probe frames carry `instance, counter, 0x46 0x54 ("FT"), stage, FF FF FF` so they are obviously
-synthetic.
+synthetic. The command DGNs (`0FFCA` HVAC command, `0FFCE` valve command) use instance `0xFF` ("not
+available"), so nothing that later learns to act on those DGNs could take a probe frame for a command.
+
+Until step 0 of #98 (issue #99), the probe sent only offsets 0–7 at earlier placeholder rates.
 
 ## Results
 
@@ -132,7 +129,23 @@ from source `0x80` at priority 6.
 | 2 (full family, ~10 frames/s) | about 12 min | 7,282 | 0 | 0 | none |
 
 The only counter that moved was `arb_lost`, by 2 (normal when two nodes start together; hardware retries).
-**The G6 and the other devices ignored the unknown DGNs.** Not covered: `0FFCA`–`0FFCF`, a multi-hour
-soak, transmitting `0FFC8`–`0FFCF`, and anything only visible in the Firefly displays or app (owner saw nothing).
+**The G6 and the other devices ignored the unknown DGNs.** Not covered in that session: transmitting
+`0FFC8`–`0FFCF` (closed by the second session below) and a multi-hour soak.
+
+### Second session: all 16 DGNs (2026-11-25, issue #99, step 0 of #98)
+
+Same panel and port. The probe now sends the whole block at the rates the spec plans.
+
+| | result |
+|---|---|
+| Survey before the probe | 318 s, 12 keys (two G6 dimmer keys fewer than last time: fewer lights on), ~8 frames/s, 0.5 % est. load, no TWAI errors |
+| Free-check | all 16 of `0FFC0`–`0FFCF` free |
+| Stage 2 | 704 s, **3,671 frames** (~5.2/s) across all 16 DGNs, 0 TX failures, 0 bus errors |
+| Rate deltas vs baseline | **0** (G6 lights 2.0 s, DM1 1.0 s, tanks ~1.85 s, `1FFDC` 5.0 s all unchanged) |
+| Diagnostics / claims / requests / new keys | none |
+
+`arb_lost` rose by 4 over the 12 minutes (normal, hardware-retried). The owner watched the Firefly displays and
+lights throughout and saw nothing odd. **The whole block is now transmit-tested on this coach.** `mid_coach` was
+restored to its normal image afterwards: clean boot, no survey output, ~134 KB internal RAM free after display init.
 
 The custom layouts built on this are in [RVC-CUSTOM-DGNS.md](RVC-CUSTOM-DGNS.md).

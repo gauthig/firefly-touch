@@ -98,8 +98,17 @@ static void hex8(char *out, const uint8_t *d, uint8_t n)
 
 #if CONFIG_FIREFLY_BUS_PROBE
 
-#define PROBE_DGN_COUNT 10u
+#define PROBE_DGN_COUNT 16u
 #define PROBE_BASE      ((uint32_t)CONFIG_FIREFLY_PROBE_DGN_BASE)
+
+/* Stage 2 runs a 10 s cycle of 100 ticks (100 ms each), holding at most one frame
+ * per tick. Streams are placed into it once, at start-up. */
+#define SCHED_TICKS     100u
+#define SCHED_EMPTY     0xFFu
+
+/* Instance for command-type DGNs: "not available", so nothing that later learns to
+ * act on these DGNs could ever take a probe frame for a real command. */
+#define PROBE_INST_NA   0xFFu
 
 typedef enum {
     STOP_OPERATOR = 1, STOP_COLLISION, STOP_DMRV, STOP_TWAI_STATE,
@@ -111,10 +120,60 @@ static const char *const k_stop_text[] = {
     "TWAI not running", "TX failures (nobody ACKing?)", "bus errors", "TX queue stuck",
 };
 
+/* Offsets match docs/RVC-CUSTOM-DGNS.md (v2 map). */
 static const char *const k_probe_name[PROBE_DGN_COUNT] = {
-    "hvac_status", "hvac_ext", "bat_pack1", "bat_pack2", "bat_pack3",
-    "bat_aggregate", "shore_AB", "solar", "spare8", "spare9",
+    "hvac_status", "hvac_extras", "bat_pack1", "bat_pack2", "bat_pack3",
+    "bank_a", "shore_line", "solar_a", "pack_detail", "bank_b",
+    "hvac_cmd", "solar_b", "shore_pedestal", "valve_status", "valve_cmd",
+    "gw_heartbeat",
 };
+
+/* One planned stream: DGN offset, instance, period in ticks, first tick. Rates are
+ * the ones the spec plans (sec. 5), so stage 2 looks like the real traffic: ~5 fps. */
+typedef struct {
+    uint8_t off;
+    uint8_t inst;
+    uint8_t period;
+    uint8_t phase;
+} probe_stream_t;
+
+static const probe_stream_t k_streams[] = {
+    { 0x0, 0, 20, 0 }, { 0x0, 1, 20, 1 }, { 0x0, 2, 20, 2 },        /* HVAC status, 2 s per zone */
+    { 0x1, 0, 100, 3 }, { 0x1, 1, 100, 4 }, { 0x1, 2, 100, 5 },     /* HVAC extras, 10 s */
+    { 0x2, 1, 50, 6 }, { 0x3, 2, 50, 7 }, { 0x4, 3, 50, 8 },        /* packs 1..3, 5 s */
+    { 0x5, 1, 50, 9 }, { 0x9, 1, 50, 10 },                          /* bank A / B, 5 s */
+    { 0x8, 1, 100, 11 }, { 0x8, 2, 100, 12 }, { 0x8, 3, 100, 13 },  /* pack detail, 10 s */
+    { 0x6, 0, 20, 14 }, { 0x6, 1, 20, 15 },                         /* shore line A / B, 2 s */
+    { 0xC, 0, 100, 16 },                                            /* shore pedestal, 10 s */
+    { 0x7, 1, 50, 17 }, { 0xB, 1, 50, 18 },                         /* solar A / B, 5 s */
+    { 0xF, 1, 50, 19 },                                             /* gateway heartbeat, 5 s */
+    { 0xD, 0, 100, 21 }, { 0xD, 1, 100, 22 },                       /* valve status, 10 s here */
+    { 0xA, PROBE_INST_NA, 100, 23 },                                /* HVAC command, 10 s */
+    { 0xE, PROBE_INST_NA, 100, 24 },                                /* valve command, 10 s */
+};
+
+static uint8_t s_sched_off[SCHED_TICKS];
+static uint8_t s_sched_inst[SCHED_TICKS];
+
+/* Greedy placement: each stream's frames go on their planned ticks, sliding to the
+ * next free tick on a clash, so the cycle never sends two frames in one tick. */
+static void probe_build_schedule(void)
+{
+    memset(s_sched_off, SCHED_EMPTY, sizeof(s_sched_off));
+    for (size_t s = 0; s < sizeof(k_streams) / sizeof(k_streams[0]); s++) {
+        const probe_stream_t *st = &k_streams[s];
+        for (uint32_t t = st->phase; t < SCHED_TICKS; t += st->period) {
+            uint32_t k = t;
+            for (uint32_t tries = 0; tries < SCHED_TICKS && s_sched_off[k] != SCHED_EMPTY; tries++) {
+                k = (k + 1u) % SCHED_TICKS;
+            }
+            if (s_sched_off[k] == SCHED_EMPTY) {
+                s_sched_off[k] = st->off;
+                s_sched_inst[k] = st->inst;
+            }
+        }
+    }
+}
 
 static uint32_t s_probe_tx_ok, s_probe_tx_fail;
 static uint32_t s_probe_txfail0, s_probe_buserr0;
@@ -193,26 +252,13 @@ static void probe_task(void *arg)
                 probe_send(0, 0x01, ctr++, 1);
             }
         } else {
-            /* Stage 2: the planned family at realistic rates, at most one frame
-             * per 100 ms tick (<= 10 fps, well under the 20 fps cap). */
-            const uint32_t t10 = tick % 10u;
-            const uint32_t t20 = tick % 20u;
-            switch (t10) {
-            case 0: probe_send(2, 0x01, ctr, 2); break;   /* battery pack 1 */
-            case 1: probe_send(3, 0x02, ctr, 2); break;   /* battery pack 2 */
-            case 2: probe_send(4, 0x03, ctr, 2); break;   /* battery pack 3 */
-            case 3: probe_send(5, 0x01, ctr, 2); break;   /* battery aggregate */
-            case 4: probe_send(6, 0x00, ctr, 2); break;   /* shore power line A */
-            case 5: probe_send(6, 0x01, ctr, 2); break;   /* shore power line B */
-            case 6: probe_send(7, 0x01, ctr, 2); break;   /* solar */
-            default: break;
+            /* Stage 2: all 16 DGNs at their planned rates from the 10 s schedule,
+             * at most one frame per 100 ms tick (well under the 20 fps cap). */
+            const uint32_t slot = tick % SCHED_TICKS;
+            if (s_sched_off[slot] != SCHED_EMPTY) {
+                probe_send(s_sched_off[slot], s_sched_inst[slot], ctr, 2);
             }
-            if (t20 >= 7 && t20 <= 9) {
-                probe_send(0, (uint8_t)(t20 - 7u), ctr, 2);     /* HVAC status, zones 0..2 */
-            } else if (t20 >= 17) {
-                probe_send(1, (uint8_t)(t20 - 17u), ctr, 2);    /* HVAC extras, zones 0..2 */
-            }
-            if (t10 == 9) {
+            if (slot == SCHED_TICKS - 1u) {
                 ctr++;
             }
         }
@@ -273,7 +319,7 @@ static void probe_report(void)
              s_probe_stage ? (now_ms() - s_probe_start_ms) / 1000u : 0u,
              PROBE_BASE, PROBE_BASE + PROBE_DGN_COUNT - 1u, CONFIG_FIREFLY_PROBE_MIN_SURVEY_S);
     for (uint32_t i = 0; i < PROBE_DGN_COUNT; i++) {
-        ESP_LOGI(TAG, "  %05" PRIX32 " %-13s %s", PROBE_BASE + i, k_probe_name[i],
+        ESP_LOGI(TAG, "  %05" PRIX32 " %-14s %s", PROBE_BASE + i, k_probe_name[i],
                  survey_dgn_seen(&s_sv, PROBE_BASE + i) ? "SEEN ON BUS" : "free");
     }
 }
@@ -619,6 +665,7 @@ esp_err_t bus_survey_start(void)
         return ESP_ERR_NO_MEM;
     }
 #if CONFIG_FIREFLY_BUS_PROBE
+    probe_build_schedule();
     if (xTaskCreatePinnedToCore(probe_task, "survey_probe", 3072, NULL, 2, NULL, 0) != pdPASS) {
         return ESP_ERR_NO_MEM;
     }

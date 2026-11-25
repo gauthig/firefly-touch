@@ -5,6 +5,13 @@ Notable changes to firefly-touch. Format follows
 
 ## [Unreleased]
 
+### Changed — the bus probe covers all 16 custom DGNs (#99)
+
+Probe stage 2 now transmits the whole `0FFC0`–`0FFCF` block at the rates the spec plans (~5 frames/s,
+never two in one 100 ms tick); the command DGNs carry instance `0xFF` so nothing could act on them.
+Coach run 2026-11-25: 3,671 frames over 12 minutes, 0 rate changes on the bus, owner saw nothing odd —
+the whole block is now transmit-tested. Diagnostic build only; production firmware unchanged.
+
 ### Added — RV-C bus survey and custom-DGN probe, diagnostic build (#96)
 
 An opt-in `mid_coach` build (`CONFIG_FIREFLY_BUS_SURVEY`, `CONFIG_FIREFLY_BUS_PROBE`, both **off by
