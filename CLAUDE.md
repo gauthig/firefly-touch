@@ -314,7 +314,23 @@ enqueuing locally, and status arrives the same way in reverse (see below).
   (`ble_host_scan_add_matcher()`) plus a found-callback and ask for scanning
   with `ble_host_scan_want()`; nobody calls `esp_ble_gap_start_scanning()`
   directly. The found-callback fires once scanning has actually **stopped**,
-  which is what makes it safe to open a connection from it.
+  which is what makes it safe to open a connection from it. Matchers receive
+  the advertiser's address as well as its name (issue #105), so a client can
+  reject a same-named neighbour inside the scan.
+  As of issue #105 it also **arbitrates connection attempts**: the controller
+  runs one LE connect at a time, and clients that each opened their own links
+  collided whenever their reconnects coincided (every 30 s for the EasyTouch's
+  poll-and-release). Every client connects with `ble_host_open()`, which
+  issues the open now or queues it, frees the controller on the peer's
+  `ESP_GATTC_OPEN_EVT` (or a 35 s safety timer), and owns the BLE 4.2/5.0
+  open-API choice that used to be copied into each client. ⚠️ Never call
+  `esp_ble_gattc_open()` / `esp_ble_gattc_enh_open()` directly; a client that
+  gives up on a connect calls `ble_host_open_cancel()` so a queued open
+  doesn't fire later.
+  ⚠️ **The Watchdog's name test matches neighbours.** A neighbouring rig's
+  Power Watchdog is heard from the stool room — more often than ours — so the
+  gateway pins its unit with `CONFIG_FIREFLY_WD_MAC` (local sdkconfig only;
+  empty = the proxy's old any-name behaviour).
 - `components/renogy_solar` — Renogy MPPT charge controller (issue #52).
   Same pure-C-codec / ESP-client split as `jbd_bms`:
   `renogy_solar_protocol.c` is host-testable (`host_test/`) and

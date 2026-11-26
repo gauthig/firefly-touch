@@ -161,24 +161,9 @@ static void try_connect(void)
     ESP_LOGI(TAG, "connecting to %s", s_peer_str);
     s_state = SOLAR_CONNECTING;
 
-    /* Chip portability, learned the hard way on this project: the S3
-     * defaults to BLE 5.0 features and does NOT export esp_ble_gattc_open()
-     * (link fails with an undefined reference), while the classic ESP32 is
-     * BLE 4.2 and has no "enh" variant. Pick by what the build supports
-     * rather than by chip -- this component is built for the classic part
-     * today, but the panels compile the same tree. */
-#if defined(CONFIG_BT_BLE_50_FEATURES_SUPPORTED)
-    esp_ble_gatt_creat_conn_params_t params = { 0 };
-    memcpy(params.remote_bda, s_bda, sizeof(esp_bd_addr_t));
-    params.remote_addr_type = s_bda_type;
-    params.own_addr_type    = BLE_ADDR_TYPE_PUBLIC;
-    params.is_direct        = true;
-    params.is_aux           = false;
-    params.phy_mask         = 0x0;
-    const esp_err_t err = esp_ble_gattc_enh_open(s_gattc_if, &params);
-#else
-    const esp_err_t err = esp_ble_gattc_open(s_gattc_if, s_bda, s_bda_type, true);
-#endif
+    /* Through ble_host's connect arbiter (one LE attempt per node), which
+     * also owns the BLE 4.2/5.0 open-API choice that used to live here. */
+    const esp_err_t err = ble_host_open(s_gattc_if, s_bda, s_bda_type);
     if (err != ESP_OK) {
         ESP_LOGW(TAG, "gattc open failed: %s", esp_err_to_name(err));
         s_state = SOLAR_IDLE;
@@ -290,9 +275,10 @@ static void on_notify_data(const uint8_t *data, size_t len)
  * opening a connection from inside it safe.
  */
 
-static bool solar_scan_match(const char *name, void *ctx)
+static bool solar_scan_match(const char *name, const esp_bd_addr_t bda, void *ctx)
 {
     (void)ctx;
+    (void)bda;
     if (s_state != SOLAR_SCANNING) {
         return false;
     }

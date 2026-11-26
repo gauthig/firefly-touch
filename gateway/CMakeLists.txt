@@ -10,9 +10,9 @@
 # 8 MB embedded octal PSRAM and 16 MB flash; the USB-C port is the chip's
 # native USB-Serial/JTAG (VID 303A), so there is no UART bridge.
 #
-# This first image is BRING-UP ONLY (#98 step 2a): it reports the board,
-# listens on CAN without ever transmitting, and scans BLE (scan requests only,
-# no connections), so it can run beside the proxy and hvac_panel.
+# Current image: the SIX-LINK test (#98 step 2b, issue #105) -- all six BLE
+# devices held from this one board, CAN listen-only, no ESP-NOW, publishes
+# nothing. Run it with the basement proxy and hvac_panel powered off.
 #
 # Build:
 #   idf.py -C gateway -B gateway/build set-target esp32s3     # once
@@ -24,6 +24,10 @@ cmake_minimum_required(VERSION 3.16)
 set(EXTRA_COMPONENT_DIRS
     "${CMAKE_CURRENT_SOURCE_DIR}/../components/ble_host"
     "${CMAKE_CURRENT_SOURCE_DIR}/../components/bus_survey"
+    "${CMAKE_CURRENT_SOURCE_DIR}/../components/easytouch"
+    "${CMAKE_CURRENT_SOURCE_DIR}/../components/hughes_watchdog"
+    "${CMAKE_CURRENT_SOURCE_DIR}/../components/jbd_bms"
+    "${CMAKE_CURRENT_SOURCE_DIR}/../components/renogy_solar"
     "${CMAKE_CURRENT_SOURCE_DIR}/../components/rvc_protocol"
 )
 

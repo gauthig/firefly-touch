@@ -56,6 +56,34 @@ static esp_gatt_if_t s_gattc_if = ESP_GATT_IF_NONE;
 static wd_state_t    s_state;
 static esp_bd_addr_t s_bda;
 static esp_ble_addr_type_t s_bda_type;
+
+/*
+ * Optional MAC pin (CONFIG_FIREFLY_WD_MAC). Empty or all-zero = accept any
+ * unit whose name matches, which is the proxy's behaviour. The pin is a
+ * filter on the scan, not a direct connect, so the address TYPE still comes
+ * from the advertisement rather than having to be guessed.
+ */
+#ifndef CONFIG_FIREFLY_WD_MAC
+#define CONFIG_FIREFLY_WD_MAC ""
+#endif
+static esp_bd_addr_t s_pin_bda;
+static bool          s_pin_valid;
+static bool          s_foreign_logged;
+
+static bool parse_pin(const char *s, uint8_t out[6])
+{
+    unsigned v[6];
+    if (s == NULL || sscanf(s, "%2x:%2x:%2x:%2x:%2x:%2x",
+                            &v[0], &v[1], &v[2], &v[3], &v[4], &v[5]) != 6) {
+        return false;
+    }
+    bool nonzero = false;
+    for (int i = 0; i < 6; i++) {
+        out[i] = (uint8_t)v[i];
+        nonzero |= (v[i] != 0);
+    }
+    return nonzero;
+}
 static char          s_peer_str[18] = "--";
 static uint16_t      s_conn_id;
 static uint16_t      s_svc_start, s_svc_end, s_notify_handle;
@@ -105,23 +133,9 @@ static void try_connect(void)
     ESP_LOGI(TAG, "connecting to %s", s_peer_str);
     s_state = WD_CONNECTING;
 
-    /* Chip portability, learned the hard way on this project: the S3
-     * defaults to BLE 5.0 features and does NOT export
-     * esp_ble_gattc_open() (link fails with an undefined reference), while
-     * the classic ESP32 is BLE 4.2 and does not have the "enh" variant.
-     * Pick by what the build actually supports rather than by chip. */
-#if defined(CONFIG_BT_BLE_50_FEATURES_SUPPORTED)
-    esp_ble_gatt_creat_conn_params_t params = { 0 };
-    memcpy(params.remote_bda, s_bda, sizeof(esp_bd_addr_t));
-    params.remote_addr_type = s_bda_type;
-    params.own_addr_type    = BLE_ADDR_TYPE_PUBLIC;
-    params.is_direct        = true;
-    params.is_aux           = false;
-    params.phy_mask         = 0x0;
-    const esp_err_t err = esp_ble_gattc_enh_open(s_gattc_if, &params);
-#else
-    const esp_err_t err = esp_ble_gattc_open(s_gattc_if, s_bda, s_bda_type, true);
-#endif
+    /* Through ble_host's connect arbiter (one LE attempt per node), which
+     * also owns the BLE 4.2/5.0 open-API choice that used to live here. */
+    const esp_err_t err = ble_host_open(s_gattc_if, s_bda, s_bda_type);
     if (err != ESP_OK) {
         ESP_LOGW(TAG, "gattc open failed: %s", esp_err_to_name(err));
         start_scan();
@@ -168,7 +182,12 @@ static void on_notify_data(const uint8_t *data, size_t len)
             continue;
         }
 
-        if (s_raw_logged < WD_RAW_LOG_PACKETS) {
+        /* Decided once per packet, before the counter moves: the parsed-reading
+         * log below used to test `<=` AFTER the increment, which stays true
+         * once the counter tops out -- so it logged every packet, twice a
+         * second on a 50 A unit, forever. */
+        const bool log_this = s_raw_logged < WD_RAW_LOG_PACKETS;
+        if (log_this) {
             s_raw_logged++;
             ESP_LOG_BUFFER_HEX_LEVEL(TAG, s_buf, HUGHES_WD_PACKET_LEN, ESP_LOG_INFO);
         }
@@ -176,7 +195,7 @@ static void on_notify_data(const uint8_t *data, size_t len)
         hughes_wd_reading_t r;
         if (hughes_wd_parse_packet(s_buf, HUGHES_WD_PACKET_LEN, &r)) {
             store_reading(&r);
-            if (s_raw_logged <= WD_RAW_LOG_PACKETS) {
+            if (log_this) {
                 ESP_LOGI(TAG, "L%u %.1fV %.1fA %.0fW %.2fHz %s",
                          (unsigned)r.line, (double)r.voltage_v, (double)r.current_a,
                          (double)r.power_w, (double)r.frequency_hz,
@@ -196,10 +215,22 @@ static void on_notify_data(const uint8_t *data, size_t len)
  * which is what makes opening a connection from inside it safe.
  */
 
-static bool wd_scan_match(const char *name, void *ctx)
+static bool wd_scan_match(const char *name, const esp_bd_addr_t bda, void *ctx)
 {
     (void)ctx;
     if (s_state != WD_SCANNING || !hughes_wd_name_matches(name)) {
+        return false;
+    }
+    /* ⚠️ The name test alone is not enough where another rig is parked:
+     * a neighbouring rig's Watchdog was heard from the stool
+     * room and matches "PMD" just as well. With a pinned MAC, any other unit
+     * is skipped here and the scan carries on to ours. */
+    if (s_pin_valid && memcmp(bda, s_pin_bda, sizeof(esp_bd_addr_t)) != 0) {
+        if (!s_foreign_logged) {
+            s_foreign_logged = true;
+            ESP_LOGI(TAG, "ignoring '%s' at %02X:%02X:%02X:%02X:%02X:%02X (not the pinned unit)",
+                     name, bda[0], bda[1], bda[2], bda[3], bda[4], bda[5]);
+        }
         return false;
     }
     ESP_LOGI(TAG, "found Watchdog advertising as '%s'", name);
@@ -379,6 +410,13 @@ esp_err_t hughes_wd_client_start(void)
     s_lock = xSemaphoreCreateMutex();
     if (s_lock == NULL) {
         return ESP_ERR_NO_MEM;
+    }
+
+    s_pin_valid = parse_pin(CONFIG_FIREFLY_WD_MAC, s_pin_bda);
+    if (s_pin_valid) {
+        ESP_LOGI(TAG, "pinned to %02X:%02X:%02X:%02X:%02X:%02X",
+                 s_pin_bda[0], s_pin_bda[1], s_pin_bda[2],
+                 s_pin_bda[3], s_pin_bda[4], s_pin_bda[5]);
     }
 
     /* Bluedroid is single-tenant for stack bring-up, for the one GAP and
