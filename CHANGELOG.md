@@ -5,6 +5,34 @@ Notable changes to firefly-touch. Format follows
 
 ## [Unreleased]
 
+### Added — the stool-room gateway holds all six BLE links (#105, epic #98 step 2b)
+
+`gateway/` now runs the four real BLE clients on one Waveshare ESP32-S3 RS485-CAN board: three JBD packs, the
+Power Watchdog, the Renogy solar controller and the EasyTouch thermostat. Each client can be switched on or off
+in Kconfig. A link report every 30 s shows online state, RSSI, connects, drops and heap. CAN stays listen-only;
+the gateway publishes nothing yet.
+
+- **`ble_host` connect arbiter.** The controller runs one LE connection attempt at a time, and the clients
+  each opened their own links. `ble_host_open()` now issues an open or queues it, and frees the controller on
+  that peer's `OPEN_EVT`, with a 35 s safety timer as a backstop. It also owns the BLE 4.2/5.0 open-API choice
+  that was copied into four clients. `ble_host_open_cancel()` withdraws a queued open. Scan matchers now
+  receive the advertiser's address, and the observer cap goes from 4 to 8.
+- **Watchdog MAC pin** (`CONFIG_FIREFLY_WD_MAC`, local sdkconfig only). A neighbouring rig's Watchdog matches
+  the name test and is heard from the stool room more often than ours. With the pin empty, the proxy's
+  any-name behaviour is unchanged.
+- **Fixed:** the Watchdog client logged every packet forever, two lines a second, instead of only the first
+  five. Its counter was checked after the increment with `<=`. The proxy had this bug too.
+- EasyTouch's connect timeout goes from 15 s to 40 s, because a queued open can wait behind another device's
+  failing connect (~30 s).
+- CI gains a `gateway` build job.
+
+Coach run 2026-11-26, with the proxy and hvac_panel off, 1 h:
+- 6/6 devices healthy in 121 of 122 reports; the exception was the first report, before solar's first poll.
+- The five held links never dropped.
+- 111 thermostat poll cycles; 116 opens with 0 failed and 0 timeouts; no "cannot start new connection".
+- Heap flat at ~252 KB free.
+- CAN receive confirmed on GPIO15/16: 30,483 frames, 0 errors.
+
 ### Changed — the bus probe covers all 16 custom DGNs (#99)
 
 Probe stage 2 now transmits the whole `0FFC0`–`0FFCF` block at the rates the spec plans (~5 frames/s,

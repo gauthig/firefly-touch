@@ -22,7 +22,13 @@
  *      calls stop_scanning() and cancels the OTHER client's scan too — so
  *      the second device is simply never discovered, with nothing logged.
  *
- * This component owns (1), (2) and (4): it brings the stack up exactly
+ *   5. The controller runs ONE LE connection attempt at a time. A second
+ *      open while one is pending fails ("L2CAP - LE - cannot start new
+ *      connection"), so clients that each open their own links collide
+ *      whenever their reconnects coincide -- every 30 s for a
+ *      poll-and-release client like the EasyTouch.
+ *
+ * This component owns (1), (2), (4) and (5): it brings the stack up exactly
  * once, registers the one real callback of each kind and fans events out to
  * every registered observer, and runs the one scan on behalf of everybody
  * who needs discovery. (3) stays the callers' problem — see
@@ -111,7 +117,8 @@ esp_err_t ble_host_add_gattc_observer(esp_gattc_cb_t cb);
 /* Called for each advertisement seen while a scan is running, with the
  * advertised name already resolved to a NUL-terminated string. Return true
  * if this is the device you are looking for. Must not block. */
-typedef bool (*ble_host_scan_match_t)(const char *name, void *ctx);
+typedef bool (*ble_host_scan_match_t)(const char *name, const esp_bd_addr_t bda,
+                                      void *ctx);
 
 /* Called once, after scanning has stopped, with the address your matcher
  * accepted. Opening a GATT connection from here is the intended use. */
@@ -128,6 +135,38 @@ int ble_host_scan_add_matcher(ble_host_scan_match_t match,
  * at least one matcher wants one and stops when none do. Safe to call
  * before ble_host_start(); the scan begins when the stack is up. */
 void ble_host_scan_want(int handle, bool want);
+
+/* --------------------------------------------- connect arbitration ----- *
+ *
+ * ⚠️ A client must never call esp_ble_gattc_open()/esp_ble_gattc_enh_open()
+ * directly -- see (5) above. ble_host_open() is the same direct connect,
+ * with the BLE 4.2/5.0 API choice made in one place.
+ *
+ * If no attempt is in flight it opens now and returns that call's result,
+ * so a synchronous failure is reported exactly as before. Otherwise the
+ * request is queued (duplicates ignored) and ESP_OK is returned; the
+ * outcome arrives later as the usual ESP_GATTC_OPEN_EVT for that peer. The
+ * controller is freed by that OPEN_EVT, success or failure, or by a 35 s
+ * safety timer if it never comes.
+ */
+esp_err_t ble_host_open(esp_gatt_if_t gattc_if, const esp_bd_addr_t bda,
+                        esp_ble_addr_type_t addr_type);
+
+/* Withdraws a still-QUEUED request -- call it when a client gives up on a
+ * connect, or the stale open fires later into a client that has moved on.
+ * An attempt already in flight cannot be withdrawn; it ends on its own. */
+void ble_host_open_cancel(esp_gatt_if_t gattc_if, const esp_bd_addr_t bda);
+
+typedef struct {
+    uint32_t started;      /* opens actually issued */
+    uint32_t queued;       /* requests that had to wait */
+    uint32_t failed;       /* OPEN_EVT with a non-OK status */
+    uint32_t timeouts;     /* released by the safety timer */
+    uint8_t  queue_depth;  /* waiting right now */
+    bool     busy;         /* an attempt is in flight right now */
+} ble_host_conn_stats_t;
+
+void ble_host_conn_get_stats(ble_host_conn_stats_t *out);
 
 #ifdef __cplusplus
 }

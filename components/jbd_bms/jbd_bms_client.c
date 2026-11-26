@@ -351,34 +351,10 @@ static void try_connect(jbd_slot_t *slot)
 {
     ESP_LOGI(TAG, "battery %u: connecting...", slot_index(slot) + 1);
 
-    /*
-     * Two connect APIs, selected by what the chip's BLE stack actually
-     * supports -- this file runs on both the panels' ESP32-S3 and the
-     * basement proxy's classic ESP32, and the call is not portable:
-     *
-     *   - ESP32-S3 defaults to BT_BLE_50_FEATURES_SUPPORTED, where
-     *     esp_ble_gattc_open() is not even linked in (it needs
-     *     BT_BLE_42_FEATURES_SUPPORTED) -- it fails at link time with
-     *     "undefined reference".
-     *   - The classic ESP32 is BLE 4.2 and has no enhanced open at all.
-     *
-     * Same call shape either way as the official Bluedroid gattc_demo
-     * example's direct (non-scan) connect path.
-     */
-#if defined(CONFIG_BT_BLE_50_FEATURES_SUPPORTED)
-    esp_ble_gatt_creat_conn_params_t conn_params = { 0 };
-    memcpy(conn_params.remote_bda, slot->bda, sizeof(esp_bd_addr_t));
-    conn_params.remote_addr_type = JBD_BMS_ADDR_TYPE;
-    conn_params.own_addr_type = BLE_ADDR_TYPE_PUBLIC;
-    conn_params.is_direct = true;
-    conn_params.is_aux = false;
-    conn_params.phy_mask = 0x0;
-
-    esp_err_t err = esp_ble_gattc_enh_open(slot->gattc_if, &conn_params);
-#else
-    esp_err_t err = esp_ble_gattc_open(slot->gattc_if, slot->bda,
-                                       JBD_BMS_ADDR_TYPE, true);
-#endif
+    /* Through ble_host's connect arbiter: one LE connection attempt per node,
+     * shared with the Watchdog, solar and EasyTouch clients. It also owns the
+     * BLE 4.2/5.0 open-API choice that used to be made here. */
+    esp_err_t err = ble_host_open(slot->gattc_if, slot->bda, JBD_BMS_ADDR_TYPE);
     if (err != ESP_OK) {
         ESP_LOGW(TAG, "gattc open failed, err=%s", esp_err_to_name(err));
         reset_slot_for_retry(slot);

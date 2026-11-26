@@ -6,15 +6,16 @@
 #include "esp_bt.h"
 #include "esp_bt_main.h"
 #include "esp_log.h"
+#include "esp_timer.h"
+#include "freertos/FreeRTOS.h"
 
 static const char *TAG = "ble_host";
 
-/* Three clients today (batteries, Power Watchdog, solar MPPT); the cap
- * exists to keep the tables static, not because more would be a problem.
- * Note the batteries register a GATTC observer only -- they connect to
- * fixed MACs and never scan -- so the GAP table is the emptier of the
- * two. */
-#define BLE_HOST_MAX_OBSERVERS 4
+/* Four clients on the gateway (batteries, Power Watchdog, solar MPPT,
+ * EasyTouch) plus the gateway's own link-statistics observer. The cap only
+ * keeps the tables static; it was 4, which the gateway's four clients filled
+ * exactly, leaving nothing for anyone else. */
+#define BLE_HOST_MAX_OBSERVERS 8
 
 static esp_gap_ble_cb_t   s_gap_observers[BLE_HOST_MAX_OBSERVERS];
 static uint8_t            s_gap_count;
@@ -205,7 +206,7 @@ static void scan_on_adv(esp_ble_gap_cb_param_t *p)
     bool hit = false;
     for (uint8_t i = 0; i < s_matcher_count; i++) {
         scan_matcher_t *m = &s_matchers[i];
-        if (!m->want || m->match == NULL || !m->match(name, m->ctx)) {
+        if (!m->want || m->match == NULL || !m->match(name, p->scan_rst.bda, m->ctx)) {
             continue;
         }
         memcpy(m->bda, p->scan_rst.bda, sizeof(esp_bd_addr_t));
@@ -323,6 +324,238 @@ void ble_host_scan_want(int handle, bool want)
     }
 }
 
+/* ------------------------------------------------ connect arbitration --- *
+ *
+ * The controller runs ONE LE connection attempt at a time; a second
+ * esp_ble_gattc_open() while one is pending fails ("L2CAP - LE - cannot
+ * start new connection"). jbd_bms_client already serialised its own three
+ * packs, but nothing serialised the clients against EACH OTHER -- harmless
+ * while the packs, Watchdog and solar mostly connected once and stayed up,
+ * not once the EasyTouch client (which reconnects every poll) shares the
+ * node. So every open goes through here: one in flight, the rest queued.
+ *
+ * Released by the ESP_GATTC_OPEN_EVT for the in-flight peer (success or
+ * failure -- Bluedroid reports a failed direct connect there, typically
+ * status 133 after ~30 s), with a safety timer behind it in case that event
+ * never comes.
+ */
+
+#define BLE_HOST_CONN_QUEUE      8
+#define BLE_HOST_CONN_TIMEOUT_US (35LL * 1000 * 1000)
+#define BLE_HOST_CONN_MAX_TRIES  3
+
+typedef struct {
+    esp_gatt_if_t       gattc_if;
+    esp_bd_addr_t       bda;
+    esp_ble_addr_type_t addr_type;
+    uint8_t             tries;      /* synchronous open failures while queued */
+} conn_req_t;
+
+static portMUX_TYPE          s_conn_mux = portMUX_INITIALIZER_UNLOCKED;
+static bool                  s_conn_busy;
+static conn_req_t            s_conn_inflight;
+static conn_req_t            s_conn_queue[BLE_HOST_CONN_QUEUE];
+static uint8_t               s_conn_qlen;
+static esp_timer_handle_t    s_conn_timer;
+static ble_host_conn_stats_t s_conn_stats;
+
+static bool same_req(const conn_req_t *r, esp_gatt_if_t gattc_if, const uint8_t *bda)
+{
+    return r->gattc_if == gattc_if && memcmp(r->bda, bda, sizeof(esp_bd_addr_t)) == 0;
+}
+
+static esp_err_t issue_open(conn_req_t *r)
+{
+#if defined(CONFIG_BT_BLE_50_FEATURES_SUPPORTED)
+    /* The S3's default BLE 5.0 host does not link esp_ble_gattc_open(); the
+     * classic ESP32 (BLE 4.2) has no enhanced open. Picked by what the build
+     * supports rather than by chip -- this used to be copied into every
+     * client. */
+    esp_ble_gatt_creat_conn_params_t cp = { 0 };
+    memcpy(cp.remote_bda, r->bda, sizeof(esp_bd_addr_t));
+    cp.remote_addr_type = r->addr_type;
+    cp.own_addr_type    = BLE_ADDR_TYPE_PUBLIC;
+    cp.is_direct        = true;
+    cp.is_aux           = false;
+    cp.phy_mask         = 0x0;
+    return esp_ble_gattc_enh_open(r->gattc_if, &cp);
+#else
+    return esp_ble_gattc_open(r->gattc_if, r->bda, r->addr_type, true);
+#endif
+}
+
+static void conn_arm_timer(void)
+{
+    if (s_conn_timer != NULL) {
+        esp_timer_stop(s_conn_timer);
+        esp_timer_start_once(s_conn_timer, BLE_HOST_CONN_TIMEOUT_US);
+    }
+}
+
+/* Starts the next queued attempt if the controller is free. */
+static void conn_start_next(void)
+{
+    for (;;) {
+        conn_req_t r;
+        portENTER_CRITICAL(&s_conn_mux);
+        if (s_conn_busy || s_conn_qlen == 0) {
+            portEXIT_CRITICAL(&s_conn_mux);
+            return;
+        }
+        r = s_conn_queue[0];
+        memmove(&s_conn_queue[0], &s_conn_queue[1],
+                (size_t)(s_conn_qlen - 1) * sizeof(conn_req_t));
+        s_conn_qlen--;
+        s_conn_busy = true;
+        s_conn_inflight = r;
+        portEXIT_CRITICAL(&s_conn_mux);
+
+        const esp_err_t err = issue_open(&r);
+        if (err == ESP_OK) {
+            s_conn_stats.started++;
+            conn_arm_timer();
+            return;
+        }
+
+        /* The client was told ESP_OK when this was queued, so it is waiting
+         * on an OPEN_EVT that will now never come. Put it back for another
+         * go rather than strand it; give up only after repeated failures. */
+        portENTER_CRITICAL(&s_conn_mux);
+        s_conn_busy = false;
+        r.tries++;
+        const bool requeue = r.tries < BLE_HOST_CONN_MAX_TRIES &&
+                             s_conn_qlen < BLE_HOST_CONN_QUEUE;
+        if (requeue) {
+            s_conn_queue[s_conn_qlen++] = r;
+        }
+        portEXIT_CRITICAL(&s_conn_mux);
+        ESP_LOGE(TAG, "queued open to %02X:%02X:%02X:%02X:%02X:%02X failed: %s%s",
+                 r.bda[0], r.bda[1], r.bda[2], r.bda[3], r.bda[4], r.bda[5],
+                 esp_err_to_name(err), requeue ? " (requeued)" : " (dropped)");
+        if (!requeue) {
+            return;
+        }
+    }
+}
+
+/* Frees the controller if `bda` is the attempt in flight. */
+static void conn_release(const uint8_t *bda, bool timed_out)
+{
+    portENTER_CRITICAL(&s_conn_mux);
+    if (!s_conn_busy || memcmp(s_conn_inflight.bda, bda, sizeof(esp_bd_addr_t)) != 0) {
+        portEXIT_CRITICAL(&s_conn_mux);
+        return;
+    }
+    s_conn_busy = false;
+    portEXIT_CRITICAL(&s_conn_mux);
+    if (timed_out) {
+        s_conn_stats.timeouts++;
+    } else if (s_conn_timer != NULL) {
+        esp_timer_stop(s_conn_timer);
+    }
+    conn_start_next();
+}
+
+static void conn_timer_cb(void *arg)
+{
+    (void)arg;
+    esp_bd_addr_t bda;
+    portENTER_CRITICAL(&s_conn_mux);
+    const bool busy = s_conn_busy;
+    memcpy(bda, s_conn_inflight.bda, sizeof(esp_bd_addr_t));
+    portEXIT_CRITICAL(&s_conn_mux);
+    if (!busy) {
+        return;
+    }
+    ESP_LOGW(TAG, "connect to %02X:%02X:%02X:%02X:%02X:%02X never reported back -- releasing",
+             bda[0], bda[1], bda[2], bda[3], bda[4], bda[5]);
+    conn_release(bda, true);
+}
+
+esp_err_t ble_host_open(esp_gatt_if_t gattc_if, const esp_bd_addr_t bda,
+                        esp_ble_addr_type_t addr_type)
+{
+    if (gattc_if == ESP_GATT_IF_NONE || bda == NULL) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    conn_req_t r = { .gattc_if = gattc_if, .addr_type = addr_type };
+    memcpy(r.bda, bda, sizeof(esp_bd_addr_t));
+
+    portENTER_CRITICAL(&s_conn_mux);
+    if (s_conn_busy) {
+        if (same_req(&s_conn_inflight, gattc_if, bda)) {
+            portEXIT_CRITICAL(&s_conn_mux);
+            return ESP_OK;                     /* already being attempted */
+        }
+        for (uint8_t i = 0; i < s_conn_qlen; i++) {
+            if (same_req(&s_conn_queue[i], gattc_if, bda)) {
+                portEXIT_CRITICAL(&s_conn_mux);
+                return ESP_OK;                 /* already queued */
+            }
+        }
+        if (s_conn_qlen >= BLE_HOST_CONN_QUEUE) {
+            portEXIT_CRITICAL(&s_conn_mux);
+            return ESP_ERR_NO_MEM;
+        }
+        s_conn_queue[s_conn_qlen++] = r;
+        const uint8_t depth = s_conn_qlen;
+        portEXIT_CRITICAL(&s_conn_mux);
+        s_conn_stats.queued++;
+        ESP_LOGI(TAG, "connect to %02X:%02X:%02X:%02X:%02X:%02X queued (depth %u)",
+                 bda[0], bda[1], bda[2], bda[3], bda[4], bda[5], (unsigned)depth);
+        return ESP_OK;
+    }
+    s_conn_busy = true;
+    s_conn_inflight = r;
+    portEXIT_CRITICAL(&s_conn_mux);
+
+    const esp_err_t err = issue_open(&r);
+    if (err != ESP_OK) {
+        /* Synchronous failure: the caller handles it, exactly as it did when
+         * it called the open itself. */
+        portENTER_CRITICAL(&s_conn_mux);
+        s_conn_busy = false;
+        portEXIT_CRITICAL(&s_conn_mux);
+        conn_start_next();
+        return err;
+    }
+    s_conn_stats.started++;
+    conn_arm_timer();
+    return ESP_OK;
+}
+
+void ble_host_open_cancel(esp_gatt_if_t gattc_if, const esp_bd_addr_t bda)
+{
+    if (bda == NULL) {
+        return;
+    }
+    /* Only a QUEUED request can be withdrawn. One already in flight is in
+     * the controller's hands; it still ends in an OPEN_EVT (or the safety
+     * timer), which is what frees the slot. */
+    portENTER_CRITICAL(&s_conn_mux);
+    for (uint8_t i = 0; i < s_conn_qlen; i++) {
+        if (same_req(&s_conn_queue[i], gattc_if, bda)) {
+            memmove(&s_conn_queue[i], &s_conn_queue[i + 1],
+                    (size_t)(s_conn_qlen - i - 1) * sizeof(conn_req_t));
+            s_conn_qlen--;
+            break;
+        }
+    }
+    portEXIT_CRITICAL(&s_conn_mux);
+}
+
+void ble_host_conn_get_stats(ble_host_conn_stats_t *out)
+{
+    if (out == NULL) {
+        return;
+    }
+    portENTER_CRITICAL(&s_conn_mux);
+    *out = s_conn_stats;
+    out->queue_depth = s_conn_qlen;
+    out->busy = s_conn_busy;
+    portEXIT_CRITICAL(&s_conn_mux);
+}
+
 /* ------------------------------------------------------------ fan-out --- */
 
 static void gap_fanout(esp_gap_ble_cb_event_t event, esp_ble_gap_cb_param_t *param)
@@ -342,6 +575,18 @@ static void gattc_fanout(esp_gattc_cb_event_t event, esp_gatt_if_t gattc_if,
 {
     for (uint8_t i = 0; i < s_gattc_count; i++) {
         s_gattc_observers[i](event, gattc_if, param);
+    }
+
+    /* After the observers, so the client whose attempt just finished has
+     * already seen its OPEN_EVT (and possibly asked to retry, which simply
+     * queues) before the next queued attempt is issued. Bluedroid delivers
+     * this event once per registered app; only the copy matching the
+     * in-flight peer does anything, the rest are no-ops. */
+    if (event == ESP_GATTC_OPEN_EVT) {
+        if (param->open.status != ESP_GATT_OK) {
+            s_conn_stats.failed++;
+        }
+        conn_release(param->open.remote_bda, false);
     }
 }
 
@@ -404,6 +649,16 @@ esp_err_t ble_host_start(void)
     err = esp_bluedroid_enable();
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "esp_bluedroid_enable: %s", esp_err_to_name(err));
+        return err;
+    }
+
+    const esp_timer_create_args_t targs = {
+        .callback = conn_timer_cb,
+        .name     = "ble_conn",
+    };
+    err = esp_timer_create(&targs, &s_conn_timer);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "esp_timer_create: %s", esp_err_to_name(err));
         return err;
     }
 

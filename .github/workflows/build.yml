@@ -325,6 +325,24 @@ jobs:
           target: esp32s3
           command: idf.py -C valves -B valves/build build
 
+  # Stool-room RV-C gateway (epic #98) — its own project on an ESP32-S3, and
+  # the only build that links all four BLE clients into one image. Built
+  # from a fresh sdkconfig, so it also proves the committed defaults (BLE 4.2
+  # host, link counts) link without anyone's local edits.
+  gateway:
+    name: Build gateway
+    needs: [changes, lint, host-tests]
+    if: needs.changes.outputs.code == 'true'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+      - name: idf.py build
+        uses: espressif/esp-idf-ci-action@v1
+        with:
+          esp_idf_version: v5.5.5
+          target: esp32s3
+          command: idf.py -C gateway -B gateway/build build
+
   firmware:
     name: Build ${{ matrix.panel }}
     needs: [changes, lint, panels, host-tests]

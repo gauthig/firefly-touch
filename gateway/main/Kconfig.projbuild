@@ -16,37 +16,132 @@ menu "Firefly gateway"
         default 16
 
     config FIREFLY_GW_REPORT_S
-        int "Bring-up report interval (s)"
+        int "Link report interval (s)"
         default 30
         range 10 600
 
-    menu "BLE targets (bring-up scan)"
+    comment "Real MACs and the thermostat password live only in this project's local sdkconfig."
+
+    menu "Battery packs (JBD/Xiaoxiang)"
+
+        config FIREFLY_BATTERY_ENABLED
+            bool "Hold the battery-pack links"
+            default y
+            help
+                Per-function enable, so the six links can be brought up (or
+                isolated) one device type at a time -- and so the two-board
+                fallback in epic #98 is configuration, not code.
 
         config FIREFLY_BATTERY_1_MAC
             string "Battery pack 1 BLE MAC"
+            depends on FIREFLY_BATTERY_ENABLED
             default "00:00:00:00:00:00"
             help
-                Real values live only in this project's local sdkconfig, never in
-                a committed file. 00:00:00:00:00:00 = not configured.
+                00:00:00:00:00:00 = not configured (slot skipped).
 
         config FIREFLY_BATTERY_2_MAC
             string "Battery pack 2 BLE MAC"
+            depends on FIREFLY_BATTERY_ENABLED
             default "00:00:00:00:00:00"
 
         config FIREFLY_BATTERY_3_MAC
             string "Battery pack 3 BLE MAC"
+            depends on FIREFLY_BATTERY_ENABLED
             default "00:00:00:00:00:00"
 
+        config FIREFLY_BATTERY_POLL_INTERVAL_MS
+            int "Battery poll interval (ms)"
+            default 30000
+            range 20000 600000
+            help
+                JBD BMS units misbehave when polled faster than ~20 s, so the
+                floor is enforced. jbd_bms_client derives its staleness window
+                from this (3x).
+
+    endmenu
+
+    menu "Power Watchdog (Hughes Gen 1)"
+
+        config FIREFLY_WD_ENABLED
+            bool "Hold the Power Watchdog link"
+            default y
+
+        config FIREFLY_WD_MAC
+            string "Pin to this Watchdog MAC (empty = any matching name)"
+            depends on FIREFLY_WD_ENABLED
+            default ""
+            help
+                The client discovers the Watchdog by advertised name, which is
+                a SUBSTRING test ("PMD"/"PWS"/"PMS"). A neighbouring rig's unit
+                matches it just as well -- one was heard from the stool room --
+                so the gateway pins its own unit's address here. The scan then
+                skips any other unit. Empty or all-zero = no pin.
+
+    endmenu
+
+    menu "Solar (Renogy MPPT via BT-1/BT-2)"
+
+        config FIREFLY_SOLAR_ENABLED
+            bool "Hold the solar controller link"
+            default y
+
+        config FIREFLY_SOLAR_NAME
+            string "Exact advertised name of the Renogy BT module"
+            depends on FIREFLY_SOLAR_ENABLED
+            default "BT-TH-B00E7B91"
+            help
+                Matched EXACTLY (trailing padding ignored): a neighbouring
+                rig's module shares the BT-TH- prefix. Empty = prefix match,
+                for first bring-up only.
+
+        config FIREFLY_SOLAR_MAC
+            string "Fixed MAC of the Renogy BT module (skips the scan)"
+            depends on FIREFLY_SOLAR_ENABLED
+            default "00:00:00:00:00:00"
+
+        config FIREFLY_SOLAR_DEVICE_ID
+            int "Modbus device id"
+            depends on FIREFLY_SOLAR_ENABLED
+            default 255
+            range 1 255
+
+        config FIREFLY_SOLAR_POLL_INTERVAL_MS
+            int "Solar poll interval (ms)"
+            depends on FIREFLY_SOLAR_ENABLED
+            default 30000
+            range 5000 600000
+
+    endmenu
+
+    menu "Thermostat (Micro-Air EasyTouch)"
+
+        config FIREFLY_EASYTOUCH_ENABLED
+            bool "Run the thermostat client"
+            default y
+            help
+                Poll-and-release: connect, authenticate, read status, then
+                disconnect, so the phone app stays usable. While hvac_panel
+                still runs its own client, only one of the two should be
+                powered: both polling the thermostat would collide.
+
+        config FIREFLY_EASYTOUCH_PASSWORD
+            string "Micro-Air account password"
+            depends on FIREFLY_EASYTOUCH_ENABLED
+            default ""
+            help
+                Set in this project's local sdkconfig only -- never in
+                sdkconfig.defaults. Empty = the client logs and idles.
+
         config FIREFLY_EASYTOUCH_NAME_PREFIX
-            string "EasyTouch advertised name prefix"
+            string "Advertised name prefix to scan for"
+            depends on FIREFLY_EASYTOUCH_ENABLED
             default "EasyTouch"
 
-        config FIREFLY_SOLAR_NAME_PREFIX
-            string "Renogy BT module advertised name prefix"
-            default "BT-TH-"
-            help
-                Bring-up matches by prefix only. The real client matches the full
-                name exactly, because a neighbouring rig's module shares the prefix.
+        config FIREFLY_EASYTOUCH_POLL_INTERVAL_MS
+            int "Status poll interval (ms)"
+            depends on FIREFLY_EASYTOUCH_ENABLED
+            default 30000
+            range 20000 60000
 
     endmenu
 

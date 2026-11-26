@@ -42,7 +42,11 @@ static const char *TAG = "easytouch_client";
 #define ET_TASK_STACK    4608
 #define ET_TASK_PRIO     9
 #define ET_TASK_PERIOD_MS 1000
-#define ET_CONNECT_TIMEOUT_MS 15000   /* give up on a stuck connect attempt */
+/* Give up on a stuck connect attempt. 40 s, not the old 15: ble_host's
+ * arbiter may hold this attempt in its queue while another device's connect
+ * runs out (Bluedroid takes ~30 s to fail a direct connect), so 15 s would
+ * abandon requests that never even reached the controller. */
+#define ET_CONNECT_TIMEOUT_MS 40000
 #define ET_RETRY_MS      5000         /* wait after a failed/short cycle */
 #define ET_RESCAN_AFTER_FAILS 3       /* forget the pinned MAC after this many */
 #define ET_STATUS_READ_DELAY_MS 400   /* thermostat builds the response; every
@@ -170,18 +174,9 @@ static void try_connect(void)
     s_state = ET_CONNECTING;
     s_connect_deadline = xTaskGetTickCount() + pdMS_TO_TICKS(ET_CONNECT_TIMEOUT_MS);
 
-#if defined(CONFIG_BT_BLE_50_FEATURES_SUPPORTED)
-    esp_ble_gatt_creat_conn_params_t cp = { 0 };
-    memcpy(cp.remote_bda, s_bda, sizeof(esp_bd_addr_t));
-    cp.remote_addr_type = ET_ADDR_TYPE;
-    cp.own_addr_type = BLE_ADDR_TYPE_PUBLIC;
-    cp.is_direct = true;
-    cp.is_aux = false;
-    cp.phy_mask = 0x0;
-    esp_err_t err = esp_ble_gattc_enh_open(s_gattc_if, &cp);
-#else
-    esp_err_t err = esp_ble_gattc_open(s_gattc_if, s_bda, ET_ADDR_TYPE, true);
-#endif
+    /* Through ble_host's connect arbiter (one LE attempt per node), which
+     * also owns the BLE 4.2/5.0 open-API choice that used to live here. */
+    esp_err_t err = ble_host_open(s_gattc_if, s_bda, ET_ADDR_TYPE);
     if (err != ESP_OK) {
         ESP_LOGW(TAG, "gattc open failed: %s", esp_err_to_name(err));
         s_connect_fails++;
@@ -191,9 +186,10 @@ static void try_connect(void)
 
 /* ------------------------------------------------------------- scan ----- */
 
-static bool scan_match(const char *name, void *ctx)
+static bool scan_match(const char *name, const esp_bd_addr_t bda, void *ctx)
 {
     (void)ctx;
+    (void)bda;
     if (s_state != ET_IDLE || !s_scan_pending) {
         return false;
     }
@@ -447,6 +443,7 @@ static void easytouch_task(void *arg)
         case ET_CONNECTING:
             if ((int32_t)(now - s_connect_deadline) >= 0) {
                 ESP_LOGW(TAG, "connect timed out");
+                ble_host_open_cancel(s_gattc_if, s_bda);
                 close_conn();
                 s_connect_fails++;
                 go_idle_retry(NULL, ET_RETRY_MS);
